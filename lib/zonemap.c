@@ -39,6 +39,21 @@ mfs_next_zone (struct mfs_handle *mfshnd, zone_header *cur)
 	return 0;
 }
 
+/**********************************/
+/* Estimate size of MFS in hours. */
+unsigned int
+mfs_sa_hours_estimate (struct mfs_handle *mfshnd)
+{
+	unsigned int sectors = mfshnd->zones[ztMedia].size;
+
+	if (sectors > 72 * 1024 * 1024 * 2)
+		sectors -= 12 * 1024 * 1024 * 2;
+	else if (sectors > 14 * 1024 * 1024 * 2)
+		sectors -= (sectors - 14 * 1024 * 1024 * 2) / 4;
+
+	return sectors / SABLOCKSEC;
+}
+
 /*****************************************************************************/
 /* Return the count of inodes.  Each inode is 2 sectors, so the count is the */
 /* size of the inode zone maps divided by 2. */
@@ -151,7 +166,7 @@ mfs_new_zone_map (struct mfs_handle *mfshnd, unsigned int sector, unsigned int b
 
 /* To get the pointer into fsmem, start with the first pointer from the */
 /* previous zone map.  Subtract the header and all the fsmem pointers from */
-/* it, and thats the base for that map.  Niw add in all the sectors from that */
+/* it, and thats the base for that map.  Now add in all the sectors from that */
 /* map, plus 1 extra and 8 bytes. */
 	fsmem_base = htonl (*(unsigned int *) (last + 1)) - (sizeof (*last) + htonl (last->num) * 4) + htonl (last->length) * 512 + 512 + 8;
 
@@ -389,7 +404,7 @@ mfs_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsigned
 		return -1;
 	}
 
-	tmp = mfsvol_device_translate (tmp);
+	tmp = mfsvol_device_translate (media);
 	tpMedia = tivo_partition_open (tmp, O_RDWR);
 	if (!tpMedia)
 	{
@@ -435,7 +450,7 @@ mfs_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsigned
 		return -1;
 	}
 
-	sprintf (foo, "%s %s %s", mfshnd->vol_hdr.partitionlist, app, media);
+	snprintf (foo, 128, "%s %s %s", mfshnd->vol_hdr.partitionlist, app, media);
 	foo[127] = 0;
 	strcpy (mfshnd->vol_hdr.partitionlist, foo);
 	mfshnd->vol_hdr.total_sectors = htonl (mfsvol_volume_set_size (mfshnd->vols));

@@ -554,6 +554,17 @@ tivo_partition_rename (const char *device, int partition, const char *name)
 		strcpy (table->partitions[partition].name, name);
 		return 0;
 	}
+
+	table->partitions[partition].name = strdup (name);
+	if (!table->partitions[partition].name)
+	{
+		table->partitions[partition].name = old;
+		return -1;
+	}
+
+	free (old);
+
+	return 0;
 }
 
 /* Add a partition to the specified device.  Make the partition size */
@@ -813,8 +824,9 @@ tivo_partition_table_write (const char *device)
 			mp->map_count = htonl (table->count);
 			mp->start_block = htonl (table->partitions[loop].start);
 			mp->block_count = htonl (table->partitions[loop].sectors);
-			strcpy (mp->name, table->partitions[loop].name);
-			strcpy (mp->type, table->partitions[loop].type);
+/* One smaller so the result is null terminated, due to the bzero(). */
+			strncpy (mp->name, table->partitions[loop].name, sizeof (mp->name) - 1);
+			strncpy (mp->type, table->partitions[loop].type, sizeof (mp->type) - 1);
 			mp->data_count = mp->block_count;
 			mp->status = htonl (0x33);
 		}
