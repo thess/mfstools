@@ -1221,13 +1221,13 @@ restore_make_swap (struct backup_info *info)
 
 	size = tivo_partition_size (file);
 
-	while (loop < 0xff4 / 4 && size > 32 * SWAP_PAGESZ / 512)
+	while (loop < 0xff0 / 4 && size >= 32 * SWAP_PAGESZ / 512)
 	{
 		swaphdr[loop++] = 0xffffffff;
 		size -= 32 * SWAP_PAGESZ / 512;
 	}
 
-	for (loop2 = 0x1; loop2 > 0 || size > SWAP_PAGESZ / 512; size -= SWAP_PAGESZ / 512, loop2 <<= 1)
+	for (loop2 = 0x1; loop2 > 0 && size >= SWAP_PAGESZ / 512; size -= SWAP_PAGESZ / 512, loop2 <<= 1)
 	{
 		swaphdr[loop] |= htonl (loop2);
 	}
