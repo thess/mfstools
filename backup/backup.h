@@ -9,3 +9,13 @@ struct backup_info {
 	int nblocks;
 	struct backup_block *blocks;
 };
+
+struct block_info {
+	unsigned int size;
+	struct block_info *next;
+};
+
+struct partition_info {
+	unsigned int sectors;
+	
+};
