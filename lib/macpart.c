@@ -288,7 +288,7 @@ tivo_partition_open (char *path, int flags)
 /* Likewise, the old devfs naming scheme called partitions /dev/XX/cXbXtXuXpX */
 /* and whole drives /dev/XX/cXbXtXuX.  Even though this naming is depricated, */
 /* it is still an option in devfsd, which creates a compatibility namespace. */
-				else if (devpath[partoff - 1] == 'p' && isnum (devpath[partoff - 2]))
+				else if (devpath[partoff - 1] == 'p' && isdigit (devpath[partoff - 2]))
 				{
 					devpath[partoff - 1] = '\0';
 				}
