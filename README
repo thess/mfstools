@@ -119,10 +119,11 @@ The full list of available options for backup are:
 	you are impatient, -1 should be fine.  A nice trade-off is -6, and
 	is recommended for everyone not impatient or pinching every bit.
 -v
-	Include /var in the backup.  Normally /var is not included, since
-	the TiVo is quite capable of re-creating it itself.  How nice of it.
-	This will add anywhere from 1 to 128 megs to the size of the backup,
-	depending on the contents of /var.
+	Do not include /var in the backup.  Normally /var is included, since
+	it makes other TiVo utilities that put stuff in /var easier to use.
+	However, the TiVo is quite capable of re-creating it itself.  How
+	nice of it.  This option will save anywhere from 1 to 128 megs in the
+	size of the backup, depending on the contents of /var.
 
 -s
 	This will shink the volume set in the backup to the smallest it
@@ -349,7 +350,7 @@ not exactly match what TiVo will produce.  It should be a close enough
 approximation for any forseeable changes.  But I'm not (very) psychic, so
 I won't predict the future.
 
-Q. Is this software Sancioned by TiVo, Inc.?
+Q. Is this software sanctioned by TiVo, Inc.?
 
 No.  Wow, I feel negative after those last few questions.  TiVo, Inc. can not
 condone any activity involving opening up hardware produced by TiVo, Inc. or
