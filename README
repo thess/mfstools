@@ -1,4 +1,4 @@
-MFS Tools version 1.0
+MFS Tools version 1.1
 by Steven Lang (Tiger on www.avsforum.com)
 
 This is the initial release of the MFS Tools.  Currently, MFS Tools is a
@@ -221,6 +221,15 @@ Other options available:
 	for drives totaling over 120 megs)  Default 64.  Values up to 511 are
 	possible.
 
+-b
+	Disables auto-detection of byte swapping, and forces the restore to
+	occur without byte-swapping.  This is required for the new AT&T and
+	series 2 TiVo.
+
+-B
+	Disables auto-detection of byte swapping, and forces the restore to
+	occur with byte-swapping.
+
 -z
 	Zero out partitions not backed up.  This means the inactive bootstrap,
 	kernel and root partitions, as well as the /var partition if it is
@@ -237,7 +246,7 @@ mfstool backup -o - /dev/hda | mfstool restore -i - /dev/hdc
 
 More useful would be the following, which copies all the files:
 
-mfstool backup -vTai - /dev/hda | mfstool restore -o - /dev/hdc
+mfstool backup -Tao - /dev/hda | mfstool restore -i - /dev/hdc
 
 This will copy /var as well as all streams, to the new drive.  Note that
 compression is not needed for this, and will likely just slow it down, being
@@ -246,6 +255,11 @@ CPU bound.
 
 
 FAQ
+
+Q. Will this work with the series 2 or AT&T TiVo?
+
+Absoolutely.  However, you may need to specify -b on the restore command
+line.
 
 Q. Will I still need ZapTiVo/ZapStream/dd/gzip with this?
 

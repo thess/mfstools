@@ -1,3 +1,8 @@
+Version 1.1
+	Added -b and -B to control byte-swapping on restore.
+	Added code to fix up MFS transaction log after divorce.
+	Fixed bug with restoring multi-partition sets to two drives.
+
 Version 1.0
 	Added usage.  Packaged for release.
 
