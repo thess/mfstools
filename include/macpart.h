@@ -50,6 +50,8 @@ struct tivo_partition
 {
 	unsigned int sectors;
 	unsigned int start;
+	char *name;
+	char *type;
 	struct tivo_partition_table *table;
 };
 
@@ -72,6 +74,8 @@ int tivo_partition_count (char *path);
 void tivo_partition_close (tpFILE * file);
 unsigned int tivo_partition_size (tpFILE * file);
 unsigned int tivo_partition_sizeof (char *device, int partnum);
+char *tivo_partition_name (char *device, int partnum);
+char *tivo_partition_type (char *device, int partnum);
 unsigned int tivo_partition_offset (tpFILE * file);
 const char *tivo_partition_device_name (tpFILE * file);
 void tivo_partition_direct ();
@@ -85,18 +89,26 @@ int tivo_partition_read_bootsector (char *device, void *buf);
 int tivo_partition_read (tpFILE * file, void *buf, unsigned int sector, int count);
 int tivo_partition_write (tpFILE * file, void *buf, unsigned int sector, int count);
 
+#ifndef EXTERNINLINE
+#if DEBUG
+#define EXTERNINLINE static inline
+#else
+#define EXTERNINLINE extern inline
+#endif
+#endif
+
 /* Some quick routines, mainly intended for internal macpart use. */
-extern inline int
+EXTERNINLINE int
 _tivo_partition_fd (tpFILE * file)
 {
 	return file->fd;
 }
-extern inline int
+EXTERNINLINE int
 _tivo_partition_isdevice (tpFILE * file)
 {
 	return (file->tptype == pDIRECT || file->tptype == pDEVICE);
 }
-extern inline int
+EXTERNINLINE int
 _tivo_partition_swab (tpFILE * file)
 {
 	return ((file->tptype == pDIRECT || file->tptype == pDIRECTFILE) && file->extra.direct.pt->vol_flags & VOL_SWAB);

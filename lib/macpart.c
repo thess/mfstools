@@ -164,6 +164,8 @@ tivo_read_partition_table (char *device, int flags)
 /* Add it to the list. */
 			parts[partitions].start = htonl (part->start_block);
 			parts[partitions].sectors = htonl (part->block_count);
+			parts[partitions].name = strdup (part->name);
+			parts[partitions].type = strdup (part->type);
 			partitions++;
 		}
 
@@ -499,6 +501,38 @@ tivo_partition_sizeof (char *device, int partnum)
 	}
 
 	return table->partitions[partnum - 1].sectors;
+}
+
+/************************************************/
+/* Returns the name of the partition, directly. */
+char *
+tivo_partition_name (char *device, int partnum)
+{
+	struct tivo_partition_table *table;
+	table = tivo_read_partition_table (device, O_RDONLY);
+
+	if (partnum < 1 || partnum > table->count)
+	{
+		return 0;
+	}
+
+	return table->partitions[partnum - 1].name;
+}
+
+/************************************************/
+/* Returns the type of the partition, directly. */
+char *
+tivo_partition_type (char *device, int partnum)
+{
+	struct tivo_partition_table *table;
+	table = tivo_read_partition_table (device, O_RDONLY);
+
+	if (partnum < 1 || partnum > table->count)
+	{
+		return 0;
+	}
+
+	return table->partitions[partnum - 1].type;
 }
 
 /******************************************************/

@@ -86,7 +86,15 @@ struct backup_head
 #define RF_ZEROPART	0x00080000
 #define RF_FLAGS	0xffff0000
 
-extern inline char *
+#ifndef EXTERNINLINE
+#if DEBUG
+#define EXTERNINLINE static inline
+#else
+#define EXTERNINLINE extern inline
+#endif
+#endif
+
+EXTERNINLINE char *
 last_err (struct backup_info *info)
 {
 	return info->lasterr;

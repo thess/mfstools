@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <fcntl.h>
+#include <string.h>
 #include "mfs.h"
 
 #define mfsadd_usage()
@@ -21,7 +22,7 @@ mfsadd_main (int argc, char **argv)
 	int loop, loop2;
 	char *drives[2] = {0, 0};
 
-	while (opt == getopt (argc, argv, "x:p:"))
+	while ((opt = getopt (argc, argv, "x:p:")) > 0)
 	{
 		switch (opt)
 		{
@@ -35,46 +36,50 @@ mfsadd_main (int argc, char **argv)
 
 			fprintf (stderr, "%s: Can only extend MFS to 2 devices.\n", argv[0]);
 			return 1;
-		case 'p':
-			if (npairs < 31)
-			{
-				pairs[npairs] = optarg;
-				npairs++;
-				optind++;
-				if (optind < argc)
-				{
-					pairs[npairs] = argv[optind];
-					npairs++;
-					break;
-				}
-
-				fprintf (stderr, "%s: -p option requires 2 partitions.\n", argv[0]);
-				return 1;
-			}
-
-			fprintf (stderr, "%s: Too many pairs being added.\n", argv[0]);
-			return 1;
 		default:
 			mfsadd_usage ();
 			return 1;
 		}
 	}
 
-	if (optind < argc)
+	while (optind < argc)
 	{
-		drives[0] = argv[optind];
+		int len = strlen (argv[optind]);
+
+		if (isdigit (argv[optind][len - 1]))
+		{
+			if (npairs >= sizeof (pairs) / sizeof (*pairs))
+			{
+				fprintf (stderr, "%s: Too many new partitions!\n", argv[0]);
+				return 1;
+			}
+			pairs[npairs] = argv[optind];
+			npairs++;
+		}
+		else
+		{
+			if (!drives[0])
+				drives[0] = argv[optind];
+			else if (!drives[1])
+				drives[1] = argv[optind];
+			else
+			{
+				mfsadd_usage ();
+				return 1;
+			}
+		}
 		optind++;
 	}
 
-	if (optind < argc)
-	{
-		drives[1] = argv[optind];
-		optind++;
-	}
-
-	if (optind < argc || !drives[0])
+	if (!drives[0])
 	{
 		mfsadd_usage ();
+		return 1;
+	}
+
+	if (npairs & 1)
+	{
+		fprintf (stderr, "%s: Number of new partitions must be even.\n", argv[0]);
 		return 1;
 	}
 
@@ -108,7 +113,7 @@ mfsadd_main (int argc, char **argv)
 			pairnums[loop] = 0x40;
 		else
 		{
-			fprintf (stderr, "%s: -p arguments must be partitions of either %s or %s\n", argv[0], drives[0], drives[1]);
+			fprintf (stderr, "%s: added partitions must be partitions of either %s or %s\n", argv[0], drives[0], drives[1]);
 			return 1;
 		}
 
@@ -135,10 +140,10 @@ mfsadd_main (int argc, char **argv)
 			drives[pairnums[loop] >> 6][num - pairs[loop] + 1] = 0;
 		}
 
-		tmp = strtoul (pairs[loop], &str, 10);
+		tmp = strtoul (pairs[loop] + strlen (drives[pairnums[loop] >> 6]), &str, 10);
 		if (str && *str)
 		{
-			fprintf (stderr, "%s: -p argument %s is not a partition of %s\n", argv[0], pairs[loop], drives[pairnums[loop] >> 6]);
+			fprintf (stderr, "%s: added partition %s is not a partition of %s\n", argv[0], pairs[loop], drives[pairnums[loop] >> 6]);
 			return 1;
 		}
 
@@ -150,7 +155,7 @@ mfsadd_main (int argc, char **argv)
 
 		pairnums[loop] |= tmp;
 
-		for (loop2 = 0; loop2 < loop; loop++)
+		for (loop2 = 0; loop2 < loop; loop2++)
 		{
 			if (pairnums[loop] == pairnums[loop2])
 			{
