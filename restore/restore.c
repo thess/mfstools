@@ -876,7 +876,7 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 
 /* If there are 3 partitions, double it.  No backup currently has both */
 /* sets of root.  If they do in the future, this will be changed. */
-		if (count == 3)
+		if (count == 3 || count == 4)
 		{
 			min1 *= 2;
 		}
@@ -897,7 +897,7 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 /* (Boot sector, partition table uncounted) swap, var, mfs set 1 */
 	min1 += info->swapsize + info->varsize + info->mfsparts[0].sectors + info->mfsparts[1].sectors;
 
-#if DEBUF
+#if DEBUG
 	fprintf (stderr, "Minimum drive 1 size: %d\n", count);
 #endif
 
@@ -954,6 +954,16 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 	for (loop = 0; loop < info->nparts; loop++)
 	{
 		info->newparts[info->parts[loop].partno - 2] = info->parts[loop];
+
+/* If it's part of a partition set and only one was backed up, set the */
+/* alternate set size. */
+		if (info->nparts < 6 && info->parts[loop].partno < 8)
+		{
+			if (info->parts[loop].partno < 5)
+				info->newparts[info->parts[loop].partno + 1] = info->parts[loop];
+			else
+				info->newparts[info->parts[loop].partno - 5] = info->parts[loop];
+		}
 	}
 /* First MFS pair. */
 	info->newparts[8].partno = 10;
