@@ -1069,7 +1069,7 @@ build_partition_table (struct backup_info *info, int devno)
 /* If this is the first device, do re-ordering of the partitions to */
 /* "balance" the partitions for better performance. */
 /* XXX - this should be an option. */
-	if (devno == 0)
+	if (devno == 0 && (info->back_flags & RF_BALANCE))
 	{
 /* Walk through each partition.  This looks wrong because it starts at the */
 /* beginning (The partition table) but accounts for it in curstart.  However */
@@ -1129,7 +1129,7 @@ build_partition_table (struct backup_info *info, int devno)
 /* I can cheat and use the network functions.  Even the new MIPS TiVo is */
 /* big endian. */
 			int partno = info->newparts[loop].partno;
-			part[partno].p.signature = 0x4d50;
+			part[partno].p.signature = htons (MAC_PARTITION_MAGIC);
 			part[partno].p.map_count = htonl (info->devs[devno].nparts);
 			part[partno].p.start_block = htonl (curstart);
 			part[partno].p.block_count = htonl (info->newparts[loop].sectors);
@@ -1150,7 +1150,7 @@ build_partition_table (struct backup_info *info, int devno)
 		{
 			part[loop].p.map_count = htonl (htonl (part[loop].p.map_count) + 1);
 		}
-		part[loop].p.signature = 0x4d50;
+		part[loop].p.signature = htons (MAC_PARTITION_MAGIC);
 		part[loop].p.map_count = htonl (info->devs[devno].nparts + 1);
 		part[loop].p.start_block = htonl (curstart);
 		part[loop].p.block_count = htonl (info->devs[devno].sectors - curstart);

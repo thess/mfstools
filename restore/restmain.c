@@ -23,6 +23,7 @@ restore_usage (char *progname)
 	fprintf (stderr, "Usage: %s [options] Adrive [Bdrive]\n", progname);
 	fprintf (stderr, "Options:\n");
 	fprintf (stderr, " -i file   Input from file, - for stdin\n");
+	fprintf (stderr, " -p        Optimize partition layout\n");
 	fprintf (stderr, " -q        Do not display progress\n");
 	fprintf (stderr, " -qq       Do not display anything but error messages\n");
 	fprintf (stderr, " -v size   Recreate /var as size megabytes (Only if not in backup)\n");
@@ -65,7 +66,7 @@ restore_main (int argc, char **argv)
 
 	tivo_partition_direct ();
 
-	while ((opt = getopt (argc, argv, "i:v:s:zqbB")) > 0)
+	while ((opt = getopt (argc, argv, "i:v:s:zqbBp")) > 0)
 	{
 		switch (opt)
 		{
@@ -111,6 +112,9 @@ restore_main (int argc, char **argv)
 				return 1;
 			}
 			bswap = 1;
+			break;
+		case 'p':
+			flags |= RF_BALANCE;
 			break;
 		default:
 			restore_usage (argv[0]);
