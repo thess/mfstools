@@ -351,13 +351,15 @@ tivo_partition_validate (struct tivo_partition_table *table)
 		int partno = 0, loop2;
 /* Find the partition that is closest to this sector. */
 		for (loop2 = 0; loop2 < table->count; loop2++)
-			if (table->partitions[loop2].start >= loop && table->partitions[loop2].start < table->partitions[partno].start)
-				partno = loop2;
+			if (table->partitions[loop2].start >= loop && (partno < 1 || table->partitions[loop2].start < table->partitions[partno - 1].start))
+				partno = loop2 + 1;
 
 /* If there is no partition and it is beyond the first sector, there are no */
 /* more partitions. */
-		if (loop > 1 && !partno)
+		if (!partno)
 			break;
+
+		partno--;
 
 /* Mark this partition as used. */
 		partsused[partno] = 1;
