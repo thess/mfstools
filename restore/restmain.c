@@ -97,7 +97,7 @@ restore_main (int argc, char **argv)
 			flags |= RF_ZEROPART;
 			break;
 		case 'b':
-			if (bswap == 0)
+			if (bswap != 0)
 			{
 				fprintf (stderr, "%s: Only one byte swapping option (-b/-B) allowed.\n", argv[0]);
 				return 1;
@@ -105,7 +105,7 @@ restore_main (int argc, char **argv)
 			bswap = -1;
 			break;
 		case 'B':
-			if (bswap == 0)
+			if (bswap != 0)
 			{
 				fprintf (stderr, "%s: Only one byte swapping option (-b/-B) allowed.\n", argv[0]);
 				return 1;
