@@ -31,8 +31,7 @@
 # include <linux/ide-tivo.h>
 # include <asm/page.h>
 
-_syscall4 (static long, readsectors, unsigned int, fd, struct FsIovec *, buf, int, buf_len, struct FsIoRequest *, request)
-_syscall4 (static long, writesectors, unsigned int, fd, struct FsIovec *, buf, int, buf_len, struct FsIoRequest *, request)
+_syscall4 (static long, readsectors, unsigned int, fd, struct FsIovec *, buf, int, buf_len, struct FsIoRequest *, request) _syscall4 (static long, writesectors, unsigned int, fd, struct FsIovec *, buf, int, buf_len, struct FsIoRequest *, request)
 #endif
 _syscall5 (int, _llseek, uint, fd, ulong, hi, ulong, lo, loff_t *, res, uint, wh);
 

@@ -210,6 +210,24 @@ mfs_volume_set_size ()
 	return total;
 }
 
+/****************************************************************************/
+/* Verify that a sector is writable.  This should be done for all groups of */
+/* sectors to be written, since individual volumes can be opened RDONLY. */
+int
+mfs_is_writable (unsigned int sector)
+{
+	struct volume_info *vol;
+
+	vol = mfs_get_volume (sector);
+
+	if (!vol || vol->vol_flags & VOL_RDONLY)
+	{
+		return fake_write;
+	}
+
+	return 1;
+}
+
 /***********************************************/
 /* Free space used by the volumes linked list. */
 void
@@ -222,7 +240,7 @@ mfs_cleanup_volumes ()
 		cur = volumes;
 		volumes = volumes->next;
 
-		mfs_partition_close (cur->file);
+		tivo_partition_close (cur->file);
 		free (cur);
 	}
 }

@@ -19,25 +19,28 @@
 
 /* Some static variables..  Really this should be a class and these */
 /* private members. */
-static struct zone_map_head zones[ztMax] = {{0, 0, NULL}, {0, 0, NULL}, {0, 0, NULL}};
+static struct zone_map_head zones[ztMax] = { {0, 0, NULL}, {0, 0, NULL}, {0, 0, NULL} };
 static struct zone_map *loaded_zones = NULL;
 
 /*****************************************************************************/
 /* Return the count of inodes.  Each inode is 2 sectors, so the count is the */
 /* size of the inode zone maps divided by 2. */
-unsigned int mfs_inode_count ()
+unsigned int
+mfs_inode_count ()
 {
 	return zones[ztInode].size / 2;
 }
 
 /****************************************/
 /* Find the sector number for an inode. */
-unsigned int mfs_inode_to_sector (unsigned int inode)
+unsigned int
+mfs_inode_to_sector (unsigned int inode)
 {
 	struct zone_map *cur;
 
 /* Don't bother if it's not a valid inode. */
-	if (inode >= mfs_inode_count ()) {
+	if (inode >= mfs_inode_count ())
+	{
 		return 0;
 	}
 
@@ -46,8 +49,10 @@ unsigned int mfs_inode_to_sector (unsigned int inode)
 	inode *= 2;
 
 /* Loop through each inode map, seeing if the current inode is within it. */
-	for (cur = zones[ztInode].next; cur; cur = cur->next) {
-		if (inode < htonl (cur->map->size)) {
+	for (cur = zones[ztInode].next; cur; cur = cur->next)
+	{
+		if (inode < htonl (cur->map->size))
+		{
 			return (inode + htonl (cur->map->first));
 		}
 
@@ -56,7 +61,7 @@ unsigned int mfs_inode_to_sector (unsigned int inode)
 		inode -= htonl (cur->map->size);
 	}
 
-/* This should never happen. */ 
+/* This should never happen. */
 	fprintf (stderr, "Inode zones corrupt!  I don't know what to do.\n");
 	return 0;
 }
@@ -64,14 +69,16 @@ unsigned int mfs_inode_to_sector (unsigned int inode)
 /************************************************************************/
 /* Return how big a new zone map would need to be for a given number of */
 /* allocation blocks. */
-static int mfs_new_zone_map_size (unsigned int blocks)
+static int
+mfs_new_zone_map_size (unsigned int blocks)
 {
 	int size = sizeof (zone_header) + 4;
 	int order = 0;
 
 /* Figure out the first order of 2 that is needed to have at least 1 bit for */
 /* every block. */
-	while ((1 << order) < blocks) {
+	while ((1 << order) < blocks)
+	{
 		order++;
 	}
 
@@ -82,7 +89,8 @@ static int mfs_new_zone_map_size (unsigned int blocks)
 	size += (sizeof (bitmap_header) + sizeof (bitmap_header *)) * (order);
 
 /* Estimate the size of the bitmap table for each order of 2. */
-	while (order--) {
+	while (order--)
+	{
 		int bits = 1 << order;
 /* This produces the right results, oddly enough.  Every bitmap with 8 or */
 /* more bits takes 1 int more than needed, and this produces that. */
@@ -96,7 +104,8 @@ static int mfs_new_zone_map_size (unsigned int blocks)
 /****************************************************************************/
 /* Create a new zone map at the requested sector, pointing to the requested */
 /* sector, and link it in. */
-static int mfs_new_zone_map (unsigned int sector, unsigned int backup, unsigned int first, unsigned int size, unsigned int minalloc, zone_type type)
+static int
+mfs_new_zone_map (unsigned int sector, unsigned int backup, unsigned int first, unsigned int size, unsigned int minalloc, zone_type type)
 {
 	unsigned int blocks = size / minalloc;
 	int zonesize = (mfs_new_zone_map_size (blocks) + 511) & ~511;
@@ -116,7 +125,8 @@ static int mfs_new_zone_map (unsigned int sector, unsigned int backup, unsigned 
 /* Find the last loaded zone. */
 	for (cur = loaded_zones; cur->next_loaded; cur = cur->next_loaded);
 
-	if (!cur) {
+	if (!cur)
+	{
 		return -1;
 	}
 
@@ -126,28 +136,31 @@ static int mfs_new_zone_map (unsigned int sector, unsigned int backup, unsigned 
 /* previous zone map.  Subtract the header and all the fsmem pointers from */
 /* it, and thats the base for that map.  Niw add in all the sectors from that */
 /* map, plus 1 extra and 8 bytes. */
-	fsmem_base = htonl (*(unsigned int *)(last + 1)) - (sizeof (*last) + htonl (last->num) * 4) + htonl (last->length) * 512 + 512 + 8;
+	fsmem_base = htonl (*(unsigned int *) (last + 1)) - (sizeof (*last) + htonl (last->num) * 4) + htonl (last->length) * 512 + 512 + 8;
 
 	buf = malloc (zonesize);
 
-	if (!buf) {
+	if (!buf)
+	{
 		return -1;
 	}
 
 /* Fill in everything with lots and lots of dead beef.  Hope theres no */
 /* vegitarians or vegans in the crowd. */
-	for (loop = 0; loop < zonesize; loop += 4) {
-		*(int *)(buf + loop) = htonl (0xdeadbeef);
+	for (loop = 0; loop < zonesize; loop += 4)
+	{
+		*(int *) (buf + loop) = htonl (0xdeadbeef);
 	}
 
 /* Figure out the order of the blocks count. */
-	while ((1 << order) < blocks) {
+	while ((1 << order) < blocks)
+	{
 		order++;
 	}
 
 	order++;
 
-	zone = (zone_header *)buf;
+	zone = (zone_header *) buf;
 
 /* Fill in the header values. */
 	zone->sector = htonl (sector);
@@ -169,8 +182,8 @@ static int mfs_new_zone_map (unsigned int sector, unsigned int backup, unsigned 
 	zone->num = htonl (order);
 
 /* Grab a pointer to the array where fsmem pointers will go. */
-	fsmem_pointers = (unsigned int *)(zone + 1);
-	curofs = (unsigned int *)(zone + 1) + order;
+	fsmem_pointers = (unsigned int *) (zone + 1);
+	curofs = (unsigned int *) (zone + 1) + order;
 
 /* Fill in the allocation bitmaps.  This is simpler than it sounds.  The */
 /* bitmaps are regressing from the full 1 bit = min allocation block up to */
@@ -181,11 +194,12 @@ static int mfs_new_zone_map (unsigned int sector, unsigned int backup, unsigned 
 /* While filling in the size values for the headers for each bitmap, any */
 /* time you have an odd number of active bits, set the last one, because */
 /* it is not represented by any larger bits. */
-	for (loop = 0; order-- > 0; loop++, blocks /= 2) {
+	for (loop = 0; order-- > 0; loop++, blocks /= 2)
+	{
 		int nbits;
 		int nints;
-		bitmap_header *bitmap = (bitmap_header *)curofs;
-		fsmem_pointers[loop] = htonl (fsmem_base + (char *)curofs - (char *)zone);
+		bitmap_header *bitmap = (bitmap_header *) curofs;
+		fsmem_pointers[loop] = htonl (fsmem_base + (char *) curofs - (char *) zone);
 
 /* Set in the basic, constant header values.  The nbits is how many bits */
 /* there are in the table, including extra inactive bits padding to the */
@@ -204,11 +218,14 @@ static int mfs_new_zone_map (unsigned int sector, unsigned int backup, unsigned 
 /* will be represented in, so it needs to be marked free here.  The next */
 /* table's bit is too big it overflows into the inactive area, so is itself */
 /* inactive. */
-		if (blocks & 1) {
+		if (blocks & 1)
+		{
 			bitmap->last = htonl (blocks - 1);
 			bitmap->freeblocks = htonl (1);
 			curofs[4 + (blocks - 1) / 32] = htonl (1 << (31 - (blocks - 1) % 32));
-		} else {
+		}
+		else
+		{
 			bitmap->last = 0;
 			bitmap->freeblocks = 0;
 		}
@@ -242,7 +259,8 @@ static int mfs_new_zone_map (unsigned int sector, unsigned int backup, unsigned 
 /***********************************************************************/
 /* Add a new set of partitions to the MFS volume set.  In other words, */
 /* mfsadd. */
-int mfs_add_volume_pair (char *app, char *media, unsigned int minalloc)
+int
+mfs_add_volume_pair (char *app, char *media, unsigned int minalloc)
 {
 	struct zone_map *cur;
 	int fdApp, fdMedia;
@@ -252,49 +270,56 @@ int mfs_add_volume_pair (char *app, char *media, unsigned int minalloc)
 	unsigned char foo[512];
 
 /* If no minalloc, make it default. */
-	if (minalloc == 0) {
+	if (minalloc == 0)
+	{
 		minalloc = 0x800;
 	}
 
 /* Make sure the volumes being added don't overflow the 128 bytes. */
-	if (strlen (vol_hdr.partitionlist) + strlen (app) + strlen (media) + 3 >= 128) {
+	if (strlen (vol_hdr.partitionlist) + strlen (app) + strlen (media) + 3 >= 128)
+	{
 		fprintf (stderr, "No space in volume list for new volumes.\n");
 		return -1;
 	}
 
 /* Make sure block 0 is writable.  It wouldn't do to get all the way to */
 /* the end and not be able to update the volume header. */
-	if (!mfs_is_writable (0)) {
+	if (!mfs_is_writable (0))
+	{
 		fprintf (stderr, "mfs_add_volume_pair: Readonly volume set.\n");
- 		return -1;
+		return -1;
 	}
 
 /* Walk the list of zone maps to find the last loaded zone map. */
 	for (cur = loaded_zones; cur && cur->next_loaded; cur = cur->next_loaded);
 
 /* For cur to be null, it must have never been set. */
-	if (!cur) {
+	if (!cur)
+	{
 		fprintf (stderr, "mfs_add_volume_pair: Zone maps not loaded?\n");
 		return -1;
 	}
 
 /* Check that the last zone map is writable.  This is needed for adding the */
 /* new pointer. */
-	if (!mfs_is_writable (htonl (cur->map->sector))) {
+	if (!mfs_is_writable (htonl (cur->map->sector)))
+	{
 		fprintf (stderr, "mfs_add_volume_pair: Readonly volume set.\n");
- 		return -1;
+		return -1;
 	}
 
 	tmp = mfs_device_translate (app);
 	fdApp = open (tmp, O_RDWR);
-	if (fdApp < 0) {
+	if (fdApp < 0)
+	{
 		perror (tmp);
 		return -1;
 	}
 
 	tmp = mfs_device_translate (tmp);
 	fdMedia = open (tmp, O_RDWR);
-	if (fdMedia < 0) {
+	if (fdMedia < 0)
+	{
 		perror (tmp);
 		return -1;
 	}
@@ -305,13 +330,15 @@ int mfs_add_volume_pair (char *app, char *media, unsigned int minalloc)
 	appstart = mfs_add_volume (app, O_RDWR);
 	mediastart = mfs_add_volume (media, O_RDWR);
 
-	if (appstart < 0 || mediastart < 0) {
+	if (appstart < 0 || mediastart < 0)
+	{
 		fprintf (stderr, "mfs_add_volume_pair: Error adding new volumes to set.\n");
 		mfs_reinit (O_RDWR);
 		return -1;
 	}
 
-	if (!mfs_is_writable (appstart) || !mfs_is_writable (mediastart)) {
+	if (!mfs_is_writable (appstart) || !mfs_is_writable (mediastart))
+	{
 		fprintf (stderr, "mfs_add_volume_pair: Could not add new volumes writable.\n");
 		mfs_reinit (O_RDWR);
 		return -1;
@@ -321,13 +348,15 @@ int mfs_add_volume_pair (char *app, char *media, unsigned int minalloc)
 	mediasize = mfs_volume_size (mediastart);
 	mapsize = (mfs_new_zone_map_size (mediasize / minalloc) + 511) / 512;
 
-	if (mapsize * 2 + 2 > appsize) {
+	if (mapsize * 2 + 2 > appsize)
+	{
 		fprintf (stderr, "mfs_add_volume_pair: New app size too small!  (Need %d more bytes)\n", (mapsize * 2 + 2 - appsize) * 512);
 		mfs_reinit (O_RDWR);
 		return -1;
 	}
 
-	if (mfs_new_zone_map (appstart + 1, appstart + appsize - mapsize - 1, mediastart, mediasize, minalloc, ztMedia) < 0) {
+	if (mfs_new_zone_map (appstart + 1, appstart + appsize - mapsize - 1, mediastart, mediasize, minalloc, ztMedia) < 0)
+	{
 		fprintf (stderr, "mfs_add_volume_pair: Failed initializing new zone map.\n");
 		mfs_reinit (O_RDWR);
 		return -1;
@@ -349,12 +378,15 @@ int mfs_add_volume_pair (char *app, char *media, unsigned int minalloc)
 
 /******************************************/
 /* Free the memory used by the zone maps. */
-void mfs_cleanup_zone_maps ()
+void
+mfs_cleanup_zone_maps ()
 {
 	int loop;
 
-	for (loop = 0; loop < ztMax; loop++) {
-		while (zones[loop].next) {
+	for (loop = 0; loop < ztMax; loop++)
+	{
+		while (zones[loop].next)
+		{
 			struct zone_map *map = zones[loop].next;
 
 			zones[loop].next = map->next;
@@ -368,25 +400,29 @@ void mfs_cleanup_zone_maps ()
 
 /*************************************************************/
 /* Load a zone map from the drive and verify it's integrity. */
-static zone_header *mfs_load_zone_map (zone_map_ptr *ptr)
+static zone_header *
+mfs_load_zone_map (zone_map_ptr * ptr)
 {
 	zone_header *hdr = calloc (htonl (ptr->length), 512);
 
-	if (!hdr) {
+	if (!hdr)
+	{
 		return NULL;
 	}
 
 /* Read the map. */
-	mfs_read_data ((unsigned char *)hdr, htonl (ptr->sector), htonl (ptr->length));
+	mfs_read_data ((unsigned char *) hdr, htonl (ptr->sector), htonl (ptr->length));
 
 /* Verify the CRC matches. */
-	if (!MFS_check_crc ((unsigned char *)hdr, htonl (ptr->length) * 512, hdr->checksum)) {
+	if (!MFS_check_crc ((unsigned char *) hdr, htonl (ptr->length) * 512, hdr->checksum))
+	{
 		fprintf (stderr, "mfs_load_zone_map: Primary zone map corrupt, loading backup.\n");
 /* If the CRC doesn't match, try the backup map. */
-		mfs_read_data ((unsigned char *)hdr, htonl (ptr->sbackup), htonl (ptr->length));
-		if (!MFS_check_crc ((unsigned char *)hdr, htonl (ptr->length) * 512, hdr->checksum)) {
+		mfs_read_data ((unsigned char *) hdr, htonl (ptr->sbackup), htonl (ptr->length));
+		if (!MFS_check_crc ((unsigned char *) hdr, htonl (ptr->length) * 512, hdr->checksum))
+		{
 			fprintf (stderr, "mfs_load_zone_map: Secondary zone map corrupt, giving up.\n");
-		
+
 			fprintf (stderr, "mfs_load_zone_map: Zone map checksum error!\n");
 			free (hdr);
 			return NULL;
@@ -398,7 +434,8 @@ static zone_header *mfs_load_zone_map (zone_map_ptr *ptr)
 
 /***************************/
 /* Load the zone map list. */
-int mfs_load_zone_maps ()
+int
+mfs_load_zone_maps ()
 {
 	zone_map_ptr *ptr = &vol_hdr.zonemap;
 	zone_header *cur;
@@ -410,30 +447,35 @@ int mfs_load_zone_maps ()
 	mfs_cleanup_zone_maps ();
 	memset (zones, 0, sizeof (zones));
 
-	for (loop = 0; loop < ztMax; loop++) {
+	for (loop = 0; loop < ztMax; loop++)
+	{
 		cur_heads[loop] = &zones[loop].next;
 	}
 
 	loop = 0;
 
-	while (ptr->sector && ptr->sbackup != htonl (0xdeadbeef)) {
+	while (ptr->sector && ptr->sbackup != htonl (0xdeadbeef))
+	{
 		struct zone_map *newmap;
 
 /* Read the map, verify it's checksum. */
 		cur = mfs_load_zone_map (ptr);
 
-		if (!cur) {
+		if (!cur)
+		{
 			return -1;
 		}
 
-		if (htonl (cur->type) < 0 || htonl (cur->type) >= ztMax) {
+		if (htonl (cur->type) < 0 || htonl (cur->type) >= ztMax)
+		{
 			fprintf (stderr, "mfs_load_zone_maps: Bad map type %d.\n", htonl (cur->type));
 			free (cur);
 			return -1;
 		}
 
 		newmap = calloc (sizeof (*newmap), 1);
-		if (!newmap) {
+		if (!newmap)
+		{
 			fprintf (stderr, "mfs_load_zone_maps: Out of memory.\n");
 			free (cur);
 			return -1;
