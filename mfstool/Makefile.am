@@ -1,4 +1,4 @@
-INCLUDES += -I${top_srcdir}/include
+INCLUDES = -I${top_srcdir}/include
 
 if BUILD_MFSTOOL
 MFSAPPS = mfstool
@@ -54,5 +54,5 @@ endif
 bin_PROGRAMS = $(MFSAPPS)
 
 mfstool_SOURCES = mfstool.c
-mfstool_LDFLAGS += -L${top_builddir}/lib $(MFSTOOLS_BACKUP) $(MFSTOOLS_RESTORE) $(MFSTOOLS_COPY) $(MFSTOOLS_MLS) $(MFSTOOLS_MFSD) $(MFSTOOLS_MFSADD) $(MFSTOOLS_MFSINFO) $(ZLIB) -lmfs -lmfsvol -lmacpart
+mfstool_LDFLAGS = -L${top_builddir}/lib $(MFSTOOLS_BACKUP) $(MFSTOOLS_RESTORE) $(MFSTOOLS_COPY) $(MFSTOOLS_MLS) $(MFSTOOLS_MFSD) $(MFSTOOLS_MFSADD) $(MFSTOOLS_MFSINFO) $(ZLIB) -lmfs -lmfsvol -lmacpart
 
