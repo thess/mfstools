@@ -662,7 +662,7 @@ add_partitions_to_backup_info (struct backup_info *info, char *device)
 
 /* Scan boot sector for root device.  2.5 seems to need this. */
 	tmpc = &bootsector[4];
-	while (*tmpc && strncmp (tmpc, "root=/dev/hda", 13))
+	while (tmpc && *tmpc && strncmp (tmpc, "root=/dev/hda", 13))
 	{
 		tmpc = strchr (tmpc, ' ');
 		if (tmpc)
