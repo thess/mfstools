@@ -78,7 +78,8 @@ struct backup_head
 #define BF_THRESHSIZE	0x00000010
 #define BF_THRESHTOT	0x00000020
 #define BF_STREAMTOT	0x00000040
-#define BF_COMPLVL(f)	((f) >> 12 & 0xf)
+#define BF_BSWAP	0x00000080
+#define BF_COMPLVL(f)	(((f) >> 12) & 0xf)
 #define BF_SETCOMP(l)	((((l) & 0xf) << 12) | BF_COMPRESSED)
 #define BF_FLAGS	0x0000ffff
 #define RF_INITIALIZED	0x00010000
