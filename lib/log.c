@@ -28,17 +28,17 @@
 #include "log.h"
 
 unsigned int
-mfs_log_last_sync ()
+mfs_log_last_sync (struct mfs_handle *mfshnd)
 {
-	return htonl (vol_hdr.logstamp);
+	return htonl (mfshnd->vol_hdr.logstamp);
 }
 
 int
-mfs_log_read (void *buf, unsigned int logstamp)
+mfs_log_read (struct mfs_handle *mfshnd, void *buf, unsigned int logstamp)
 {
 	log_hdr *tmp = buf;
 
-	if (mfs_read_data (buf, (logstamp % htonl (vol_hdr.lognsectors)) + htonl (vol_hdr.logstart), 1) != 512)
+	if (mfsvol_read_data (mfshnd->vols, buf, (logstamp % htonl (mfshnd->vol_hdr.lognsectors)) + htonl (mfshnd->vol_hdr.logstart), 1) != 512)
 	{
 		return -1;
 	}
@@ -58,14 +58,14 @@ mfs_log_read (void *buf, unsigned int logstamp)
 }
 
 int
-mfs_log_write (void *buf)
+mfs_log_write (struct mfs_handle *mfshnd, void *buf)
 {
 	log_hdr *tmp = buf;
 	unsigned int logstamp = htonl (tmp->logstamp);
 
 	MFS_update_crc (buf, 512, tmp->crc);
 
-	if (mfs_write_data (buf, (logstamp % htonl (vol_hdr.lognsectors)) + htonl (vol_hdr.logstart), 1) != 512)
+	if (mfsvol_write_data (mfshnd->vols, buf, (logstamp % htonl (mfshnd->vol_hdr.lognsectors)) + htonl (mfshnd->vol_hdr.logstart), 1) != 512)
 	{
 		return -1;
 	}

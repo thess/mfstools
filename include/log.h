@@ -75,4 +75,8 @@ typedef enum log_trans_types_e
 }
 log_trans_types;
 
+unsigned int mfs_log_last_sync (struct mfs_handle *mfshnd);
+int mfs_log_read (struct mfs_handle *mfshnd, void *buf, unsigned int logstamp);
+int mfs_log_write (struct mfs_handle *mfshnd, void *buf);
+
 #endif /*LOG_H */

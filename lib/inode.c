@@ -29,7 +29,7 @@
 /*************************************/
 /* Read an inode data and return it. */
 mfs_inode *
-mfs_read_inode (unsigned int inode)
+mfs_read_inode (struct mfs_handle *mfshnd, unsigned int inode)
 {
 	mfs_inode *in = calloc (512, 1);
 	int sector;
@@ -40,14 +40,14 @@ mfs_read_inode (unsigned int inode)
 	}
 
 /* Find the sector number for this inode. */
-	sector = mfs_inode_to_sector (inode);
+	sector = mfs_inode_to_sector (mfshnd, inode);
 	if (sector == 0)
 	{
 		free (in);
 		return NULL;
 	}
 
-	if (mfs_read_data ((void *) in, sector, 1) != 512)
+	if (mfsvol_read_data (mfshnd->vols, (void *) in, sector, 1) != 512)
 	{
 		free (in);
 		return NULL;
@@ -62,7 +62,7 @@ mfs_read_inode (unsigned int inode)
 /* CRC is bad, try reading the backup on the next sector. */
 	fprintf (stderr, "mfs_read_inode: Inode %d corrupt, trying backup.\n", inode);
 
-	if (mfs_read_data ((void *) in, sector + 1, 1) != 512)
+	if (mfsvol_read_data (mfshnd->vols, (void *) in, sector + 1, 1) != 512)
 	{
 		free (in);
 		return NULL;
@@ -80,13 +80,13 @@ mfs_read_inode (unsigned int inode)
 /*************************************/
 /* Read an inode data and return it. */
 int
-mfs_write_inode (mfs_inode *inode)
+mfs_write_inode (struct mfs_handle *mfshnd, mfs_inode *inode)
 {
 	char buf[1024];
 	int sector;
 
 /* Find the sector number for this inode. */
-	sector = mfs_inode_to_sector (htonl (inode->inode));
+	sector = mfs_inode_to_sector (mfshnd, htonl (inode->inode));
 	if (sector == 0)
 	{
 		return -1;
@@ -96,7 +96,7 @@ mfs_write_inode (mfs_inode *inode)
 	memcpy (buf, inode, 512);
 	memcpy (buf + 512, inode, 512);
 
-	if (mfs_write_data (buf, sector, 2) != 1024)
+	if (mfsvol_write_data (mfshnd->vols, buf, sector, 2) != 1024)
 	{
 		return -1;
 	}
@@ -107,9 +107,9 @@ mfs_write_inode (mfs_inode *inode)
 /******************************************************************/
 /* Read an inode data based on an fsid, scanning ahead as needed. */
 mfs_inode *
-mfs_read_inode_by_fsid (unsigned int fsid)
+mfs_read_inode_by_fsid (struct mfs_handle *mfshnd, unsigned int fsid)
 {
-	int inode = (fsid * MFS_FSID_HASH) & (mfs_inode_count () - 1);
+	int inode = (fsid * MFS_FSID_HASH) & (mfs_inode_count (mfshnd) - 1);
 	mfs_inode *cur = NULL;
 	int inode_base = inode;
 
@@ -120,11 +120,11 @@ mfs_read_inode_by_fsid (unsigned int fsid)
 			free (cur);
 		}
 
-		cur = mfs_read_inode (inode);
+		cur = mfs_read_inode (mfshnd, inode);
 /* Repeat until either the fsid matches, the CHAINED flag is unset, or */
 /* every inode has been checked, which I hope I will not have to do. */
 	}
-	while (htonl (cur->fsid) != fsid && (htonl (cur->inode_flags) & INODE_CHAINED) && (inode = (inode + 1) & (mfs_inode_count () - 1)) != inode_base);
+	while (htonl (cur->fsid) != fsid && (htonl (cur->inode_flags) & INODE_CHAINED) && (inode = (inode + 1) & (mfs_inode_count (mfshnd) - 1)) != inode_base);
 
 /* If cur is NULL or the fsid is correct and in use, then cur contains the */
 /* right return. */
@@ -141,7 +141,7 @@ mfs_read_inode_by_fsid (unsigned int fsid)
 /*************************************/
 /* Read a portion of an inodes data. */
 int
-mfs_read_inode_data_part (mfs_inode * inode, unsigned char *data, unsigned int start, unsigned int count)
+mfs_read_inode_data_part (struct mfs_handle *mfshnd, mfs_inode * inode, unsigned char *data, unsigned int start, unsigned int count)
 {
 	int totread = 0;
 
@@ -191,7 +191,7 @@ mfs_read_inode_data_part (mfs_inode * inode, unsigned char *data, unsigned int s
 				blkcount = count;
 			}
 
-			result = mfs_read_data (data, blkstart, blkcount);
+			result = mfsvol_read_data (mfshnd->vols, data, blkstart, blkcount);
 			count -= blkcount;
 
 /* Error - propogate it up. */
@@ -229,7 +229,7 @@ mfs_read_inode_data_part (mfs_inode * inode, unsigned char *data, unsigned int s
 /* Read all the data from an inode, set size to how much was read.  This does */
 /* not allow streams, since they are be so big. */
 unsigned char *
-mfs_read_inode_data (mfs_inode * inode, int *size)
+mfs_read_inode_data (struct mfs_handle *mfshnd, mfs_inode * inode, int *size)
 {
 	unsigned char *data;
 	int result;
@@ -256,7 +256,7 @@ mfs_read_inode_data (mfs_inode * inode, int *size)
 
 /* This function is just a wrapper for read_inode_data_part, with the last */
 /* parameter being implicitly the whole data. */
-	result = mfs_read_inode_data_part (inode, data, 0, (*size + 511) / 512);
+	result = mfs_read_inode_data_part (mfshnd, inode, data, 0, (*size + 511) / 512);
 
 	if (result < 0)
 	{

@@ -26,6 +26,9 @@ extern int mls_main (int, char **);
 #if BUILD_MFSD
 extern int mfsd_main (int, char **);
 #endif
+#if BUILD_MFSINFO
+extern int mfsinfo_main (int, char **);
+#endif
 
 struct {
 	char *name;
@@ -39,13 +42,16 @@ struct {
 	{"restore", restore_main, "Restore mfstool backups to TiVo drive."},
 #endif
 #if BUILD_MFSADD
-	{"mfsadd", mfsadd_main, "Add partitions to your TiVo MFS volume."},
+	{"add", mfsadd_main, "Add partitions to your TiVo MFS volume."},
 #endif
 #if BUILD_MLS
 	{"mls", mls_main, "List files in the MFS volume."},
 #endif
 #if BUILD_MFSD
-	{"mfsd", mfsd_main, "Dump raw data from MFS volume."},
+	{"d", mfsd_main, "Dump raw data from MFS volume."},
+#endif
+#if BUILD_MFSINFO
+	{"info", mfsinfo_main, "Display information about MFS volume."},
 #endif
 	{0, 0, 0}
 };
@@ -59,6 +65,9 @@ find_function (char *name)
 		if (!strcasecmp (funcs[loop].name, name))
 			return funcs[loop].main;
 
+	if (!strncmp (name, "mfs", 3))
+		return find_function (name + 3);
+
 	return 0;
 }
 
@@ -69,7 +78,7 @@ main (int argc, char **argv)
 	char *tmp;
 	int loop;
 
-	tmp = strchr(argv[0], '/');
+	tmp = strrchr(argv[0], '/');
 	tmp = tmp? tmp + 1: argv[0];
 
 	if ((toolmain = find_function (tmp)))

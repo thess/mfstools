@@ -12,6 +12,7 @@
 #endif
 /* For htonl() */
 #include <netinet/in.h>
+#include <sys/param.h>
 
 #include "mfs.h"
 #include "backup.h"
@@ -24,11 +25,16 @@ restore_usage (char *progname)
 {
 	fprintf (stderr, "Usage: %s [options] Adrive [Bdrive]\n", progname);
 	fprintf (stderr, "Options:\n");
+	fprintf (stderr, " -h        Display this help message\n");
 	fprintf (stderr, " -i file   Input from file, - for stdin\n");
+	fprintf (stderr, " -p        Optimize partition layout\n");
+	fprintf (stderr, " -x        Expand the backup to fill the drive(s)\n");
+	fprintf (stderr, " -X scale  Expand the backup with block size scale\n");
 	fprintf (stderr, " -q        Do not display progress\n");
 	fprintf (stderr, " -qq       Do not display anything but error messages\n");
 	fprintf (stderr, " -v size   Recreate /var as size megabytes (Only if not in backup)\n");
 	fprintf (stderr, " -s size   Recreate swap as size megabytes\n");
+	fprintf (stderr, " -l        Leave at least 2 partitions free\n");
 	fprintf (stderr, " -b        Force no byte swapping on restore\n");
 	fprintf (stderr, " -B        Force byte swapping on restore\n");
 	fprintf (stderr, " -z        Zero out partitions not backed up\n");
@@ -55,6 +61,63 @@ get_percent (unsigned int current, unsigned int max)
 }
 
 int
+expand_drive (struct mfs_handle *mfshnd, char *tivodev, char *realdev, unsigned int blocksize)
+{
+	unsigned int maxfree = tivo_partition_largest_free (realdev);
+	unsigned int totalfree = tivo_partition_total_free (realdev);
+	unsigned int used = maxfree & ~(blocksize - 1);
+	unsigned int required = mfs_volume_pair_app_size (used, blocksize);
+	unsigned int part1, part2;
+	char app[MAXPATHLEN];
+	char media[MAXPATHLEN];
+
+	unsigned int newsize, oldsize;
+
+	oldsize = mfs_sa_hours_estimate (mfshnd);
+
+	if (totalfree - maxfree < required && maxfree - used < required)
+	{
+		used = (maxfree - required) & ~(blocksize - 1);
+		required = mfs_volume_pair_app_size (used, blocksize);
+	}
+
+	if (totalfree - maxfree >= required && maxfree - used < required)
+	{
+		part2 = tivo_partition_add (realdev, used, 0, "New MFS Media", "MFS");
+		part1 = tivo_partition_add (realdev, required, part2, "New MFS Application", "MFS");
+
+		part2++;
+	}
+	else
+	{
+		part1 = tivo_partition_add (realdev, required, 0, "New MFS Application", "MFS");
+		part2 = tivo_partition_add (realdev, used, 0, "New MFS Media", "MFS");
+	}
+
+	if (part1 < 2 || part2 < 2 || part1 > 16 || part2 > 16)
+		return -1;
+
+	sprintf (app, "%s%d", tivodev, part1);
+	sprintf (media, "%s%d", tivodev, part2);
+
+	fprintf (stderr, "Adding pair %s%d-%s%d\n", realdev, part1, realdev, part2);
+
+	if (mfs_can_add_volume_pair (mfshnd, app, media, blocksize) < 0)
+		return -1;
+
+	if (tivo_partition_table_write (realdev) < 0)
+		return -1;
+
+	if (mfs_add_volume_pair (mfshnd, app, media, blocksize) < 0)
+		return -1;
+
+	newsize = mfs_sa_hours_estimate (mfshnd);
+	fprintf (stderr, "New estimated standalone size: %d hours (%d more)\n", newsize, newsize - oldsize);
+
+	return 0;
+}
+
+int
 restore_main (int argc, char **argv)
 {
 	char *drive, *drive2, *tmp;
@@ -64,10 +127,12 @@ restore_main (int argc, char **argv)
 	char *filename = 0;
 	int quiet = 0;
 	int bswap = 0;
+	int expand = 0;
+	int expandscale = 2;
 
 	tivo_partition_direct ();
 
-	while ((opt = getopt (argc, argv, "i:v:s:zqbB")) > 0)
+	while ((opt = getopt (argc, argv, "hi:v:s:zqbBpxlr:")) > 0)
 	{
 		switch (opt)
 		{
@@ -114,6 +179,28 @@ restore_main (int argc, char **argv)
 			}
 			bswap = 1;
 			break;
+		case 'p':
+			flags |= RF_BALANCE;
+			break;
+		case 'l':
+			flags |= RF_NOFILL;
+			break;
+		case 'x':
+			expand = 1;
+			break;
+		case 'r':
+			expandscale = strtoul (optarg, &tmp, 10);
+			if (tmp && *tmp)
+			{
+				fprintf (stderr, "%s: Integer argument expected for -X.\n", argv[0]);
+				return 1;
+			}
+			if (expandscale < 0 || expandscale > 4)
+			{
+				fprintf (stderr, "%s: Scale value for -r must be in the range 0 to 4.\n", argv[0]);
+				return 1;
+			}
+			break;
 		default:
 			restore_usage (argv[0]);
 			return 1;
@@ -139,6 +226,9 @@ restore_main (int argc, char **argv)
 		restore_usage (argv[0]);
 		return 1;
 	}
+
+	if (expand > 0)
+		flags |= RF_NOFILL;
 
 	info = init_restore (flags);
 	if (info)
@@ -262,6 +352,52 @@ restore_main (int argc, char **argv)
 
 	if (quiet < 2)
 		fprintf (stderr, "Restore done!\n");
+
+	if (expand > 0)
+	{
+		int blocksize = 0x800;
+		struct mfs_handle *mfshnd;
+
+		expand = 0;
+
+		mfshnd = mfs_init (O_RDWR);
+		if (!mfshnd)
+		{
+				printf ("Drive expansion failed.\n");
+				return 1;
+		}
+
+		while (expandscale-- > 0)
+			blocksize *= 2;
+
+		setenv ("MFS_HDA", drive, 1);
+		setenv ("MFS_HDB", drive2? drive2: "Internal Error", 1);
+
+		if (tivo_partition_largest_free (drive) > 1024 * 1024 * 2)
+		{
+			if (expand_drive (mfshnd, "/dev/hda", drive, blocksize) < 0)
+			{
+				printf ("Drive A expansion failed.\n");
+				return 1;
+			}
+			expand++;
+		}
+
+		if (drive2 && tivo_partition_largest_free (drive2) > 1024 * 1024 * 2)
+		{
+			if (expand_drive (mfshnd, "/dev/hdb", drive2, blocksize) < 0)
+			{
+				printf ("Drive B expansion failed.\n");
+				return 1;
+			}
+			expand++;
+		}
+
+		if (!expand)
+		{
+			fprintf (stderr, "Not enough extra space to expand on A drive%s.\n", drive2? " or B drive": "");
+		}
+	}
 
 	return 0;
 }

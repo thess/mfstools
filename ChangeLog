@@ -1,3 +1,11 @@
+Version 2.0
+	Added -x and -r to allow restore to expand to fill a drive.
+	Added -l flag to restore to save extra partitions on the A drive.
+	Added flag in backup if drive was not byte swapped.
+	Added new mfsadd utility to add partitions to MFS volume set.
+	Added new mfsinfo utility to display MFS volume set info.
+	Changed tool name matching to match the name with or without mfs.
+
 Version 1.1
 	Added -b and -B to control byte-swapping on restore.
 	Added code to fix up MFS transaction log after divorce.

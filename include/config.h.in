@@ -5,6 +5,7 @@
 #define BUILD_MFSD 0
 #define BUILD_BACKUP 0
 #define BUILD_RESTORE 0
+#define BUILD_MFSINFO 0
 #define DEBUG 0
 
 /* Define if you have the <asm/page.h> header file.  */
@@ -45,6 +46,9 @@
 
 /* Define if you have the <string.h> header file.  */
 #undef HAVE_STRING_H
+
+/* Define if you have the <sys/errno.h> header file.  */
+#undef HAVE_SYS_ERRNO_H
 
 /* Define if you have the <sys/ioctl.h> header file.  */
 #undef HAVE_SYS_IOCTL_H

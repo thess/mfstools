@@ -14,6 +14,8 @@
 
 char *progname;
 
+static struct mfs_handle *mfs;
+
 fs_entry *
 find_file_by_name (unsigned char *dir, unsigned int dirlen, unsigned char *name)
 {
@@ -42,7 +44,7 @@ print_file_details (fs_entry * file)
 	mfs_inode *nfo;
 	time_t modtime;
 
-	nfo = mfs_read_inode_by_fsid (htonl (file->fsid));
+	nfo = mfs_read_inode_by_fsid (mfs, htonl (file->fsid));
 
 	if (nfo)
 	{
@@ -94,7 +96,7 @@ list_file (unsigned char *name)
 		name = "/";
 	}
 
-	cur_nfo = mfs_read_inode_by_fsid (1);
+	cur_nfo = mfs_read_inode_by_fsid (mfs, 1);
 	if (!cur_nfo)
 	{
 		fprintf (stderr, "Couldn't read root directory!\n");
@@ -119,7 +121,7 @@ list_file (unsigned char *name)
 
 		if (cur_dir)
 			free (cur_dir);
-		cur_dir = mfs_read_inode_data (cur_nfo, &cur_dir_length);
+		cur_dir = mfs_read_inode_data (mfs, cur_nfo, &cur_dir_length);
 		if (!cur_dir)
 		{
 			fprintf (stderr, "No such file or directory!\n");
@@ -134,7 +136,7 @@ list_file (unsigned char *name)
 		}
 
 		free (cur_nfo);
-		cur_nfo = mfs_read_inode_by_fsid (htonl (cur_file->fsid));
+		cur_nfo = mfs_read_inode_by_fsid (mfs, htonl (cur_file->fsid));
 		if (!cur_nfo)
 		{
 			fprintf (stderr, "No such file or directory!\n");
@@ -163,11 +165,11 @@ list_file (unsigned char *name)
 		free (cur_nfo);
 		if (cur_file)
 		{
-			cur_nfo = mfs_read_inode_by_fsid (htonl (cur_file->fsid));
+			cur_nfo = mfs_read_inode_by_fsid (mfs, htonl (cur_file->fsid));
 		}
 		else
 		{
-			cur_nfo = mfs_read_inode_by_fsid (1);
+			cur_nfo = mfs_read_inode_by_fsid (mfs, 1);
 		}
 		if (!cur_nfo)
 		{
@@ -176,7 +178,7 @@ list_file (unsigned char *name)
 		}
 		if (cur_dir)
 			free (cur_dir);
-		cur_dir = mfs_read_inode_data (cur_nfo, &cur_dir_length);
+		cur_dir = mfs_read_inode_data (mfs, cur_nfo, &cur_dir_length);
 		if (!cur_dir)
 		{
 			fprintf (stderr, "No such file or directory!\n");
@@ -197,7 +199,8 @@ list_file (unsigned char *name)
 int
 mls_main (int argc, char **argv)
 {
-	if (mfs_init (O_RDONLY) < 0)
+	mfs = mfs_init (O_RDONLY);
+	if (!mfs)
 	{
 		fprintf (stderr, "mfs_init: Failed.  Bailing.\n");
 		return 1;
