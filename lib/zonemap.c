@@ -22,6 +22,24 @@
 static struct zone_map_head zones[ztMax] = { {0, 0, NULL}, {0, 0, NULL}, {0, 0, NULL} };
 static struct zone_map *loaded_zones = NULL;
 
+zone_header *
+mfs_next_zone (zone_header *cur)
+{
+	struct zone_map *loop = loaded_zones;
+
+	if (!cur && loop)
+		return loop->map;
+
+	while (loop && loop->map != cur)
+		loop = loop->next;
+
+	loop = loop->next;
+	if (loop)
+		return loop->map;
+
+	return 0;
+}
+
 /*****************************************************************************/
 /* Return the count of inodes.  Each inode is 2 sectors, so the count is the */
 /* size of the inode zone maps divided by 2. */

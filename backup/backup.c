@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include <unistd.h>
 #include <stdio.h>
 #include <malloc.h>
@@ -254,6 +255,7 @@ add_blocks_to_backup_info (struct backup_info *info, struct blocklist *blocks)
 
 	if (!info->blocks)
 	{
+		info->lasterr = "Memory exhausted.";
 		return -1;
 	}
 
@@ -268,15 +270,13 @@ add_blocks_to_backup_info (struct backup_info *info, struct blocklist *blocks)
 			count++;
 		}
 	}
-
-/* How many "header" bytes there are to store the block list. */
 	return 0;
 }
 
 /*****************************************************************/
 /* Scan the inode table and generate a list of blocks to backup. */
 static struct blocklist *
-scan_inodes (struct backup_info *info, unsigned int thresh)
+scan_inodes (struct backup_info *info)
 {
 	unsigned int loop, loop2, loop3;
 	int ninodes = mfs_inode_count ();
@@ -287,6 +287,7 @@ scan_inodes (struct backup_info *info, unsigned int thresh)
 	blocks = calloc (sizeof (*blocks), 1);
 	if (!blocks)
 	{
+		info->lasterr = "Memory exhausted.";
 		return 0;
 	}
 
@@ -300,12 +301,21 @@ scan_inodes (struct backup_info *info, unsigned int thresh)
 /* If it a stream, treat it specially. */
 			if (inode->type == tyStream)
 			{
-				unsigned int streamsize = htonl (inode->blocksize) / 512 * htonl (inode->blockused);
+				unsigned int streamsize;
+
+				if (info->back_flags & (BF_THRESHTOT | BF_STREAMTOT))
+					streamsize = htonl (inode->blocksize) / 512 * htonl (inode->size);
+				else
+					streamsize = htonl (inode->blocksize) / 512 * htonl (inode->blockused);
+
 /* Only backup streams that are smaller than the threshhold. */
-//				if (streamsize > 0 && streamsize < thresh)
-				if (streamsize > 0 && htonl (inode->fsid) < 2000)
+				if (streamsize > 0 && ((info->back_flags & BF_THRESHSIZE) && streamsize < info->thresh || !(info->back_flags & BF_THRESHSIZE) && htonl (inode->fsid) <= info->thresh))
 				{
 /* Add all blocks. */
+
+					if ((info->back_flags & (BF_THRESHTOT | BF_STREAMTOT)) == BF_THRESHTOT)
+						streamsize = htonl (inode->blocksize) / 512 * htonl (inode->blockused);
+
 					for (loop2 = 0; loop2 < htonl (inode->numblocks); loop2++)
 					{
 						unsigned int thiscount = htonl (inode->datablocks[loop2].count);
@@ -323,6 +333,7 @@ scan_inodes (struct backup_info *info, unsigned int thresh)
 							free_block_list (&blocks);
 							free_block_list (&pool);
 							free (inode);
+							info->lasterr = "Memory exhausted.";
 							return 0;
 						}
 						streamsize -= thiscount;
@@ -340,6 +351,20 @@ scan_inodes (struct backup_info *info, unsigned int thresh)
 		}
 	}
 
+	if (info->back_flags & BF_SHRINK)
+	{
+		zone_header *hdr = 0;
+
+		while ((hdr = mfs_next_zone (hdr)) > 0)
+			if (htonl (hdr->type) != ztMedia)
+			{
+				if (htonl (hdr->sector) + htonl (hdr->length) > highest)
+					highest = htonl (hdr->sector) + htonl (hdr->length);
+				if (htonl (hdr->last) > highest)
+					highest = htonl (hdr->last);
+			}
+	}
+
 /* Put in the whole volumes. */
 	for (loop = 0, loop3 = 1; loop2 = mfs_volume_size (loop); loop += loop2, loop3 ^= 1)
 	{
@@ -353,6 +378,7 @@ scan_inodes (struct backup_info *info, unsigned int thresh)
 			{
 				free_block_list (&blocks);
 				free_block_list (&pool);
+				info->lasterr = "Memory exhausted.";
 				return 0;
 			}
 		}
@@ -400,6 +426,7 @@ add_mfs_partitions_to_backup_info (struct backup_info *info)
 	if (!info->mfsparts)
 	{
 		info->nmfs = 0;
+		info->lasterr = "Memory exhausted.";
 		return -1;
 	}
 
@@ -412,6 +439,7 @@ add_mfs_partitions_to_backup_info (struct backup_info *info)
 			free (info->mfsparts);
 			info->mfsparts = 0;
 			info->nmfs = 0;
+			info->lasterr = "Error in MFS partition list.";
 			return -1;
 		}
 
@@ -425,6 +453,7 @@ add_mfs_partitions_to_backup_info (struct backup_info *info)
 			info->mfsparts[loop].devno = 1;
 			break;
 		default:
+			info->lasterr = "Error in MFS partition list.";
 			free (info->mfsparts);
 			info->mfsparts = 0;
 			info->nmfs = 0;
@@ -437,6 +466,7 @@ add_mfs_partitions_to_backup_info (struct backup_info *info)
 /* If there are other non-space characters after the number, thats a problem. */
 		if (*mfs_partitions && !isspace (*mfs_partitions))
 		{
+			info->lasterr = "Error in MFS partition list.";
 			free (info->mfsparts);
 			info->mfsparts = 0;
 			info->nmfs = 0;
@@ -450,6 +480,7 @@ add_mfs_partitions_to_backup_info (struct backup_info *info)
 		info->mfsparts[loop].sectors = mfs_volume_size (cursector);
 		if (info->mfsparts[loop].sectors == 0)
 		{
+			info->lasterr = "Fatal error in MFS structure.";
 			free (info->mfsparts);
 			info->mfsparts = 0;
 			info->nmfs = 0;
@@ -498,6 +529,7 @@ add_partitions_to_backup_info (struct backup_info *info, char *device)
 	{
 		info->ndevs = 0;
 		info->nparts = 0;
+		info->lasterr = "Memory exhausted.";
 		return -1;
 	}
 
@@ -507,6 +539,7 @@ add_partitions_to_backup_info (struct backup_info *info, char *device)
 		info->nparts = 0;
 		info->ndevs = 0;
 		free (info->devs);
+		info->lasterr = "Memory exhausted.";
 		return -1;
 	}
 
@@ -520,6 +553,7 @@ add_partitions_to_backup_info (struct backup_info *info, char *device)
 		free (info->parts);
 		info->ndevs = 0;
 		info->nparts = 0;
+		info->lasterr = "Not enough partitions on source drive.";
 		return -1;
 	}
 
@@ -531,6 +565,7 @@ add_partitions_to_backup_info (struct backup_info *info, char *device)
 		free (info->parts);
 		info->ndevs = 0;
 		info->nparts = 0;
+		info->lasterr = "Memory exhausted.";
 		return -1;
 	}
 
@@ -541,6 +576,7 @@ add_partitions_to_backup_info (struct backup_info *info, char *device)
 		free (info->parts);
 		info->ndevs = 0;
 		info->nparts = 0;
+		info->lasterr = "Error reading boot sector of source drive.";
 		return -1;
 	}
 
@@ -551,6 +587,7 @@ add_partitions_to_backup_info (struct backup_info *info, char *device)
 		free (info->parts);
 		info->ndevs = 0;
 		info->nparts = 0;
+		info->lasterr = "Can not determine primary boot partition from boot sector.";
 		return -1;
 	}
 
@@ -582,6 +619,7 @@ add_partitions_to_backup_info (struct backup_info *info, char *device)
 			free (info->parts);
 			info->ndevs = 0;
 			info->nparts = 0;
+			info->lasterr = "Unknown error trying to determine partition sizes.";
 			return -1;
 		}
 
@@ -596,62 +634,77 @@ add_partitions_to_backup_info (struct backup_info *info, char *device)
 /*************************************/
 /* Initializes the backup structure. */
 struct backup_info *
-init_backup (char *device, char *device2, unsigned int thresh, int flags)
+init_backup (char *device, char *device2, int flags)
 {
-	struct backup_info *info;
+ 	struct backup_info *info;
+
+	flags &= BF_FLAGS;
+
+ 	if (!device)
+ 		return 0;
+ 
+ 	setenv ("MFS_HDA", device, 1);
+ 
+ 	if (device2)
+ 		setenv ("MFS_HDB", device2, 1);
+ 	else
+ 		setenv ("MFS_HDB", "Second MFS drive", 1);
+ 
+ 	if (mfs_init (O_RDONLY) < 0)
+ 	{
+ 		return 0;
+	}
+ 
+ 	info = calloc (sizeof (*info), 1);
+ 
+ 	if (!info)
+ 	{
+ 		return 0;
+ 	}
+ 
+ 	info->back_flags = flags;
+
+	info->thresh = 2000;
+ 
+	return info;
+}
+
+void
+backup_set_thresh (struct backup_info *info, unsigned int thresh)
+{
+	info->thresh = thresh;
+}
+
+/*********************/
+/* Start the backup. */
+int
+backup_start (struct backup_info *info)
+{
 	struct blocklist *blocks;
 
-	if (!device)
-		return 0;
-
-	setenv ("MFS_HDA", device, 1);
-
-	if (device2)
-		setenv ("MFS_HDB", device2, 1);
-	else
-		setenv ("MFS_HDB", "Second MFS drive", 1);
-
-	if (mfs_init (O_RDONLY) < 0)
-	{
-		fprintf (stderr, "mfsinit: Failed!  Bailing.\n");
-		return 0;
-        }
-
-	info = calloc (sizeof (*info), 1);
-
-	if (!info)
-	{
-		return 0;
+	if ((add_partitions_to_backup_info (info, getenv ("MFS_HDA"))) != 0) {
+		return -1;
 	}
 
-	info->back_flags = flags;
-
-	if (add_partitions_to_backup_info (info, device) != 0) {
-		free (info);
-		return 0;
-	}
-
-	blocks = scan_inodes (info, thresh);
+	blocks = scan_inodes (info);
 	if (add_blocks_to_backup_info (info, blocks) != 0) {
 		free_block_list (&blocks);
 		free (info->parts);
-		free (info);
-		return 0;
+		return -1;
 	}
 	free_block_list (&blocks);
 
 	if (add_mfs_partitions_to_backup_info (info) != 0) {
 		free (info->parts);
 		free (info->blocks);
-		free (info);
-		return 0;
+		return -1;
 	}
 
 	info->presector = (info->nblocks * sizeof (struct backup_block) + info->nparts * sizeof (struct backup_partition) + info->nmfs * sizeof (struct backup_partition) + 511) / 512 + 1;
 
 	info->nsectors += info->presector + 1;
 
-	return info;
+	return 0;
 }
 
 /*****************************************************************************/
@@ -726,6 +779,7 @@ backup_next_sectors (struct backup_info *info, char *buf, int sectors)
 /* If the file still isn't open, there is an error. */
 						if (!file)
 						{
+							info->lasterr = "Error backing up partitions.";
 							return -1;
 						}
 					}
@@ -733,6 +787,7 @@ backup_next_sectors (struct backup_info *info, char *buf, int sectors)
 /* Read the data. */
 					if (tivo_partition_read (file, buf, cursector, tocopy) < 0)
 					{
+						info->lasterr = "Error backing up partitions.";
 						return -1;
 					}
 
@@ -769,6 +824,7 @@ backup_next_sectors (struct backup_info *info, char *buf, int sectors)
 /* Read the data. */
 					if (mfs_read_data (buf, info->blocks[loop].firstsector + cursector, tocopy) < 0)
 					{
+						info->lasterr = "Error backing up MFS data.";
 						return -1;
 					}
 
@@ -937,6 +993,7 @@ backup_read (struct backup_info *info, char *buf, unsigned int size)
 
 	if (size < 512)
 	{
+		info->lasterr = "Internal error 2.";
 		return -1;
 	}
 
@@ -947,25 +1004,36 @@ backup_read (struct backup_info *info, char *buf, unsigned int size)
 			retval = backup_next_sectors (info, buf, 1);
 			if (retval != 1)
 			{
+				info->lasterr = "Invalid backup format.";
 				return -1;
 			}
 
 			info->comp_buf = calloc (2048, 512);
 			if (!info->comp_buf)
 			{
+				info->lasterr = "Memory exhausted.";
 				return -1;
 			}
 
 			info->comp = calloc (sizeof (*info->comp), 1);
+			if (!info->comp)
+			{
+				free (info->comp_buf);
+				info->lasterr = "Memory exhausted.";
+				return -1;
+			}
+
 			info->comp->zalloc = Z_NULL;
 			info->comp->zfree = Z_NULL;
 			info->comp->opaque = Z_NULL;
 			info->comp->next_in = Z_NULL;
 			info->comp->avail_in = 0;
 			info->comp->avail_out = 0;
-			if (deflateInit (info->comp, 6) != Z_OK)
+			if (deflateInit (info->comp, BF_COMPLVL (info->back_flags)) != Z_OK)
 			{
 				free (info->comp_buf);
+				free (info->comp);
+				info->lasterr = "Compression error.";
 				return -1;
 			}
 
@@ -987,6 +1055,7 @@ backup_read (struct backup_info *info, char *buf, unsigned int size)
 			{
 				if (deflate (info->comp, Z_NO_FLUSH) != Z_OK)
 				{
+					info->lasterr = "Compression error.";
 					return -1;
 				}
 			}
@@ -1042,7 +1111,10 @@ int
 backup_finish(struct backup_info *info)
 {
 	if (info->cursector != info->nsectors)
+	{
+		info->lasterr = "Backup ended prematurely.";
 		return -1;
+	}
 
 	return 0;
 }

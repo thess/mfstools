@@ -26,6 +26,7 @@ struct device_info
 
 struct backup_info
 {
+	char *lasterr;
 	int cursector;
 	int presector;
 	int ndevs;
@@ -45,6 +46,8 @@ struct backup_info
 	struct backup_partition *newparts;
 	int varsize;
 	int swapsize;
+#else
+	unsigned int thresh;
 #endif
 };
 
@@ -71,6 +74,20 @@ struct backup_head
 #define BF_MFSONLY	0x00000002
 #define BF_BACKUPVAR	0x00000004
 #define BF_SHRINK	0x00000008
+#define BF_THRESHSIZE	0x00000010
+#define BF_THRESHTOT	0x00000020
+#define BF_STREAMTOT	0x00000040
+#define BF_COMPLVL(f)	((f) >> 12 & 0xf)
+#define BF_SETCOMP(l)	((((l) & 0xf) << 12) | BF_COMPRESSED)
+#define BF_FLAGS	0x0000ffff
 #define RF_INITIALIZED	0x00010000
 #define RF_ENDIAN	0x00020000
 #define RF_NOMORECOMP	0x00040000
+#define RF_ZEROPART	0x00080000
+#define RF_FLAGS	0xffff0000
+
+extern inline char *
+last_err (struct backup_info *info)
+{
+	return info->lasterr;
+}

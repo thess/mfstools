@@ -54,6 +54,7 @@ unsigned int mfs_volume_size (unsigned int sector);
 unsigned int mfs_volume_set_size ();
 int mfs_read_data (void *buf, unsigned int sector, int count);
 int mfs_write_data (void *buf, unsigned int sector, int count);
+zone_header *mfs_next_zone (zone_header *cur);
 unsigned int mfs_inode_count ();
 unsigned int mfs_inode_to_sector (unsigned int inode);
 mfs_inode *mfs_read_inode (unsigned int inode);

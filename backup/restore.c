@@ -28,9 +28,11 @@ convendian32 (unsigned int *var)
 /*************************************************/
 /* Initializes the backup structure for restore. */
 struct backup_info *
-init_restore ()
+init_restore (unsigned int flags)
 {
 	struct backup_info *info;
+
+	flags &= RF_FLAGS;
 
 	info = calloc (sizeof (*info), 1);
 
@@ -41,7 +43,20 @@ init_restore ()
 
 	info->presector = 1;
 	info->nsectors = 1;
+	info->back_flags = flags;
 	return info;
+}
+
+void
+restore_set_varsize (struct backup_info *info, int size)
+{
+	info->varsize = size;
+}
+
+void
+restore_set_swapsize (struct backup_info *info, int size)
+{
+	info->swapsize = size;
 }
 
 /*****************************************************************************/
@@ -120,18 +135,19 @@ restore_next_sectors (struct backup_info *info, char *buf, int sectors)
 					}
 
 /* Get the file for this partition from the info structure. */
-					file = info->devs[info->parts[loop].devno].files[info->parts[loop].partno];
+					file = info->devs[info->parts[loop].devno].files[info->parts[loop].partno - 1];
 
 /* If the file isn't opened, open it. */
 					if (!file)
 					{
 						file = tivo_partition_open_direct (info->devs[info->parts[loop].devno].devname, info->parts[loop].partno, O_RDWR);
 /* The sick part, is most of this line is an lvalue. */
-						info->devs[info->parts[loop].devno].files[info->parts[loop].partno] = file;
+						info->devs[info->parts[loop].devno].files[info->parts[loop].partno - 1] = file;
 
 /* If the file still isn't open, there is an error. */
 						if (!file)
 						{
+							info->lasterr = "Error restoring partitions.";
 							return -1;
 						}
 					}
@@ -139,6 +155,7 @@ restore_next_sectors (struct backup_info *info, char *buf, int sectors)
 /* Read the data. */
 					if (tivo_partition_write (file, buf, cursector, tocopy) < 0)
 					{
+						info->lasterr = "Error restoring partitions.";
 						return -1;
 					}
 
@@ -192,6 +209,7 @@ restore_next_sectors (struct backup_info *info, char *buf, int sectors)
 /* Read the data. */
 					if (mfs_write_data (buf, info->blocks[loop].firstsector + cursector, tocopy) < 0)
 					{
+						info->lasterr = "Error restoring MFS data.";
 						return -1;
 					}
 
@@ -355,16 +373,19 @@ restore_next_sectors (struct backup_info *info, char *buf, int sectors)
 					info->back_flags |= RF_ENDIAN;
 					break;
 				default:
+					info->lasterr = "Unknown backup format.";
 					return -1;
 				}
 
-				info->back_flags = head->flags;
+				if (info->back_flags & RF_ENDIAN)
+					convendian32 (&info->back_flags);
+				info->back_flags |= head->flags;
 				info->nsectors = head->nsectors;
 				info->nparts = head->nparts;
 				info->nblocks = head->nblocks;
 				info->nmfs = head->mfspairs;
 
-				if (info->back_flags & RF_ENDIAN)
+				if (head->magic == TB_ENDIAN)
 				{
 					convendian32 (&info->back_flags);
 					convendian32 (&info->nsectors);
@@ -393,6 +414,8 @@ restore_next_sectors (struct backup_info *info, char *buf, int sectors)
 						free (info->mfsparts);
 					info->mfsparts = 0;
 					info->nmfs = 0;
+
+					info->lasterr = "Memory exhausted.";
 
 					return -1;
 				}
@@ -463,6 +486,7 @@ restore_write (struct backup_info *info, char *buf, unsigned int size)
 
 				if (zres != Z_OK)
 				{
+					info->lasterr = "Decompression error.";
 					return -1;
 				}
 			}
@@ -480,6 +504,7 @@ restore_write (struct backup_info *info, char *buf, unsigned int size)
 	{
 		if (size < 512)
 		{
+			info->lasterr = "Internal error 3.";
 			return -1;
 		}
 
@@ -487,9 +512,7 @@ restore_write (struct backup_info *info, char *buf, unsigned int size)
 		{
 			int nwrit = restore_next_sectors (info, buf, 1);
 			if (nwrit != 1)
-			{
 				return -1;
-			}
 
 			size -= 512;
 			buf += 512;
@@ -500,12 +523,14 @@ restore_write (struct backup_info *info, char *buf, unsigned int size)
 				info->comp_buf = calloc (2048, 512);
 				if (!info->comp_buf)
 				{
+					info->lasterr = "Memory exhausted.";
 					return -1;
 				}
 				info->comp = calloc (sizeof (*info->comp), 1);
 				if (!info->comp)
 				{
 					free (info->comp_buf);
+					info->lasterr = "Memory exhausted.";
 					return -1;
 				}
 
@@ -521,6 +546,7 @@ restore_write (struct backup_info *info, char *buf, unsigned int size)
 				{
 					free (info->comp_buf);
 					free (info->comp);
+					info->lasterr = "Deompression error.";
 					return -1;
 				}
 
@@ -581,7 +607,10 @@ find_optimal_partitions (struct backup_info *info, unsigned int min1, unsigned i
 	}
 
 	if (bestorder < 0)
+	{
+		info->lasterr = "Unable to fit backup onto drives.";
 		return -1;
+	}
 
 	count = 11;
 	for (loop = 1 << (info->nmfs / 2 - 1), loop2 = 2, loop3 = 12; loop; loop >>= 1, loop2 += 2)
@@ -640,25 +669,30 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 
 	if (info->back_flags & RF_INITIALIZED || info->cursector < info->presector)
 	{
+		info->lasterr = "Internal error 4.";
 		return -1;
 	}
 	if (!dev1)
 	{
+		info->lasterr = "No backup device.";
 		return -1;
 	}
 	if (info->nmfs & 1 == 1)
 	{
+		info->lasterr = "Internal error 5.";
 		return -1;
 	}
 
 	fd1 = open (dev1, O_RDWR);
 	if (fd1 < 0)
 	{
+		info->lasterr = "Unable to open destination device for writing.";
 		return -1;
 	}
 
 	if (ioctl (fd1, BLKGETSIZE, &secs1) != 0)
 	{
+		info->lasterr = "Destination is not a device.";
 		close (fd1);
 		return -1;
 	}
@@ -668,12 +702,14 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 		fd2 = open (dev2, O_RDWR);
 		if (fd2 < 0)
 		{
+			info->lasterr = "Unable to open second device.";
 			close (fd1);
 			return -1;
 		}
 
 		if (ioctl (fd2, BLKGETSIZE, &secs2) != 0)
 		{
+			info->lasterr = "Second restore target is not a device.";
 			close (fd1);
 			close (fd2);
 			return -1;
@@ -687,6 +723,7 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 			close (fd1);
 			if (fd2 >= 0)
 				close (fd2);
+			info->lasterr = "Format error in backup file.";
 			return (-1);
 		}
 
@@ -694,6 +731,7 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 		{
 			if (info->varsize && info->varsize != info->parts[loop].sectors)
 			{
+				info->lasterr = "Varsize in backup mis-matches requested varsize.";
 				close (fd1);
 				if (fd2 >= 0)
 					close (fd2);
@@ -726,6 +764,7 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 
 	if (min1 > secs1)
 	{
+		info->lasterr = "First target drive too small.";
 		close (fd1);
 		if (fd2 >= 0)
 			close (fd2);
@@ -738,6 +777,7 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 		info->newparts = calloc (info->nnewparts, sizeof (struct backup_partition));
 		if (!info->newparts)
 		{
+			info->lasterr = "Memory exhausted.";
 			close (fd1);
 			if (fd2 >= 0)
 				close (fd2);
@@ -788,6 +828,7 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 
 		if (!info->devs)
 		{
+			info->lasterr = "Memory exhausted.";
 			close (fd1);
 			return -1;
 		}
@@ -808,6 +849,7 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 
 	if (fd2 < 0)
 	{
+		info->lasterr = "Backup target not large enough for entire backup by itself.";
 		close (fd1);
 		return -1;
 	}
@@ -819,6 +861,7 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 	{
 		close (fd1);
 		close (fd2);
+		info->lasterr = "Memory exhausted.";
 		return -1;
 	}
 
@@ -977,8 +1020,12 @@ build_partition_table (struct backup_info *info, int devno)
 		}
 	}
 
-	if (lseek (info->devs[devno].fd, 0, SEEK_SET) < 0 || write (info->devs[devno].fd, buf, sizeof (buf)) < 0)
+	if (lseek (info->devs[devno].fd, 0, SEEK_SET) < 0 || write (info->devs[devno].fd, buf, sizeof (buf)) < 0) {
+		info->lasterr = "Unable to create partition table.";
 		return -1;
+	}
+
+	ioctl (info->devs[devno].fd, BLKRRPART, 0);
 
 	return 0;
 }
@@ -989,7 +1036,10 @@ restore_start (struct backup_info *info)
 	int loop;
 
 	if (info->back_flags & RF_INITIALIZED || info->cursector < info->presector || !info->devs)
+	{
+		info->lasterr = "Internal error 6.";
 		return -1;
+	}
 
 	for (loop = 0; loop < info->ndevs; loop++) {
 		info->devs[loop].swab = scan_swab (info->devs[loop].devname);
@@ -1000,7 +1050,10 @@ restore_start (struct backup_info *info)
 		{
 			info->devs[loop].files = calloc (sizeof (struct tivo_partition_file *), info->devs[loop].nparts);
 			if (!info->devs[loop].files)
+			{
+				info->lasterr = "Memory exhausted.";
 				return -1;
+			}
 		}
 	}
 
@@ -1026,7 +1079,10 @@ restore_make_swap (struct backup_info *info)
 	file = tivo_partition_open_direct (info->devs[0].devname, 8, O_RDWR);
 
 	if (!file)
+	{
+		info->lasterr = "Error making swap partition.";
 		return -1;
+	}
 
 	size = tivo_partition_size (file);
 
@@ -1047,7 +1103,10 @@ restore_make_swap (struct backup_info *info)
 	tivo_partition_close (file);
 
 	if (loop < 0)
+	{
+		info->lasterr = "Error making swap partition.";
 		return -1;
+	}
 
 	return 0;
 }
@@ -1089,7 +1148,10 @@ restore_fudge_inodes (struct backup_info *info)
 
 				if (changed)
 					if (mfs_write_inode (inode) < 0)
+					{
+						info->lasterr = "Error fixing up inodes.";
 						return -1;
+					}
 
 			}
 			free (inode);
@@ -1109,7 +1171,10 @@ restore_fixup_vol_list (struct backup_info *info)
 	} vol;
 
 	if (mfs_read_data ((void *)&vol, 0, 1) != 512)
+	{
+		info->lasterr = "Error fixing volume list.";
 		return -1;
+	}
 
 	bzero (vol.hdr.partitionlist, sizeof (vol.hdr.partitionlist));
 
@@ -1119,14 +1184,20 @@ restore_fixup_vol_list (struct backup_info *info)
 	}
 
 	if (strlen (vol.hdr.partitionlist) + 1 > sizeof (vol.hdr.partitionlist))
+	{
+		info->lasterr = "Partition list too long.";
 		return -1;
+	}
 
 	vol.hdr.total_sectors = htonl (mfs_volume_set_size ());
 
 	MFS_update_crc (&vol.hdr, sizeof (vol.hdr), vol.hdr.checksum);
 
 	if (mfs_write_data ((void *)&vol, 0, 1) != 512)
+	{
+		info->lasterr = "Error writing changes to volume header.";
 		return -1;
+	}
 }
 
 int
@@ -1145,15 +1216,22 @@ restore_fixup_zone_maps(struct backup_info *info)
 	tot = mfs_volume_set_size ();
 
 	if (mfs_read_data ((void *)&vol, 0, 1) < 0)
+	{
+		info->lasterr = "Error truncating MFS volume.";
 		return -1;
+	}
 
 	cur = malloc (htonl (vol.hdr.zonemap.length) * 512);
 	if (!cur)
+	{
+		info->lasterr = "Memory exhausted.";
 		return -1;
+	}
 
 	if (mfs_read_data ((void *)cur, htonl (vol.hdr.zonemap.sector), htonl (vol.hdr.zonemap.length)) != htonl (vol.hdr.zonemap.length) * 512)
 	{
 		free (cur);
+		info->lasterr = "Error truncating MFS volume.";
 		return -1;
 	}
 
@@ -1165,10 +1243,14 @@ restore_fixup_zone_maps(struct backup_info *info)
 		cur = realloc (cur, length * 512);
 
 		if (!cur)
+		{
+			info->lasterr = "Memory exhausted.";
 			return -1;
+		}
 
 		if (mfs_read_data ((void *)cur, sector, length) != length * 512)
 		{
+			info->lasterr = "Error truncating MFS volume.";
 			free (cur);
 			return -1;
 		}
@@ -1185,6 +1267,7 @@ restore_fixup_zone_maps(struct backup_info *info)
 
 		if (mfs_write_data ((void *)cur, htonl (cur->sector), htonl (cur->length)) != htonl (cur->length) * 512 || mfs_write_data ((void *)cur, htonl (cur->sbackup), htonl (cur->length)) != htonl (cur->length) * 512)
 		{
+			info->lasterr = "Error truncating MFS volume.";
 			free (cur);
 			return -1;
 		}
@@ -1195,29 +1278,75 @@ restore_fixup_zone_maps(struct backup_info *info)
 }
 
 int
+restore_cleanup_parts(struct backup_info *info)
+{
+	unsigned int loop, loop2;
+	char buf[1024 * 1024];
+
+	bzero (buf, sizeof (buf));
+
+	for (loop = 2 - 1; loop < 10 - 1; loop++)
+	{
+		for (loop2 = 0; loop2 < info->nparts; loop2++)
+		{
+			if (info->parts[loop2].devno == 0 && info->parts[loop2].partno == loop + 1)
+				break;
+		}
+
+		if (loop2 >= info->nparts)
+		{
+			tpFILE *file = info->devs[0].files[loop];
+			int tot;
+
+			if (!file)
+				file = tivo_partition_open_direct (info->devs[0].devname, loop + 1, O_RDWR);
+			if (!file)
+			{
+				info->lasterr = "Error cleaning up partitions.";
+				return -1;
+			}
+
+			if (info->back_flags & RF_ZEROPART)
+				tot = tivo_partition_size (file);
+			else
+				tot = 2048 / 512;
+
+			for (loop2 = 0; loop2 < tot; loop2 += sizeof (buf))
+			{
+				int towrite;
+
+				towrite = loop2 + sizeof (buf) / 512 > tot? tot - loop2: sizeof (buf) / 512;
+				tivo_partition_write (file, buf, loop2, towrite);
+			}
+		}
+	}
+
+	return 0;
+}
+
+int
 restore_finish(struct backup_info *info)
 {
 	if (info->cursector != info->nsectors)
+	{
+		info->lasterr = "Premature end of backup data.";
 		return -1;
-
+	}
+	if (restore_cleanup_parts (info) < 0)
+		return -1;
 	if (restore_make_swap (info) < 0)
 		return -1;
-
 	if (restore_fixup_vol_list (info) < 0)
 		return -1;
-
 	if (restore_fixup_zone_maps (info) < 0)
 		return -1;
 
+	mfs_cleanup_volumes ();
 	setenv ("MFS_HDA", info->devs[0].devname, 1);
 	if (info->ndevs > 1)
 		setenv ("MFS_HDB", info->devs[1].devname, 1);
-
-	mfs_cleanup_volumes ();
-
 	if (mfs_init (O_RDWR) < 0)
 		return -1;
-
 	if (restore_fudge_inodes (info) < 0)
 		return -1;
 
