@@ -27,6 +27,7 @@ struct device_info
 struct backup_info
 {
 	char *lasterr;
+	struct mfs_handle *mfs;
 	int cursector;
 	int presector;
 	int ndevs;
@@ -42,6 +43,7 @@ struct backup_info
 	struct z_stream_s *comp;
 	char *comp_buf;
 #ifdef RESTORE
+	struct volume_handle *vols;
 	int nnewparts;
 	struct backup_partition *newparts;
 	int varsize;

@@ -41,5 +41,5 @@ endif
 bin_PROGRAMS = $(MFSAPPS)
 
 mfstool_SOURCES = mfstool.c
-mfstool_LDFLAGS += -L${top_builddir}/lib $(MFSTOOLS_BACKUP) $(MFSTOOLS_RESTORE) $(MFSTOOLS_MLS) $(MFSTOOLS_MFSD) $(MFSTOOLS_MFSADD) $(ZLIB) -lmfs
+mfstool_LDFLAGS += -L${top_builddir}/lib $(MFSTOOLS_BACKUP) $(MFSTOOLS_RESTORE) $(MFSTOOLS_MLS) $(MFSTOOLS_MFSD) $(MFSTOOLS_MFSADD) $(ZLIB) -lmfs -lmfsvol -lmacpart
 

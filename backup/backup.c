@@ -322,7 +322,7 @@ static struct blocklist *
 scan_inodes (struct backup_info *info)
 {
 	unsigned int loop, loop2, loop3;
-	int ninodes = mfs_inode_count ();
+	int ninodes = mfs_inode_count (info->mfs);
 	struct blocklist *blocks[32];
 	unsigned int partstart[32];
 	struct blocklist *pool = NULL;
@@ -330,7 +330,7 @@ scan_inodes (struct backup_info *info)
 
 	bzero (blocks, sizeof (blocks));
 
-	for (loop = 0, loop3 = 0; (loop2 = mfs_volume_size (loop)); loop += loop2, loop3++)
+	for (loop = 0, loop3 = 0; (loop2 = mfs_volume_size (info->mfs, loop)); loop += loop2, loop3++)
 	{
 		partstart[loop3] = loop;
 		blocks[loop3] = calloc (sizeof (**blocks), 1);
@@ -351,7 +351,7 @@ scan_inodes (struct backup_info *info)
 /* Add inodes. */
 	for (loop = 0; loop < ninodes; loop++)
 	{
-		mfs_inode *inode = mfs_read_inode (loop);
+		mfs_inode *inode = mfs_read_inode (info->mfs, loop);
 
 		if (inode)
 		{
@@ -412,7 +412,7 @@ scan_inodes (struct backup_info *info)
 	{
 		zone_header *hdr = 0;
 
-		while ((hdr = mfs_next_zone (hdr)) != 0)
+		while ((hdr = mfs_next_zone (info->mfs, hdr)) != 0)
 		{
 #if DEBUG
 			fprintf (stderr, "Checking zone at %d of type %d for region %d-%d\n", htonl (hdr->sector), htonl (hdr->type), htonl (hdr->first), htonl (hdr->last));
@@ -428,7 +428,7 @@ scan_inodes (struct backup_info *info)
 	}
 
 /* Put in the whole volumes. */
-	for (loop = 0, loop3 = 1; (loop2 = mfs_volume_size (loop)); loop += loop2, loop3 ^= 1)
+	for (loop = 0, loop3 = 1; (loop2 = mfs_volume_size (info->mfs, loop)); loop += loop2, loop3 ^= 1)
 	{
 		if (loop3)
 		{
@@ -466,7 +466,7 @@ add_mfs_partitions_to_backup_info (struct backup_info *info)
 	int loop;
 	unsigned int cursector = 0;
 
-	mfs_partitions = mfs_partition_list ();
+	mfs_partitions = mfs_partition_list (info->mfs);
 
 	if (info->nmfs == 0)
 	{
@@ -542,7 +542,7 @@ add_mfs_partitions_to_backup_info (struct backup_info *info)
 /* real partition size.  But thats okay, this means a little space can be */
 /* saved during the restore, if the partition table is re-created from */
 /* scratch. */
-		info->mfsparts[loop].sectors = mfs_volume_size (cursector);
+		info->mfsparts[loop].sectors = mfs_volume_size (info->mfs, cursector);
 		if (info->mfsparts[loop].sectors == 0)
 		{
 			info->lasterr = "Fatal error in MFS structure.";
@@ -739,17 +739,20 @@ init_backup (char *device, char *device2, int flags)
  	else
  		setenv ("MFS_HDB", "Second MFS drive", 1);
 
- 	if (mfs_init (O_RDONLY) < 0)
- 	{
- 		return 0;
-	}
- 
  	info = calloc (sizeof (*info), 1);
  
  	if (!info)
  	{
  		return 0;
  	}
+
+	info->mfs = mfs_init (O_RDONLY);
+ 	if (!info->mfs)
+ 	{
+		free (info);
+ 		return 0;
+	}
+ 
  
  	info->back_flags = flags;
 
@@ -911,7 +914,7 @@ backup_next_sectors (struct backup_info *info, char *buf, int sectors)
 					}
 
 /* Read the data. */
-					if (mfs_read_data (buf, info->blocks[loop].firstsector + cursector, tocopy) < 0)
+					if (mfs_read_data (info->mfs, buf, info->blocks[loop].firstsector + cursector, tocopy) < 0)
 					{
 						info->lasterr = "Error backing up MFS data.";
 						return -1;

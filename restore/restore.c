@@ -52,6 +52,12 @@ init_restore (unsigned int flags)
 	info->presector = 1;
 	info->nsectors = 1;
 	info->back_flags = flags;
+	info->vols = mfsvol_init();
+	if (!info->vols)
+	{
+		free (info);
+		return 0;
+	}
 	return info;
 }
 
@@ -196,7 +202,7 @@ restore_next_sectors (struct backup_info *info, char *buf, int sectors)
 					int partno = info->mfsparts[loop].partno;
 
 					sprintf (devname, "%s%d", info->devs[devno].devname, partno);
-					mfs_add_volume (devname, O_RDWR);
+					mfsvol_add_volume (info->vols, devname, O_RDWR);
 				}
 			}
 
@@ -221,7 +227,7 @@ restore_next_sectors (struct backup_info *info, char *buf, int sectors)
 					}
 
 /* Read the data. */
-					if (mfs_write_data (buf, info->blocks[loop].firstsector + cursector, tocopy) < 0)
+					if (mfsvol_write_data (info->vols, buf, info->blocks[loop].firstsector + cursector, tocopy) < 0)
 					{
 						info->lasterr = "Error restoring MFS data.";
 						return -1;
@@ -1310,12 +1316,12 @@ restore_fudge_inodes (struct backup_info *info)
 	if (!(info->back_flags & BF_SHRINK))
 		return 0;
 
-	count = mfs_inode_count ();
-	total = mfs_volume_set_size ();
+	count = mfs_inode_count (info->mfs);
+	total = mfs_volume_set_size (info->mfs);
 
 	for (loop = 0; loop < count; loop++)
 	{
-		mfs_inode *inode = mfs_read_inode (loop);
+		mfs_inode *inode = mfs_read_inode (info->mfs, loop);
 
 		if (inode)
 		{
@@ -1338,7 +1344,7 @@ restore_fudge_inodes (struct backup_info *info)
 				}
 
 				if (changed)
-					if (mfs_write_inode (inode) < 0)
+					if (mfs_write_inode (info->mfs, inode) < 0)
 					{
 						info->lasterr = "Error fixing up inodes.";
 						return -1;
@@ -1454,13 +1460,13 @@ restore_fudge_transactions (struct backup_info *info)
 	if (!(info->back_flags & BF_SHRINK))
 		return 0;
 
-	volsize = mfs_volume_set_size ();
+	volsize = mfs_volume_set_size (info->mfs);
 
-	curlog = mfs_log_last_sync ();
+	curlog = mfs_log_last_sync (info->mfs);
 
 	hdrs[0]->logstamp = hdrs[1]->logstamp = htonl (curlog - 2);
 
-	while ((result = mfs_log_read (bufs[bufno], curlog)) > 0)
+	while ((result = mfs_log_read (info->mfs, bufs[bufno], curlog)) > 0)
 	{
 		unsigned int size = htonl (hdrs[bufno]->size);
 		unsigned int start;
@@ -1516,7 +1522,7 @@ restore_fudge_transactions (struct backup_info *info)
 						if (newsize > 0)
 							memcpy (cur, tmp, newsize);
 						bzero ((char *)cur + newsize, 0x1f0 - size2);
-						if (mfs_log_write (bufs[bufno ^ 1]) != 512)
+						if (mfs_log_write (info->mfs, bufs[bufno ^ 1]) != 512)
 						{
 							perror ("mfs_log_write");
 							return -1;
@@ -1554,7 +1560,7 @@ restore_fudge_transactions (struct backup_info *info)
 		{
 			bzero (bufs[bufno] + size + 16, htonl (hdrs[bufno]->size) - size);
 			hdrs[bufno]->size = htonl (size);
-			if (mfs_log_write (bufs[bufno]) != 512)
+			if (mfs_log_write (info->mfs, bufs[bufno]) != 512)
 			{
 				perror ("mfs_log_write");
 				return -1;
@@ -1577,7 +1583,7 @@ restore_fixup_vol_list (struct backup_info *info)
 		char pad[512];
 	} vol;
 
-	if (mfs_read_data ((void *)&vol, 0, 1) != 512)
+	if (mfsvol_read_data (info->vols, (void *)&vol, 0, 1) != 512)
 	{
 		info->lasterr = "Error fixing volume list.";
 		return -1;
@@ -1596,11 +1602,11 @@ restore_fixup_vol_list (struct backup_info *info)
 		return -1;
 	}
 
-	vol.hdr.total_sectors = htonl (mfs_volume_set_size ());
+	vol.hdr.total_sectors = htonl (mfsvol_volume_set_size (info->vols));
 
 	MFS_update_crc (&vol.hdr, sizeof (vol.hdr), vol.hdr.checksum);
 
-	if (mfs_write_data ((void *)&vol, 0, 1) != 512 || mfs_write_data ((void *)&vol, mfs_volume_size (0) - 1, 1) != 512)
+	if (mfsvol_write_data (info->vols, (void *)&vol, 0, 1) != 512 || mfsvol_write_data (info->vols, (void *)&vol, mfsvol_volume_size (info->vols, 0) - 1, 1) != 512)
 	{
 		info->lasterr = "Error writing changes to volume header.";
 		return -1;
@@ -1622,9 +1628,9 @@ restore_fixup_zone_maps(struct backup_info *info)
 	if (!(info->back_flags & BF_SHRINK))
 		return 0;
 
-	tot = mfs_volume_set_size ();
+	tot = mfsvol_volume_set_size (info->vols);
 
-	if (mfs_read_data ((void *)&vol, 0, 1) < 0)
+	if (mfsvol_read_data (info->vols, (void *)&vol, 0, 1) < 0)
 	{
 		info->lasterr = "Error truncating MFS volume.";
 		return -1;
@@ -1637,7 +1643,7 @@ restore_fixup_zone_maps(struct backup_info *info)
 		return -1;
 	}
 
-	if (mfs_read_data ((void *)cur, htonl (vol.hdr.zonemap.sector), htonl (vol.hdr.zonemap.length)) != htonl (vol.hdr.zonemap.length) * 512)
+	if (mfsvol_read_data (info->vols, (void *)cur, htonl (vol.hdr.zonemap.sector), htonl (vol.hdr.zonemap.length)) != htonl (vol.hdr.zonemap.length) * 512)
 	{
 		free (cur);
 		info->lasterr = "Error truncating MFS volume.";
@@ -1657,7 +1663,7 @@ restore_fixup_zone_maps(struct backup_info *info)
 			return -1;
 		}
 
-		if (mfs_read_data ((void *)cur, sector, length) != length * 512)
+		if (mfsvol_read_data (info->vols, (void *)cur, sector, length) != length * 512)
 		{
 			info->lasterr = "Error truncating MFS volume.";
 			free (cur);
@@ -1674,7 +1680,7 @@ restore_fixup_zone_maps(struct backup_info *info)
 
 		MFS_update_crc (cur, htonl (cur->length) * 512, cur->checksum);
 
-		if (mfs_write_data ((void *)cur, htonl (cur->sector), htonl (cur->length)) != htonl (cur->length) * 512 || mfs_write_data ((void *)cur, htonl (cur->sbackup), htonl (cur->length)) != htonl (cur->length) * 512)
+		if (mfsvol_write_data (info->vols, (void *)cur, htonl (cur->sector), htonl (cur->length)) != htonl (cur->length) * 512 || mfsvol_write_data (info->vols, (void *)cur, htonl (cur->sbackup), htonl (cur->length)) != htonl (cur->length) * 512)
 		{
 			info->lasterr = "Error truncating MFS volume.";
 			free (cur);
@@ -1750,11 +1756,13 @@ restore_finish(struct backup_info *info)
 	if (restore_fixup_zone_maps (info) < 0)
 		return -1;
 
-	mfs_cleanup_volumes ();
+	mfsvol_cleanup (info->vols);
+	info->vols = 0;
 	setenv ("MFS_HDA", info->devs[0].devname, 1);
 	if (info->ndevs > 1)
 		setenv ("MFS_HDB", info->devs[1].devname, 1);
-	if (mfs_init (O_RDWR) < 0)
+	info->mfs = mfs_init (O_RDWR);
+	if (!info->mfs)
 		return -1;
 	if (restore_fudge_inodes (info) < 0)
 		return -1;

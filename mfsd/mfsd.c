@@ -9,6 +9,8 @@
 
 char *progname;
 
+static struct mfs_handle *mfs;
+
 static void
 usage ()
 {
@@ -137,11 +139,11 @@ mfsd_main (int argc, char **argv)
 		return 4;
 	}
 
-	mfs_init (O_RDONLY);
+	mfs = mfs_init (O_RDONLY);
 
 	if (fsid)
 	{
-		inode_buf = mfs_read_inode_by_fsid (fsid);
+		inode_buf = mfs_read_inode_by_fsid (mfs, fsid);
 		if (!inode_buf)
 		{
 			fprintf (stderr, "Unable to read fsid %d\n", fsid);
@@ -152,7 +154,7 @@ mfsd_main (int argc, char **argv)
 	}
 	else if (inode != 0xdeadbeef)
 	{
-		inode_buf = mfs_read_inode (inode);
+		inode_buf = mfs_read_inode (mfs, inode);
 		if (!inode_buf)
 		{
 			fprintf (stderr, "Unable to read inode %d\n", inode);
@@ -174,7 +176,7 @@ mfsd_main (int argc, char **argv)
 
 		if (inode_buf)
 		{
-			int nread = mfs_read_inode_data_part (inode_buf, buf, sector, count);
+			int nread = mfs_read_inode_data_part (mfs, inode_buf, buf, sector, count);
 			if (nread <= 0)
 			{
 				fprintf (stderr, "Error from mfs_read_inode_data_part\n");
@@ -184,7 +186,7 @@ mfsd_main (int argc, char **argv)
 		}
 		else
 		{
-			int nread = mfs_read_data (buf, sector, count);
+			int nread = mfs_read_data (mfs, buf, sector, count);
 
 			if (nread <= 0)
 			{

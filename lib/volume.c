@@ -21,13 +21,6 @@
 #include "mfs.h"
 #include "macpart.h"
 
-/* Some static variables..  Really this should be a class and these */
-/* private members. */
-static struct volume_info *volumes = NULL;
-static int fake_write;
-
-volume_header vol_hdr;
-
 /***********************************************************************/
 /* Translate a device name from the TiVo view of the world to reality, */
 /* allowing relocating of MFS volumes by setting MFS_... variables. */
@@ -38,7 +31,7 @@ volume_header vol_hdr;
 /* with RO: the device or file will be opened O_RDONLY no matter what the */
 /* requested mode was. */
 char *
-mfs_device_translate (char *dev)
+mfsvol_device_translate (char *dev)
 {
 	static char devname[1024];
 	int dev_len = strcspn (dev, " ");
@@ -85,7 +78,7 @@ mfs_device_translate (char *dev)
 /***************************************************************************/
 /* Add a volume to the internal list of open volumes.  Open it with flags. */
 int
-mfs_add_volume (char *path, int flags)
+mfsvol_add_volume (struct volume_handle *hnd, char *path, int flags)
 {
 	struct volume_info *newvol;
 	struct volume_info **loop;
@@ -99,12 +92,12 @@ mfs_add_volume (char *path, int flags)
 	}
 
 /* Translate the device name to it's real world equivelent. */
-	path = mfs_device_translate (path);
+	path = mfsvol_device_translate (path);
 
 /* If the user requested RO, let them have it.  This may break a writer */
 /* program, but thats what it is intended to do.  Also if fake_write is set, */
 /* set RO as well, for the actual file, just in case. */
-	if (fake_write || !strncmp (path, "RO:", 3))
+	if (hnd->fake_write || !strncmp (path, "RO:", 3))
 	{
 		path += 3;
 		flags = (flags & ~O_ACCMODE) | O_RDONLY;
@@ -120,7 +113,7 @@ mfs_add_volume (char *path, int flags)
 	}
 
 /* If read-only was requested, make it so, unless fake_write was selected. */
-	if ((flags & O_ACCMODE) == O_RDONLY && !fake_write)
+	if ((flags & O_ACCMODE) == O_RDONLY && !hnd->fake_write)
 	{
 		newvol->vol_flags |= VOL_RDONLY;
 	}
@@ -145,7 +138,7 @@ mfs_add_volume (char *path, int flags)
 	}
 
 /* Add it to the tail of the volume list. */
-	for (loop = &volumes; *loop; loop = &(*loop)->next)
+	for (loop = &hnd->volumes; *loop; loop = &(*loop)->next)
 	{
 		newvol->start = (*loop)->start + (*loop)->sectors;
 	}
@@ -158,12 +151,12 @@ mfs_add_volume (char *path, int flags)
 /*******************************************************/
 /* Return the volume info for the volume sector is in. */
 struct volume_info *
-mfs_get_volume (unsigned int sector)
+mfsvol_get_volume (struct volume_handle *hnd, unsigned int sector)
 {
 	struct volume_info *vol;
 
 /* Find the volume this sector is from in the table of open volumes. */
-	for (vol = volumes; vol; vol = vol->next)
+	for (vol = hnd->volumes; vol; vol = vol->next)
 	{
 		if (vol->start <= sector && vol->start + vol->sectors > sector)
 		{
@@ -177,12 +170,12 @@ mfs_get_volume (unsigned int sector)
 /*************************************************/
 /* Return the size of volume starting at sector. */
 unsigned int
-mfs_volume_size (unsigned int sector)
+mfsvol_volume_size (struct volume_handle *hnd, unsigned int sector)
 {
 	struct volume_info *vol;
 
 /* Find the volume this sector is from in the table of open volumes. */
-	for (vol = volumes; vol; vol = vol->next)
+	for (vol = hnd->volumes; vol; vol = vol->next)
 	{
 		if (vol->start == sector)
 		{
@@ -201,12 +194,12 @@ mfs_volume_size (unsigned int sector)
 /**********************************************/
 /* Return the size of all loaded volume sets. */
 unsigned int
-mfs_volume_set_size ()
+mfsvol_volume_set_size (struct volume_handle *hnd)
 {
 	struct volume_info *vol;
 	int total = 0;
 
-	for (vol = volumes; vol; vol = vol->next)
+	for (vol = hnd->volumes; vol; vol = vol->next)
 	{
 		total += vol->sectors;
 	}
@@ -218,15 +211,15 @@ mfs_volume_set_size ()
 /* Verify that a sector is writable.  This should be done for all groups of */
 /* sectors to be written, since individual volumes can be opened RDONLY. */
 int
-mfs_is_writable (unsigned int sector)
+mfsvol_is_writable (struct volume_handle *hnd, unsigned int sector)
 {
 	struct volume_info *vol;
 
-	vol = mfs_get_volume (sector);
+	vol = mfsvol_get_volume (hnd, sector);
 
 	if (!vol || vol->vol_flags & VOL_RDONLY)
 	{
-		return fake_write;
+		return hnd->fake_write;
 	}
 
 	return 1;
@@ -235,112 +228,31 @@ mfs_is_writable (unsigned int sector)
 /***********************************************/
 /* Free space used by the volumes linked list. */
 void
-mfs_cleanup_volumes ()
+mfsvol_cleanup (struct volume_handle *hnd)
 {
-	while (volumes)
+	while (hnd->volumes)
 	{
 		struct volume_info *cur;
 
-		cur = volumes;
-		volumes = volumes->next;
+		cur = hnd->volumes;
+		hnd->volumes = hnd->volumes->next;
 
 		tivo_partition_close (cur->file);
 		free (cur);
 	}
-}
 
-/**************************************/
-/* Load and verify the volume header. */
-int
-mfs_load_volume_header (int flags)
-{
-	unsigned char buf[512];
-	unsigned char *volume_names;
-	unsigned int total_sectors = 0;
-	struct volume_info *vol;
-
-/* Read in the volume header. */
-	if (mfs_read_data (buf, 0, 1) != 512)
-	{
-		perror ("mfs_load_volume_header: mfs_read_data");
-		return -1;
-	}
-
-/* Copy it into the static space.  This is needed since mfs_read_data must */
-/* read even sectors. */
-	memcpy ((void *) &vol_hdr, buf, sizeof (vol_hdr));
-
-/* Verify the checksum. */
-	if (!MFS_check_crc (&vol_hdr, sizeof (vol_hdr), vol_hdr.checksum))
-	{
-		fprintf (stderr, "Primary volume header corrupt, trying backup.\n");
-/* If the checksum doesn't match, try the backup. */
-		if (mfs_read_data (buf, volumes->sectors - 1, 1) != 512)
-		{
-			perror ("mfs_load_volume_header: mfs_read_data");
-			return -1;
-		}
-
-		memcpy ((void *) &vol_hdr, buf, sizeof (vol_hdr));
-
-		if (!MFS_check_crc (&vol_hdr, sizeof (vol_hdr), vol_hdr.checksum))
-		{
-/* Backup checksum doesn't match either.  It's the end of the world! */
-			fprintf (stderr, "Secondary volume header corrupt, giving up.\n");
-			fprintf (stderr, "mfs_load_volume_header: Bad checksum.\n");
-			return -1;
-		}
-	}
-
-/* Load the partition list from MFS. */
-	volume_names = vol_hdr.partitionlist;
-
-/* Skip the first volume since it's already loaded. */
-	if (*volume_names)
-	{
-		volume_names += strcspn (volume_names, " \t\r\n");
-		volume_names += strspn (volume_names, " \t\r\n");
-	}
-
-/* If theres more volumes, add each one in turn.  When mfs_add_volume calls */
-/* mfs_device_translate, it will take care of seperating out one device. */
-	while (*volume_names)
-	{
-		if (mfs_add_volume (volume_names, flags) < 0)
-		{
-			return -1;
-		}
-
-/* Skip the device just loaded. */
-		volume_names += strcspn (volume_names, " \t\r\n");
-		volume_names += strspn (volume_names, " \t\r\n");
-	}
-
-/* Count the total number of sectors in the volume set. */
-	for (vol = volumes; vol; vol = vol->next)
-	{
-		total_sectors += vol->sectors;
-	}
-
-/* If the sectors mismatch, report it.. But continue anyway. */
-	if (total_sectors != htonl (vol_hdr.total_sectors))
-	{
-		fprintf (stderr, "mfs_load_volume_header: Total sectors(%u) mismatch with volume header (%d)\n", total_sectors, htonl (vol_hdr.total_sectors));
-		fprintf (stderr, "mfs_load_volume_header: Loading anyway.\n");
-	}
-
-	return total_sectors;
+	free (hnd);
 }
 
 /*****************************************************************************/
 /* Read data from the MFS volume set.  It must be in whole sectors, and must */
 /* not cross a volume boundry. */
 int
-mfs_read_data (void *buf, unsigned int sector, int count)
+mfsvol_read_data (struct volume_handle *hnd, void *buf, unsigned int sector, int count)
 {
 	struct volume_info *vol;
 
-	vol = mfs_get_volume (sector);
+	vol = mfsvol_get_volume (hnd, sector);
 
 /* If no volumes claim this sector, it's an IO error. */
 	if (!vol)
@@ -400,11 +312,11 @@ hexdump (unsigned char *buf, unsigned int sector)
 /* Write data to the MFS volume set.  It must be in whole sectors, and must */
 /* not cross a volume boundry. */
 int
-mfs_write_data (void *buf, unsigned int sector, int count)
+mfsvol_write_data (struct volume_handle *hnd, void *buf, unsigned int sector, int count)
 {
 	struct volume_info *vol;
 
-	vol = mfs_get_volume (sector);
+	vol = mfsvol_get_volume (hnd, sector);
 
 /* If no volumes claim this sector, it's an IO error. */
 	if (!vol)
@@ -413,7 +325,7 @@ mfs_write_data (void *buf, unsigned int sector, int count)
 		return -1;
 	}
 
-	if (fake_write)
+	if (hnd->fake_write)
 	{
 		int loop;
 		for (loop = 0; loop < count; loop++)
@@ -428,7 +340,7 @@ mfs_write_data (void *buf, unsigned int sector, int count)
 /* instead, useful for debug? */
 	if (vol->vol_flags & VOL_RDONLY)
 	{
-		fprintf (stderr, "mfs_write_data: Attempt to write to read-only volume. \n");
+		fprintf (stderr, "mfsvol_write_data: Attempt to write to read-only volume. \n");
 		errno = EPERM;
 		return -1;
 	}
@@ -446,24 +358,22 @@ mfs_write_data (void *buf, unsigned int sector, int count)
 	return tivo_partition_write (vol->file, buf, sector, count);
 }
 
-/***********************************************************************/
-/* Return the list of partitions from the volume header.  That is all. */
-char *
-mfs_partition_list ()
-{
-	return vol_hdr.partitionlist;
-}
-
 /******************************************************************************/
 /* Just a quick init.  All it really does is scan for the env MFS_FAKE_WRITE. */
-int
-mfs_readwrite_init ()
+struct volume_handle *
+mfsvol_init ()
 {
 	char *fake = getenv ("MFS_FAKE_WRITE");
+	struct volume_handle *hnd;
+
+	hnd = calloc (sizeof (*hnd), 1);
+	if (!hnd)
+		return hnd;
+
 	if (fake && *fake)
 	{
-		fake_write = 1;
+		hnd->fake_write = 1;
 	}
 
-	return 0;
+	return hnd;
 }

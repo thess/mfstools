@@ -20,15 +20,10 @@
 
 #include "mfs.h"
 
-/* Some static variables..  Really this should be a class and these */
-/* private members. */
-static struct zone_map_head zones[ztMax] = { {0, 0, NULL}, {0, 0, NULL}, {0, 0, NULL} };
-static struct zone_map *loaded_zones = NULL;
-
 zone_header *
-mfs_next_zone (zone_header *cur)
+mfs_next_zone (struct mfs_handle *mfshnd, zone_header *cur)
 {
-	struct zone_map *loop = loaded_zones;
+	struct zone_map *loop = mfshnd->loaded_zones;
 
 	if (!cur && loop)
 		return loop->map;
@@ -47,20 +42,20 @@ mfs_next_zone (zone_header *cur)
 /* Return the count of inodes.  Each inode is 2 sectors, so the count is the */
 /* size of the inode zone maps divided by 2. */
 unsigned int
-mfs_inode_count ()
+mfs_inode_count (struct mfs_handle *mfshnd)
 {
-	return zones[ztInode].size / 2;
+	return mfshnd->zones[ztInode].size / 2;
 }
 
 /****************************************/
 /* Find the sector number for an inode. */
 unsigned int
-mfs_inode_to_sector (unsigned int inode)
+mfs_inode_to_sector (struct mfs_handle *mfshnd, unsigned int inode)
 {
 	struct zone_map *cur;
 
 /* Don't bother if it's not a valid inode. */
-	if (inode >= mfs_inode_count ())
+	if (inode >= mfs_inode_count (mfshnd))
 	{
 		return 0;
 	}
@@ -70,7 +65,7 @@ mfs_inode_to_sector (unsigned int inode)
 	inode *= 2;
 
 /* Loop through each inode map, seeing if the current inode is within it. */
-	for (cur = zones[ztInode].next; cur; cur = cur->next)
+	for (cur = mfshnd->zones[ztInode].next; cur; cur = cur->next)
 	{
 		if (inode < htonl (cur->map->size))
 		{
@@ -126,7 +121,7 @@ mfs_new_zone_map_size (unsigned int blocks)
 /* Create a new zone map at the requested sector, pointing to the requested */
 /* sector, and link it in. */
 static int
-mfs_new_zone_map (unsigned int sector, unsigned int backup, unsigned int first, unsigned int size, unsigned int minalloc, zone_type type)
+mfs_new_zone_map (struct mfs_handle *mfshnd, unsigned int sector, unsigned int backup, unsigned int first, unsigned int size, unsigned int minalloc, zone_type type)
 {
 	unsigned int blocks = size / minalloc;
 	int zonesize = (mfs_new_zone_map_size (blocks) + 511) & ~511;
@@ -144,7 +139,7 @@ mfs_new_zone_map (unsigned int sector, unsigned int backup, unsigned int first, 
 	size = size & ~(minalloc - 1);
 
 /* Find the last loaded zone. */
-	for (cur = loaded_zones; cur->next_loaded; cur = cur->next_loaded);
+	for (cur = mfshnd->loaded_zones; cur->next_loaded; cur = cur->next_loaded);
 
 	if (!cur)
 	{
@@ -269,10 +264,10 @@ mfs_new_zone_map (unsigned int sector, unsigned int backup, unsigned int first, 
 
 /* Write the changes, with the changes to live MFS last.  This should use */
 /* the journaling facilities, but I don't know how. */
-	mfs_write_data (zone, htonl (zone->sector), htonl (zone->length));
-	mfs_write_data (zone, htonl (zone->sbackup), htonl (zone->length));
-	mfs_write_data (last, htonl (last->sector), htonl (last->length));
-	mfs_write_data (last, htonl (last->sbackup), htonl (last->length));
+	mfsvol_write_data (mfshnd->vols, zone, htonl (zone->sector), htonl (zone->length));
+	mfsvol_write_data (mfshnd->vols, zone, htonl (zone->sbackup), htonl (zone->length));
+	mfsvol_write_data (mfshnd->vols, last, htonl (last->sector), htonl (last->length));
+	mfsvol_write_data (mfshnd->vols, last, htonl (last->sbackup), htonl (last->length));
 
 	return 0;
 }
@@ -281,7 +276,7 @@ mfs_new_zone_map (unsigned int sector, unsigned int backup, unsigned int first, 
 /* Add a new set of partitions to the MFS volume set.  In other words, */
 /* mfsadd. */
 int
-mfs_add_volume_pair (char *app, char *media, unsigned int minalloc)
+mfsvol_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsigned int minalloc)
 {
 	struct zone_map *cur;
 	int fdApp, fdMedia;
@@ -297,7 +292,7 @@ mfs_add_volume_pair (char *app, char *media, unsigned int minalloc)
 	}
 
 /* Make sure the volumes being added don't overflow the 128 bytes. */
-	if (strlen (vol_hdr.partitionlist) + strlen (app) + strlen (media) + 3 >= 128)
+	if (strlen (mfshnd->vol_hdr.partitionlist) + strlen (app) + strlen (media) + 3 >= 128)
 	{
 		fprintf (stderr, "No space in volume list for new volumes.\n");
 		return -1;
@@ -305,31 +300,31 @@ mfs_add_volume_pair (char *app, char *media, unsigned int minalloc)
 
 /* Make sure block 0 is writable.  It wouldn't do to get all the way to */
 /* the end and not be able to update the volume header. */
-	if (!mfs_is_writable (0))
+	if (!mfsvol_is_writable (mfshnd->vols, 0))
 	{
-		fprintf (stderr, "mfs_add_volume_pair: Readonly volume set.\n");
+		fprintf (stderr, "mfsvol_add_volume_pair: Readonly volume set.\n");
 		return -1;
 	}
 
 /* Walk the list of zone maps to find the last loaded zone map. */
-	for (cur = loaded_zones; cur && cur->next_loaded; cur = cur->next_loaded);
+	for (cur = mfshnd->loaded_zones; cur && cur->next_loaded; cur = cur->next_loaded);
 
 /* For cur to be null, it must have never been set. */
 	if (!cur)
 	{
-		fprintf (stderr, "mfs_add_volume_pair: Zone maps not loaded?\n");
+		fprintf (stderr, "mfsvol_add_volume_pair: Zone maps not loaded?\n");
 		return -1;
 	}
 
 /* Check that the last zone map is writable.  This is needed for adding the */
 /* new pointer. */
-	if (!mfs_is_writable (htonl (cur->map->sector)))
+	if (!mfsvol_is_writable (mfshnd->vols, htonl (cur->map->sector)))
 	{
-		fprintf (stderr, "mfs_add_volume_pair: Readonly volume set.\n");
+		fprintf (stderr, "mfsvol_add_volume_pair: Readonly volume set.\n");
 		return -1;
 	}
 
-	tmp = mfs_device_translate (app);
+	tmp = mfsvol_device_translate (app);
 	fdApp = open (tmp, O_RDWR);
 	if (fdApp < 0)
 	{
@@ -337,7 +332,7 @@ mfs_add_volume_pair (char *app, char *media, unsigned int minalloc)
 		return -1;
 	}
 
-	tmp = mfs_device_translate (tmp);
+	tmp = mfsvol_device_translate (tmp);
 	fdMedia = open (tmp, O_RDWR);
 	if (fdMedia < 0)
 	{
@@ -348,51 +343,51 @@ mfs_add_volume_pair (char *app, char *media, unsigned int minalloc)
 	close (fdApp);
 	close (fdMedia);
 
-	appstart = mfs_add_volume (app, O_RDWR);
-	mediastart = mfs_add_volume (media, O_RDWR);
+	appstart = mfsvol_add_volume (mfshnd->vols, app, O_RDWR);
+	mediastart = mfsvol_add_volume (mfshnd->vols, media, O_RDWR);
 
 	if (appstart < 0 || mediastart < 0)
 	{
-		fprintf (stderr, "mfs_add_volume_pair: Error adding new volumes to set.\n");
-		mfs_reinit (O_RDWR);
+		fprintf (stderr, "mfsvol_add_volume_pair: Error adding new volumes to set.\n");
+		mfs_reinit (mfshnd, O_RDWR);
 		return -1;
 	}
 
-	if (!mfs_is_writable (appstart) || !mfs_is_writable (mediastart))
+	if (!mfsvol_is_writable (mfshnd->vols, appstart) || !mfsvol_is_writable (mfshnd->vols, mediastart))
 	{
-		fprintf (stderr, "mfs_add_volume_pair: Could not add new volumes writable.\n");
-		mfs_reinit (O_RDWR);
+		fprintf (stderr, "mfsvol_add_volume_pair: Could not add new volumes writable.\n");
+		mfs_reinit (mfshnd, O_RDWR);
 		return -1;
 	}
 
-	appsize = mfs_volume_size (appstart);
-	mediasize = mfs_volume_size (mediastart);
+	appsize = mfsvol_volume_size (mfshnd->vols, appstart);
+	mediasize = mfsvol_volume_size (mfshnd->vols, mediastart);
 	mapsize = (mfs_new_zone_map_size (mediasize / minalloc) + 511) / 512;
 
 	if (mapsize * 2 + 2 > appsize)
 	{
-		fprintf (stderr, "mfs_add_volume_pair: New app size too small!  (Need %d more bytes)\n", (mapsize * 2 + 2 - appsize) * 512);
-		mfs_reinit (O_RDWR);
+		fprintf (stderr, "mfsvol_add_volume_pair: New app size too small!  (Need %d more bytes)\n", (mapsize * 2 + 2 - appsize) * 512);
+		mfs_reinit (mfshnd, O_RDWR);
 		return -1;
 	}
 
-	if (mfs_new_zone_map (appstart + 1, appstart + appsize - mapsize - 1, mediastart, mediasize, minalloc, ztMedia) < 0)
+	if (mfs_new_zone_map (mfshnd, appstart + 1, appstart + appsize - mapsize - 1, mediastart, mediasize, minalloc, ztMedia) < 0)
 	{
-		fprintf (stderr, "mfs_add_volume_pair: Failed initializing new zone map.\n");
-		mfs_reinit (O_RDWR);
+		fprintf (stderr, "mfsvol_add_volume_pair: Failed initializing new zone map.\n");
+		mfs_reinit (mfshnd, O_RDWR);
 		return -1;
 	}
 
-	sprintf (foo, "%s %s %s", vol_hdr.partitionlist, app, media);
+	sprintf (foo, "%s %s %s", mfshnd->vol_hdr.partitionlist, app, media);
 	foo[127] = 0;
-	strcpy (vol_hdr.partitionlist, foo);
-	vol_hdr.total_sectors = htonl (mfs_volume_set_size ());
-	MFS_update_crc (&vol_hdr, sizeof (vol_hdr), vol_hdr.checksum);
+	strcpy (mfshnd->vol_hdr.partitionlist, foo);
+	mfshnd->vol_hdr.total_sectors = htonl (mfsvol_volume_set_size (mfshnd->vols));
+	MFS_update_crc (&mfshnd->vol_hdr, sizeof (mfshnd->vol_hdr), mfshnd->vol_hdr.checksum);
 
 	memset (foo, 0, sizeof (foo));
-	memcpy (foo, &vol_hdr, sizeof (vol_hdr));
-	mfs_write_data (foo, 0, 1);
-	mfs_write_data (foo, mfs_volume_size (0) - 1, 1);
+	memcpy (foo, &mfshnd->vol_hdr, sizeof (mfshnd->vol_hdr));
+	mfsvol_write_data (mfshnd->vols, foo, 0, 1);
+	mfsvol_write_data (mfshnd->vols, foo, mfsvol_volume_size (mfshnd->vols, 0) - 1, 1);
 
 	return 0;
 }
@@ -400,29 +395,29 @@ mfs_add_volume_pair (char *app, char *media, unsigned int minalloc)
 /******************************************/
 /* Free the memory used by the zone maps. */
 void
-mfs_cleanup_zone_maps ()
+mfs_cleanup_zone_maps (struct mfs_handle *mfshnd)
 {
 	int loop;
 
 	for (loop = 0; loop < ztMax; loop++)
 	{
-		while (zones[loop].next)
+		while (mfshnd->zones[loop].next)
 		{
-			struct zone_map *map = zones[loop].next;
+			struct zone_map *map = mfshnd->zones[loop].next;
 
-			zones[loop].next = map->next;
+			mfshnd->zones[loop].next = map->next;
 			free (map->map);
 			free (map);
 		}
 	}
 
-	loaded_zones = NULL;
+	mfshnd->loaded_zones = NULL;
 }
 
 /*************************************************************/
 /* Load a zone map from the drive and verify it's integrity. */
 static zone_header *
-mfs_load_zone_map (zone_map_ptr * ptr)
+mfs_load_zone_map (struct mfs_handle *mfshnd, zone_map_ptr * ptr)
 {
 	zone_header *hdr = calloc (htonl (ptr->length), 512);
 
@@ -432,14 +427,14 @@ mfs_load_zone_map (zone_map_ptr * ptr)
 	}
 
 /* Read the map. */
-	mfs_read_data ((unsigned char *) hdr, htonl (ptr->sector), htonl (ptr->length));
+	mfsvol_read_data (mfshnd->vols, (unsigned char *) hdr, htonl (ptr->sector), htonl (ptr->length));
 
 /* Verify the CRC matches. */
 	if (!MFS_check_crc ((unsigned char *) hdr, htonl (ptr->length) * 512, hdr->checksum))
 	{
 		fprintf (stderr, "mfs_load_zone_map: Primary zone map corrupt, loading backup.\n");
 /* If the CRC doesn't match, try the backup map. */
-		mfs_read_data ((unsigned char *) hdr, htonl (ptr->sbackup), htonl (ptr->length));
+		mfsvol_read_data (mfshnd->vols, (unsigned char *) hdr, htonl (ptr->sbackup), htonl (ptr->length));
 		if (!MFS_check_crc ((unsigned char *) hdr, htonl (ptr->length) * 512, hdr->checksum))
 		{
 			fprintf (stderr, "mfs_load_zone_map: Secondary zone map corrupt, giving up.\n");
@@ -456,21 +451,21 @@ mfs_load_zone_map (zone_map_ptr * ptr)
 /***************************/
 /* Load the zone map list. */
 int
-mfs_load_zone_maps ()
+mfs_load_zone_maps (struct mfs_handle *mfshnd)
 {
-	zone_map_ptr *ptr = &vol_hdr.zonemap;
+	zone_map_ptr *ptr = &mfshnd->vol_hdr.zonemap;
 	zone_header *cur;
-	struct zone_map **loaded_head = &loaded_zones;
+	struct zone_map **loaded_head = &mfshnd->loaded_zones;
 	struct zone_map **cur_heads[ztMax];
 	int loop;
 
 /* Start clean. */
-	mfs_cleanup_zone_maps ();
-	memset (zones, 0, sizeof (zones));
+	mfs_cleanup_zone_maps (mfshnd);
+	memset (mfshnd->zones, 0, sizeof (mfshnd->zones));
 
 	for (loop = 0; loop < ztMax; loop++)
 	{
-		cur_heads[loop] = &zones[loop].next;
+		cur_heads[loop] = &mfshnd->zones[loop].next;
 	}
 
 	loop = 0;
@@ -480,7 +475,7 @@ mfs_load_zone_maps ()
 		struct zone_map *newmap;
 
 /* Read the map, verify it's checksum. */
-		cur = mfs_load_zone_map (ptr);
+		cur = mfs_load_zone_map (mfshnd, ptr);
 
 		if (!cur)
 		{
@@ -511,8 +506,8 @@ mfs_load_zone_maps ()
 		*loaded_head = newmap;
 		loaded_head = &newmap->next_loaded;
 /* And add it to the totals. */
-		zones[htonl (cur->type)].size += htonl (cur->size);
-		zones[htonl (cur->type)].free += htonl (cur->free);
+		mfshnd->zones[htonl (cur->type)].size += htonl (cur->size);
+		mfshnd->zones[htonl (cur->type)].free += htonl (cur->free);
 		loop++;
 
 		ptr = &cur->next;

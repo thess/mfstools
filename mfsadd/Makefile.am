@@ -1,5 +1,5 @@
 INCLUDES += -I${top_srcdir}/include
-LDADD += -L${top_builddir}/lib -lmfs
+LDADD += -L${top_builddir}/lib -lmfs -lmfsvol -lmacpart
 
 if BUILD_MFSADD
 if BUILD_MFSTOOL

@@ -82,7 +82,7 @@ display_backup_info (struct backup_info *info)
 		backupmfs += info->mfsparts[loop].sectors;
 	}
 
-	while ((hdr = mfs_next_zone (hdr)) != 0)
+	while ((hdr = mfs_next_zone (info->mfs, hdr)) != 0)
 	{
 		if (htonl (hdr->type) == ztMedia)
 		{
