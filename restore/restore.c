@@ -497,16 +497,35 @@ restore_write (struct backup_info *info, char *buf, unsigned int size)
 			{
 				int zres = inflate (info->comp, 0);
 
-				if (zres == Z_STREAM_END)
-				{
+				switch (zres) {
+				case Z_STREAM_END:
 					info->back_flags |= RF_NOMORECOMP;
 					continue;
-				}
-
-				if (zres != Z_OK)
-				{
-					info->lasterr = "Decompression error.";
+				case Z_OK:
+					break;
+				case Z_NEED_DICT:
+					info->lasterr = "No dict to feed hungry inflate.";
 					return -1;
+				case Z_ERRNO:
+					info->lasterr = "Inflate is doing things it shouldn't be.";
+					return -1;
+				case Z_STREAM_ERROR:
+					info->lasterr = "Internal error: zlib structures corrupt.";
+					return -1;
+				case Z_DATA_ERROR:
+					info->lasterr = "Error in compressed data stream.";
+					return -1;
+				case Z_MEM_ERROR:
+					info->lasterr = "Decompression out of memory.";
+					return -1;
+				case Z_BUF_ERROR:
+#if DEBUG
+					fprintf (stderr, "Non-fatal Z_BUF_ERROR from inflate()\n");
+#endif
+					return retval;
+				default:
+					info->lasterr = "Unknown zlib_error.";
+					break;
 				}
 			}
 			else
