@@ -110,7 +110,7 @@ mfsinfo_main (int argc, char **argv)
 	nparts = partition_info (mfs, drives);
 
 	fprintf (stderr, "Estimated hours in a standalone TiVo: %d\n", mfs_sa_hours_estimate (mfs));
-	fprintf (stderr, "This MFS volume may be expanded %d more time%s\n", 12 - nparts, nparts == 11? "": "s");
+	fprintf (stderr, "This MFS volume may be expanded %d more time%s\n", (12 - nparts) / 2, nparts == 10? "": "s");
 
 	return 0;
 }

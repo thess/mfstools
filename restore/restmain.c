@@ -365,7 +365,7 @@ restore_main (int argc, char **argv)
 				return 1;
 		}
 
-		while (--expandscale > 0)
+		while (expandscale-- > 0)
 			blocksize *= 2;
 
 		setenv ("MFS_HDA", drive, 1);

@@ -1050,6 +1050,22 @@ static const char *partition_strings [2][16][2] =
 	}
 };
 
+static char *mfsnames[12] =
+{
+	"MFS application region",
+	"MFS media region",
+	"Second MFS application region",
+	"Second MFS media region",
+	"Third MFS application region",
+	"Third MFS media region",
+	"Fourth MFS application region",
+	"Fourth MFS media region",
+	"Fifth MFS application region",
+	"Fifth MFS media region",
+	"Sixth MFS application region",
+	"Sixth MFS media region",
+};
+
 /* Build the actual partition tables on the drive.  Called once per device. */
 int
 build_partition_table (struct backup_info *info, int devno)
@@ -1128,6 +1144,13 @@ build_partition_table (struct backup_info *info, int devno)
 
 			tivo_partition_add (info->devs[devno].devname, info->newparts[loop].sectors, tmppartno, partition_strings[devno][partno][0], partition_strings[devno][partno][1]);
 		}
+	}
+
+/* Apply better names to the MFS partitions. */
+	for (loop = 0; loop < info->nmfs && loop < 12; loop++)
+	{
+		if (info->mfsparts[loop].devno == devno)
+			tivo_partition_rename (info->devs[devno].devname, info->mfsparts[loop].partno, mfsnames[loop]);
 	}
 
 	tivo_partition_table_write (info->devs[devno].devname);
