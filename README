@@ -237,6 +237,17 @@ Other options available:
 	is 2 (or 4 megabytes).  Any TiVo created partitions are created with
 	a scale of 0 (or 1 megabyte).  It is best to leave this option alone.
 
+-l
+	Do not fill up the partition table.  This will cause restore to
+	arrange the partitions such that there is enough room on either
+	drive to add another pair.  This does not, however, garuntee
+	that there will be any free space left on the A drive, nor does
+	it garuntee that the MFS set will have room to add partitions.
+	The -l option is implicit with the -x option.  Additionally, this
+	changes the behavior of the partition layout to try to go for either
+	a half full A drive or a completely full A drive, instead of just
+	trying to completely fill the A drive.
+
 -p
 	Attempt to optimize the partition layout for TiVo's access patterns.
 	This will imitate the partition layout of DirecTV TiVo receivers

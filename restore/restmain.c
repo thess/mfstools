@@ -32,6 +32,7 @@ restore_usage (char *progname)
 	fprintf (stderr, " -qq       Do not display anything but error messages\n");
 	fprintf (stderr, " -v size   Recreate /var as size megabytes (Only if not in backup)\n");
 	fprintf (stderr, " -s size   Recreate swap as size megabytes\n");
+	fprintf (stderr, " -l        Leave at least 2 partitions free\n");
 	fprintf (stderr, " -b        Force no byte swapping on restore\n");
 	fprintf (stderr, " -B        Force byte swapping on restore\n");
 	fprintf (stderr, " -z        Zero out partitions not backed up\n");
@@ -129,7 +130,7 @@ restore_main (int argc, char **argv)
 
 	tivo_partition_direct ();
 
-	while ((opt = getopt (argc, argv, "hi:v:s:zqbBpxr:")) > 0)
+	while ((opt = getopt (argc, argv, "hi:v:s:zqbBpxlr:")) > 0)
 	{
 		switch (opt)
 		{
@@ -178,6 +179,9 @@ restore_main (int argc, char **argv)
 			break;
 		case 'p':
 			flags |= RF_BALANCE;
+			break;
+		case 'l':
+			flags |= RF_NOFILL;
 			break;
 		case 'x':
 			expand = 1;
