@@ -161,7 +161,7 @@ check_partition_count (struct mfs_handle *mfs, char *pairnums, int npairs)
 
 	for (loop = 0; loop < npairs; loop++)
 	{
-		if (pairnums[loop] & 31 >= 10)
+		if ((pairnums[loop] & 31) >= 10)
 			total += 11;
 		else
 			total += 10;
