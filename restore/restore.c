@@ -112,7 +112,7 @@ restore_read_header (struct backup_info *info, void *data, unsigned size, unsign
 	memcpy ((char *)dest + datasize * info->state_val1, (char *)data + info->shared_val1, count * datasize);
 
 	info->state_val1 += count;
-	info->shared_val1 += count * datasize;
+	info->shared_val1 += count * datasize + 7;
 	*consumed = info->shared_val1 / 512;
 	info->shared_val1 &= 512 - 8;
 
@@ -618,7 +618,7 @@ restore_state_volume_header_v3 (struct backup_info *info, void *data, unsigned s
 		return bsError;
 	}
 
-	if (mfsvol_write_data (info->vols, &vol, first_partition_size - 1, 0) != 512)
+	if (mfsvol_write_data (info->vols, &vol, first_partition_size - 1, 1) != 512)
 	{
 		info->err_msg = "%s writing MFS volume header";
 		if (errno)
@@ -687,7 +687,7 @@ size, unsigned *consumed)
 	*consumed = tocopy;
 	info->state_val2 += tocopy;
 
-	if (info->state_val1 < htonl (info->mfs->vol_hdr.lognsectors))
+	if (info->state_val2 < htonl (info->mfs->vol_hdr.lognsectors))
 		return bsMoreData;
 
 	return bsNextState;
@@ -726,7 +726,7 @@ size, unsigned *consumed)
 	*consumed = tocopy;
 	info->state_val2 += tocopy;
 
-	if (info->state_val1 < htonl (info->mfs->vol_hdr.lognsectors))
+	if (info->state_val2 < htonl (info->mfs->vol_hdr.unksectors))
 		return bsMoreData;
 
 	return bsNextState;
@@ -765,13 +765,18 @@ restore_state_zone_maps_v3 (struct backup_info *info, void *data, unsigned size,
 
 	tocopy = htonl (cur_zone->length) - info->state_val2;
 
-	if (tocopy > size && info->state_val1 == 0)
+	if (tocopy > size && info->state_val2 == 0)
 	{
 // Not enough data in the buffer for the whole zone, so allocate storage
 // for the header for the next pass at this zone.
 		if (!info->state_ptr1)
 		{
 			info->state_ptr1 = malloc (sizeof (*cur_zone));
+			if (!info->state_ptr1)
+			{
+				info->err_msg = "Memory exhausted";
+				return bsError;
+			}
 		}
 
 		memcpy (info->state_ptr1, cur_zone, sizeof (*cur_zone));
@@ -791,7 +796,7 @@ restore_state_zone_maps_v3 (struct backup_info *info, void *data, unsigned size,
 		}
 
 // Allocate storage for the full zone in memory, so it can be updated 
-		if (info->state_val1 == 0)
+		if (info->state_val2 == 0)
 			info->state_ptr1 = realloc (info->state_ptr1, htonl (cur_zone->length) * 512);
 		if (!info->state_ptr1)
 		{
@@ -857,7 +862,9 @@ restore_state_zone_maps_v3 (struct backup_info *info, void *data, unsigned size,
 	info->state_val2 += tocopy;
 
 	if (info->state_val2 < htonl (cur_zone->length))
+	{
 		return bsMoreData;
+	}
 
 	if (cur_zone->next.sector == 0)
 	{
@@ -871,6 +878,9 @@ restore_state_zone_maps_v3 (struct backup_info *info, void *data, unsigned size,
 
 		return bsNextState;
 	}
+
+	info->state_val2 = 0;
+	++info->state_val1;
 
 	return bsMoreData;
 }
@@ -947,6 +957,7 @@ restore_state_app_inodes_v3 (struct backup_info *info, void *data, unsigned size
 		}
 
 		*consumed += copied;
+		info->state_val2 += copied;
 	}
 
 	if (copied == tocopy)
