@@ -381,14 +381,11 @@ mfsadd_main (int argc, char **argv)
 		}
 	}
 
-	setenv ("MFS_HDA", drives[0], 1);
-	setenv ("MFS_HDB", drives[1]? drives[1]: "Second MFS Drive Needed", 1);
-
-	mfs = mfs_init (O_RDWR);
+	mfs = mfs_init (drives[0], drives[1], O_RDWR);
 
 	if (!mfs)
 	{
-		fprintf (stderr, "Unable to open MFS drives.\n");
+		fprintf (stderr, "Unable to open MFS volume.\n");
 		return 1;
 	}
 
@@ -499,7 +496,8 @@ mfsadd_main (int argc, char **argv)
 		sprintf (media, "/dev/hd%c%d", 'a' + (pairnums[loop + 1] >> 6), pairnums[loop + 1] & 31);
 		if (mfs_add_volume_pair (mfs, app, media, minalloc) < 0)
 		{
-			fprintf (stderr, "Error adding %s-%s!\n", pairs[loop], pairs[loop + 1]);
+			fprintf (stderr, "Adding %s-%s", pairs[loop], pairs[loop + 1]);
+			mfs_perror (mfs, "");
 			return 1;
 		}
 

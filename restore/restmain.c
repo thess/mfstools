@@ -270,8 +270,8 @@ restore_main (int argc, char **argv)
 		nwrit = restore_write (info, buf, nread);
 		if (nwrit < 0)
 		{
-			if (last_err (info))
-				fprintf (stderr, "Restore failed: %s\n", last_err (info));
+			if (restore_has_error (info))
+				restore_perror (info, "Restore");
 			else
 				fprintf (stderr, "Restore failed.\n");
 			return 1;
@@ -279,8 +279,8 @@ restore_main (int argc, char **argv)
 
 		if (restore_trydev (info, drive, drive2) < 0)
 		{
-			if (last_err (info))
-				fprintf (stderr, "Restore failed: %s\n", last_err (info));
+			if (restore_has_error (info))
+				restore_perror (info, "Restore");
 			else
 				fprintf (stderr, "Restore failed.\n");
 			return 1;
@@ -288,8 +288,8 @@ restore_main (int argc, char **argv)
 
 		if (restore_start (info) < 0)
 		{
-			if (last_err (info))
-				fprintf (stderr, "Restore failed: %s\n", last_err (info));
+			if (restore_has_error (info))
+				restore_perror (info, "Restore");
 			else
 				fprintf (stderr, "Restore failed.\n");
 			return 1;
@@ -297,8 +297,8 @@ restore_main (int argc, char **argv)
 
 		if (restore_write (info, buf + nwrit, nread - nwrit) != nread - nwrit)
 		{
-			if (last_err (info))
-				fprintf (stderr, "Restore failed: %s\n", last_err (info));
+			if (restore_has_error (info))
+				restore_perror (info, "Restore");
 			else
 				fprintf (stderr, "Restore failed.\n");
 			return 1;
@@ -312,8 +312,10 @@ restore_main (int argc, char **argv)
 			unsigned int prcnt, compr;
 			if (restore_write (info, buf, curcount) != curcount)
 			{
-				if (last_err (info))
-					fprintf (stderr, "Restore failed: %s\n", last_err (info));
+				if (quiet < 1)
+					fprintf (stderr, "\n");
+				if (restore_has_error (info))
+					restore_perror (info, "Restore");
 				else
 					fprintf (stderr, "Restore failed.\n");
 				return 1;
@@ -326,9 +328,9 @@ restore_main (int argc, char **argv)
 				unsigned timedelta = time(NULL) - starttime;
 
 				if (info->back_flags & BF_COMPRESSED)
-					fprintf (stderr, "     \rRestoring %d of %d megabytes (%d.%02d%%) (%d.%02d%% compression)", info->cursector / 2048, info->nsectors / 2048, prcnt / 100, prcnt % 100, compr / 100, compr % 100);
+					fprintf (stderr, "     \rRestoring %d of %d mb (%d.%02d%%) (%d.%02d%% comp)", info->cursector / 2048, info->nsectors / 2048, prcnt / 100, prcnt % 100, compr / 100, compr % 100);
 				else
-					fprintf (stderr, "     \rRestoring %d of %d megabytes (%d.%02d%%)", info->cursector / 2048, info->nsectors / 2048, prcnt / 100, prcnt % 100);
+					fprintf (stderr, "     \rRestoring %d of %d mb (%d.%02d%%)", info->cursector / 2048, info->nsectors / 2048, prcnt / 100, prcnt % 100);
 
 				if (prcnt > 100 && timedelta > 15)
 				{
@@ -338,9 +340,12 @@ restore_main (int argc, char **argv)
 			}
 		}
 
-		if (curcount < 0)
+		if (quiet < 1)
+			fprintf (stderr, "\n");
+
+		if (restore_has_error (info))
 		{
-			fprintf (stderr, "Restore failed: %s: %s\n", filename, strerror(errno));
+			restore_perror (info, "Restore");
 			return 1;
 		}
 	}
@@ -350,16 +355,13 @@ restore_main (int argc, char **argv)
 		return 1;
 	}
 
-	if (quiet < 1)
-		fprintf (stderr, "\n");
-
 	if (quiet < 2)
 		fprintf (stderr, "Cleaning up restore.  Please wait a moment.\n");
 
 	if (restore_finish (info) < 0)
 	{
-		if (last_err (info))
-			fprintf (stderr, "Restore failed: %s\n", last_err (info));
+		if (restore_has_error (info))
+			restore_perror (info, "Restore");
 		else
 			fprintf (stderr, "Restore failed.\n");
 		return 1;
@@ -375,7 +377,7 @@ restore_main (int argc, char **argv)
 
 		expand = 0;
 
-		mfshnd = mfs_init (O_RDWR);
+		mfshnd = mfs_init (drive, drive2, O_RDWR);
 		if (!mfshnd)
 		{
 				printf ("Drive expansion failed.\n");
@@ -385,14 +387,14 @@ restore_main (int argc, char **argv)
 		while (expandscale-- > 0)
 			blocksize *= 2;
 
-		setenv ("MFS_HDA", drive, 1);
-		setenv ("MFS_HDB", drive2? drive2: "Internal Error", 1);
-
 		if (tivo_partition_largest_free (drive) > 1024 * 1024 * 2)
 		{
 			if (expand_drive (mfshnd, "/dev/hda", drive, blocksize) < 0)
 			{
-				printf ("Drive A expansion failed.\n");
+				if (restore_has_error (info))
+					restore_perror (info, "Expand drive A");
+				else
+					fprintf (stderr, "Drive A expansion failed.\n");
 				return 1;
 			}
 			expand++;
@@ -402,7 +404,10 @@ restore_main (int argc, char **argv)
 		{
 			if (expand_drive (mfshnd, "/dev/hdb", drive2, blocksize) < 0)
 			{
-				printf ("Drive B expansion failed.\n");
+				if (restore_has_error (info))
+					restore_perror (info, "Expand drive B");
+				else
+					fprintf (stderr, "Drive B expansion failed.\n");
 				return 1;
 			}
 			expand++;

@@ -260,8 +260,8 @@ backup_main (int argc, char **argv)
 
 		if (backup_start (info) < 0)
 		{
-			if (last_err (info))
-				fprintf (stderr, "Backup failed: %s\n", last_err (info));
+			if (backup_has_error (info))
+				backup_perror (info, "Backup");
 			else
 				fprintf (stderr, "Backup failed.\n");
 			return 1;
@@ -290,9 +290,9 @@ backup_main (int argc, char **argv)
 			{
 				unsigned timedelta = time(NULL) - starttime;
 				if (compressed)
-					fprintf (stderr, "     \rBacking up %d of %d megabytes (%d.%02d%%) (%d.%02d%% compression)", info->cursector / 2048, info->nsectors / 2048, prcnt / 100, prcnt % 100, compr / 100, compr % 100);
+					fprintf (stderr, "     \rBacking up %d of %d mb (%d.%02d%%) (%d.%02d%% comp)", info->cursector / 2048, info->nsectors / 2048, prcnt / 100, prcnt % 100, compr / 100, compr % 100);
 				else
-					fprintf (stderr, "     \rBacking up %d of %d megabytes (%d.%02d%%)", info->cursector / 2048, info->nsectors / 2048, prcnt / 100, prcnt % 100);
+					fprintf (stderr, "     \rBacking up %d of %d mb (%d.%02d%%)", info->cursector / 2048, info->nsectors / 2048, prcnt / 100, prcnt % 100);
 
 				if (prcnt > 10 && timedelta > 15)
 				{
@@ -302,24 +302,25 @@ backup_main (int argc, char **argv)
 			}
 		}
 
+		if (quiet < 1)
+			fprintf (stderr, "\n");
+
 		if (curcount < 0)
 		{
-			if (last_err (info))
-				fprintf (stderr, "Backup failed: %s\n", last_err (info));
+			if (backup_has_error (info))
+				backup_perror (info, "Backup");
 			else
-				fprintf (stderr, "Backup failed.");
+				fprintf (stderr, "Backup failed.\n");
 			return 1;
 		}
 	}
 
-	if (quiet < 1)
-		fprintf (stderr, "\n");
 	if (backup_finish (info) < 0)
 	{
-		if (last_err (info))
-			fprintf (stderr, "Backup failed: %s\n", last_err (info));
+		if (backup_has_error (info))
+			backup_perror (info, "Backup");
 		else
-			fprintf (stderr, "Backup failed!\n");
+			fprintf (stderr, "Backup failed.\n");
 		return 1;
 	}
 

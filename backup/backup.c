@@ -7,6 +7,9 @@
 #if HAVE_MALLOC_H
 #include <malloc.h>
 #endif
+#if HAVE_ERRNO_H
+#include <errno.h>
+#endif
 #if HAVE_SYS_MALLOC_H
 #include <sys/malloc.h>
 #endif
@@ -307,7 +310,7 @@ add_blocks_to_backup_info (struct backup_info *info, struct blocklist *blocks)
 
 	if (!info->blocks)
 	{
-		info->lasterr = "Memory exhausted.";
+		info->err_msg = "Memory exhausted";
 		return -1;
 	}
 
@@ -349,7 +352,7 @@ scan_inodes (struct backup_info *info)
 			{
 				loop3--;
 				free (blocks[loop3]);
-				info->lasterr = "Memory exhausted.";
+				info->err_msg = "Memory exhausted";
 				return 0;
 			}
 		}
@@ -399,7 +402,7 @@ scan_inodes (struct backup_info *info)
 							free_block_list_array (blocks);
 							free_block_list (&pool);
 							free (inode);
-							info->lasterr = "Memory exhausted.";
+							info->err_msg = "Memory exhausted";
 							return 0;
 						}
 						streamsize -= thiscount;
@@ -452,7 +455,7 @@ scan_inodes (struct backup_info *info)
 			{
 				free_block_list_array (blocks);
 				free_block_list (&pool);
-				info->lasterr = "Memory exhausted.";
+				info->err_msg = "Memory exhausted";
 				return 0;
 			}
 		}
@@ -500,7 +503,7 @@ add_mfs_partitions_to_backup_info (struct backup_info *info)
 	if (!info->mfsparts)
 	{
 		info->nmfs = 0;
-		info->lasterr = "Memory exhausted.";
+		info->err_msg = "Memory exhausted";
 		return -1;
 	}
 
@@ -513,7 +516,9 @@ add_mfs_partitions_to_backup_info (struct backup_info *info)
 			free (info->mfsparts);
 			info->mfsparts = 0;
 			info->nmfs = 0;
-			info->lasterr = "Error in MFS partition list.";
+			info->err_msg = "Bad partition name (%.*s) in partition list";
+			info->err_arg1 = (void *)strcspn (mfs_partitions, " ");
+			info->err_arg2 = mfs_partitions;
 			return -1;
 		}
 
@@ -527,7 +532,9 @@ add_mfs_partitions_to_backup_info (struct backup_info *info)
 			info->mfsparts[loop].devno = 1;
 			break;
 		default:
-			info->lasterr = "Error in MFS partition list.";
+			info->err_msg = "Bad partition name (%.*s) in partition list";
+			info->err_arg1 = (void *)strcspn (mfs_partitions, " ");
+			info->err_arg2 = mfs_partitions;
 			free (info->mfsparts);
 			info->mfsparts = 0;
 			info->nmfs = 0;
@@ -540,7 +547,9 @@ add_mfs_partitions_to_backup_info (struct backup_info *info)
 /* If there are other non-space characters after the number, thats a problem. */
 		if (*mfs_partitions && !isspace (*mfs_partitions))
 		{
-			info->lasterr = "Error in MFS partition list.";
+			info->err_msg = "Bad partition name (%.*s) in partition list";
+			info->err_arg1 = (void *)strcspn (mfs_partitions, " ");
+			info->err_arg2 = mfs_partitions;
 			free (info->mfsparts);
 			info->mfsparts = 0;
 			info->nmfs = 0;
@@ -554,7 +563,9 @@ add_mfs_partitions_to_backup_info (struct backup_info *info)
 		info->mfsparts[loop].sectors = mfs_volume_size (info->mfs, cursector);
 		if (info->mfsparts[loop].sectors == 0)
 		{
-			info->lasterr = "Fatal error in MFS structure.";
+			info->err_msg = "Empty MFS partition %.*s";
+			info->err_arg1 = (void *)strcspn (mfs_partitions, " ");
+			info->err_arg2 = mfs_partitions;
 			free (info->mfsparts);
 			info->mfsparts = 0;
 			info->nmfs = 0;
@@ -605,7 +616,7 @@ add_partitions_to_backup_info (struct backup_info *info, char *device)
 	{
 		info->ndevs = 0;
 		info->nparts = 0;
-		info->lasterr = "Memory exhausted.";
+		info->err_msg = "Memory exhausted";
 		return -1;
 	}
 
@@ -615,7 +626,7 @@ add_partitions_to_backup_info (struct backup_info *info, char *device)
 		info->nparts = 0;
 		info->ndevs = 0;
 		free (info->devs);
-		info->lasterr = "Memory exhausted.";
+		info->err_msg = "Memory exhausted";
 		return -1;
 	}
 
@@ -629,7 +640,7 @@ add_partitions_to_backup_info (struct backup_info *info, char *device)
 		free (info->parts);
 		info->ndevs = 0;
 		info->nparts = 0;
-		info->lasterr = "Not enough partitions on source drive.";
+		info->err_msg = "Not enough partitions on source drive";
 		return -1;
 	}
 
@@ -641,7 +652,7 @@ add_partitions_to_backup_info (struct backup_info *info, char *device)
 		free (info->parts);
 		info->ndevs = 0;
 		info->nparts = 0;
-		info->lasterr = "Memory exhausted.";
+		info->err_msg = "Memory exhausted";
 		return -1;
 	}
 
@@ -652,7 +663,7 @@ add_partitions_to_backup_info (struct backup_info *info, char *device)
 		free (info->parts);
 		info->ndevs = 0;
 		info->nparts = 0;
-		info->lasterr = "Error reading boot sector of source drive.";
+		info->err_msg = "Error reading boot sector of source drive";
 		return -1;
 	}
 
@@ -663,7 +674,7 @@ add_partitions_to_backup_info (struct backup_info *info, char *device)
 		free (info->parts);
 		info->ndevs = 0;
 		info->nparts = 0;
-		info->lasterr = "Can not determine primary boot partition from boot sector.";
+		info->err_msg = "Can not determine primary boot partition from boot sector";
 		return -1;
 	}
 
@@ -717,7 +728,9 @@ add_partitions_to_backup_info (struct backup_info *info, char *device)
 			free (info->parts);
 			info->ndevs = 0;
 			info->nparts = 0;
-			info->lasterr = "Unknown error trying to determine partition sizes.";
+			info->err_msg = "Error opening partition %s%d";
+			info->err_arg1 = device;
+			info->err_arg2 = (void *)(unsigned)info->parts[loop].partno;
 			return -1;
 		}
 
@@ -741,13 +754,6 @@ init_backup (char *device, char *device2, int flags)
  	if (!device)
  		return 0;
  
- 	setenv ("MFS_HDA", device, 1);
- 
- 	if (device2)
- 		setenv ("MFS_HDB", device2, 1);
- 	else
- 		setenv ("MFS_HDB", "Second MFS drive", 1);
-
  	info = calloc (sizeof (*info), 1);
  
  	if (!info)
@@ -755,13 +761,12 @@ init_backup (char *device, char *device2, int flags)
  		return 0;
  	}
 
-	info->mfs = mfs_init (O_RDONLY);
+	info->mfs = mfs_init (device, device2, O_RDONLY);
  	if (!info->mfs)
  	{
 		free (info);
  		return 0;
 	}
- 
  
  	info->back_flags = flags;
 
@@ -769,6 +774,13 @@ init_backup (char *device, char *device2, int flags)
 
 	if (!tivo_partition_swabbed (device))
 		info->back_flags |= BF_NOBSWAP;
+
+	info->hda = strdup (device);
+	if (!info->hda)
+	{
+		mfs_cleanup (info->mfs);
+		free (info);
+	}
  
 	return info;
 }
@@ -786,7 +798,7 @@ backup_start (struct backup_info *info)
 {
 	struct blocklist *blocks;
 
-	if ((add_partitions_to_backup_info (info, getenv ("MFS_HDA"))) != 0) {
+	if ((add_partitions_to_backup_info (info, info->hda)) != 0) {
 		return -1;
 	}
 
@@ -883,7 +895,7 @@ backup_next_sectors (struct backup_info *info, char *buf, int sectors)
 /* If the file still isn't open, there is an error. */
 						if (!file)
 						{
-							info->lasterr = "Error backing up partitions.";
+							info->err_msg = "Internal error opening partition";
 							return -1;
 						}
 					}
@@ -891,7 +903,11 @@ backup_next_sectors (struct backup_info *info, char *buf, int sectors)
 /* Read the data. */
 					if (tivo_partition_read (file, buf, cursector, tocopy) < 0)
 					{
-						info->lasterr = "Error backing up partitions.";
+						if (errno)
+							info->err_msg = "%s backing up partitions";
+						else
+							info->err_msg = "Unknown error backing up partitions";
+						info->err_arg1 = strerror (errno);
 						return -1;
 					}
 
@@ -928,7 +944,12 @@ backup_next_sectors (struct backup_info *info, char *buf, int sectors)
 /* Read the data. */
 					if (mfs_read_data (info->mfs, buf, info->blocks[loop].firstsector + cursector, tocopy) < 0)
 					{
-						info->lasterr = "Error backing up MFS data.";
+						if (errno)
+							info->err_msg = "%s reading MFS volume";
+						else
+							info->err_msg = "Unknown error reading MFS volume";
+
+						info->err_arg1 = strerror (errno);
 						return -1;
 					}
 
@@ -1097,7 +1118,7 @@ backup_read (struct backup_info *info, char *buf, unsigned int size)
 
 	if (size < 512)
 	{
-		info->lasterr = "Internal error 2.";
+		info->err_msg = "Internal error 2 - Backup buffer too small";
 		return -1;
 	}
 
@@ -1108,14 +1129,14 @@ backup_read (struct backup_info *info, char *buf, unsigned int size)
 			retval = backup_next_sectors (info, buf, 1);
 			if (retval != 1)
 			{
-				info->lasterr = "Invalid backup format.";
+				info->err_msg = "Error starting backup";
 				return -1;
 			}
 
 			info->comp_buf = calloc (2048, 512);
 			if (!info->comp_buf)
 			{
-				info->lasterr = "Memory exhausted.";
+				info->err_msg = "Memory exhausted";
 				return -1;
 			}
 
@@ -1123,7 +1144,7 @@ backup_read (struct backup_info *info, char *buf, unsigned int size)
 			if (!info->comp)
 			{
 				free (info->comp_buf);
-				info->lasterr = "Memory exhausted.";
+				info->err_msg = "Memory exhausted";
 				return -1;
 			}
 
@@ -1137,7 +1158,7 @@ backup_read (struct backup_info *info, char *buf, unsigned int size)
 			{
 				free (info->comp_buf);
 				free (info->comp);
-				info->lasterr = "Compression error.";
+				info->err_msg = "Compression init error";
 				return -1;
 			}
 
@@ -1159,7 +1180,7 @@ backup_read (struct backup_info *info, char *buf, unsigned int size)
 			{
 				if (deflate (info->comp, Z_NO_FLUSH) != Z_OK)
 				{
-					info->lasterr = "Compression error.";
+					info->err_msg = "Compression error";
 					return -1;
 				}
 			}
@@ -1216,9 +1237,62 @@ backup_finish(struct backup_info *info)
 {
 	if (info->cursector != info->nsectors)
 	{
-		info->lasterr = "Backup ended prematurely.";
+		info->err_msg = "Backup ended prematurely";
 		return -1;
 	}
 
 	return 0;
+}
+
+/****************************/
+/* Display the backup error */
+void
+backup_perror (struct backup_info *info, char *str)
+{
+	int err = 0;
+
+	if (info->err_msg)
+	{
+		fprintf (stderr, "%s: ", str);
+		fprintf (stderr, info->err_msg, info->err_arg1, info->err_arg2, info->err_arg3);
+		fprintf (stderr, ".\n");
+		err = 1;
+	}
+
+	if (info->mfs->err_msg || info->mfs->vols->err_msg)
+	{
+		mfs_perror (info->mfs, str);
+		err = 2;
+	}
+
+	if (err == 0)
+	{
+		fprintf (stderr, "%s: No error.\n", str);
+	}
+}
+
+/***********************/
+/* Backup has an error */
+int
+backup_has_error (struct backup_info *info)
+{
+	if (info->err_msg)
+		return 1;
+
+	if (info->mfs)
+		return mfs_has_error (info->mfs);
+
+	return 0;
+}
+
+/*************************************/
+/* Return the MFS error in a string. */
+int
+backup_strerror (struct backup_info *info, char *str)
+{
+	if (info->err_msg)
+		sprintf (str, info->err_msg, info->err_arg1, info->err_arg2, info->err_arg3);
+	else return (mfs_strerror (info->mfs, str));
+
+	return 1;
 }

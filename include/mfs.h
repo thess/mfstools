@@ -55,6 +55,11 @@ struct mfs_handle
 	volume_header vol_hdr;
 	struct zone_map_head zones[ztMax];
 	struct zone_map *loaded_zones;
+
+	char *err_msg;
+	void *err_arg1;
+	void *err_arg2;
+	void *err_arg3;
 };
 
 #define SABLOCKSEC 1630000
@@ -75,10 +80,14 @@ int mfs_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsi
 int mfs_load_volume_header (struct mfs_handle *mfshnd, int flags);
 void mfs_cleanup_zone_maps (struct mfs_handle *mfshnd);
 int mfs_load_zone_maps (struct mfs_handle *hnd);
-struct mfs_handle *mfs_init (int flags);
+struct mfs_handle *mfs_init (char *hda, char *hdb, int flags);
 int mfs_reinit (struct mfs_handle *mfshnd, int flags);
 void mfs_cleanup (struct mfs_handle *mfshnd);
 char *mfs_partition_list (struct mfs_handle *mfshnd);
+
+void mfs_perror (struct mfs_handle *mfshnd, char *str);
+int mfs_strerror (struct mfs_handle *mfshnd, char *str);
+int mfs_has_error (struct mfs_handle *mfshnd);
 
 #define MFS_check_crc(data, size, crc) (mfs_check_crc ((unsigned char *)(data), (size), (unsigned int *)&(crc) - (unsigned int *)(data)))
 #define MFS_update_crc(data, size, crc) (mfs_update_crc ((unsigned char *)(data), (size), (unsigned int *)&(crc) - (unsigned int *)(data)))

@@ -73,6 +73,7 @@ unsigned int
 mfs_inode_to_sector (struct mfs_handle *mfshnd, unsigned int inode)
 {
 	struct zone_map *cur;
+	unsigned int sector = inode * 2;
 
 /* Don't bother if it's not a valid inode. */
 	if (inode >= mfs_inode_count (mfshnd))
@@ -80,25 +81,22 @@ mfs_inode_to_sector (struct mfs_handle *mfshnd, unsigned int inode)
 		return 0;
 	}
 
-/* For ease of calculation, turn this into a sector offset into the inode */
-/* maps. */
-	inode *= 2;
-
 /* Loop through each inode map, seeing if the current inode is within it. */
 	for (cur = mfshnd->zones[ztInode].next; cur; cur = cur->next)
 	{
-		if (inode < htonl (cur->map->size))
+		if (sector < htonl (cur->map->size))
 		{
-			return (inode + htonl (cur->map->first));
+			return (sector + htonl (cur->map->first));
 		}
 
 /* If not, subtract the size so the inode sector offset is now relative to */
 /* the next inode zone. */
-		inode -= htonl (cur->map->size);
+		sector -= htonl (cur->map->size);
 	}
 
 /* This should never happen. */
-	fprintf (stderr, "Inode zones corrupt!  I don't know what to do.\n");
+	mfshnd->err_msg = "Inode %d out of bounds";
+	mfshnd->err_arg1 = (void *)inode;
 	return 0;
 }
 
@@ -315,7 +313,7 @@ mfs_can_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsi
 /* Make sure the volumes being added don't overflow the 128 bytes. */
 	if (strlen (mfshnd->vol_hdr.partitionlist) + strlen (app) + strlen (media) + 3 >= 128)
 	{
-		fprintf (stderr, "No space in volume list for new volumes.\n");
+		mfshnd->err_msg = "No space in volume list for new volumes";
 		return -1;
 	}
 
@@ -323,7 +321,7 @@ mfs_can_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsi
 /* the end and not be able to update the volume header. */
 	if (!mfsvol_is_writable (mfshnd->vols, 0))
 	{
-		fprintf (stderr, "mfs_add_volume_pair: Readonly volume set.\n");
+		mfshnd->err_msg = "Readonly volume set";
 		return -1;
 	}
 
@@ -333,7 +331,7 @@ mfs_can_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsi
 /* For cur to be null, it must have never been set. */
 	if (!cur)
 	{
-		fprintf (stderr, "mfs_add_volume_pair: Zone maps not loaded?\n");
+		mfshnd->err_msg = "Zone maps not loaded";
 		return -1;
 	}
 
@@ -341,7 +339,7 @@ mfs_can_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsi
 /* new pointer. */
 	if (!mfsvol_is_writable (mfshnd->vols, htonl (cur->map->sector)))
 	{
-		fprintf (stderr, "mfs_add_volume_pair: Readonly volume set.\n");
+		mfshnd->err_msg = "Readonly volume set";
 		return -1;
 	}
 
@@ -370,7 +368,7 @@ mfs_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsigned
 /* Make sure the volumes being added don't overflow the 128 bytes. */
 	if (strlen (mfshnd->vol_hdr.partitionlist) + strlen (app) + strlen (media) + 3 >= 128)
 	{
-		fprintf (stderr, "No space in volume list for new volumes.\n");
+		mfshnd->err_msg = "No space in volume list for new volumes";
 		return -1;
 	}
 
@@ -378,7 +376,7 @@ mfs_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsigned
 /* the end and not be able to update the volume header. */
 	if (!mfsvol_is_writable (mfshnd->vols, 0))
 	{
-		fprintf (stderr, "mfs_add_volume_pair: Readonly volume set.\n");
+		mfshnd->err_msg = "Readonly volume set";
 		return -1;
 	}
 
@@ -388,7 +386,7 @@ mfs_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsigned
 /* For cur to be null, it must have never been set. */
 	if (!cur)
 	{
-		fprintf (stderr, "mfs_add_volume_pair: Zone maps not loaded?\n");
+		mfshnd->err_msg = "Zone maps not loaded";
 		return -1;
 	}
 
@@ -396,23 +394,30 @@ mfs_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsigned
 /* new pointer. */
 	if (!mfsvol_is_writable (mfshnd->vols, htonl (cur->map->sector)))
 	{
-		fprintf (stderr, "mfs_add_volume_pair: Readonly volume set.\n");
+		mfshnd->err_msg = "Readonly volume set";
 		return -1;
 	}
 
-	tmp = mfsvol_device_translate (app);
+	tmp = mfsvol_device_translate (mfshnd->vols, app);
+	if (!tmp)
+		return -1;
+
 	tpApp = tivo_partition_open (tmp, O_RDWR);
 	if (!tpApp)
 	{
-		perror (tmp);
+		mfshnd->err_msg = "%s: %s";
+		mfshnd->err_arg1 = tmp;
+		mfshnd->err_arg2 = strerror (errno);
 		return -1;
 	}
 
-	tmp = mfsvol_device_translate (media);
+	tmp = mfsvol_device_translate (mfshnd->vols, media);
 	tpMedia = tivo_partition_open (tmp, O_RDWR);
 	if (!tpMedia)
 	{
-		perror (tmp);
+		mfshnd->err_msg = "%s: %s";
+		mfshnd->err_arg1 = tmp;
+		mfshnd->err_arg2 = strerror (errno);
 		return -1;
 	}
 
@@ -424,14 +429,14 @@ mfs_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsigned
 
 	if (appstart < 0 || mediastart < 0)
 	{
-		fprintf (stderr, "mfs_add_volume_pair: Error adding new volumes to set.\n");
+		mfshnd->err_msg = "Error adding new volumes to set";
 		mfs_reinit (mfshnd, O_RDWR);
 		return -1;
 	}
 
 	if (!mfsvol_is_writable (mfshnd->vols, appstart) || !mfsvol_is_writable (mfshnd->vols, mediastart))
 	{
-		fprintf (stderr, "mfs_add_volume_pair: Could not add new volumes writable.\n");
+		mfshnd->err_msg = "Could not add new volumes writable";
 		mfs_reinit (mfshnd, O_RDWR);
 		return -1;
 	}
@@ -442,14 +447,15 @@ mfs_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsigned
 
 	if (mapsize * 2 + 2 > appsize)
 	{
-		fprintf (stderr, "mfs_add_volume_pair: New app size too small!  (Need %d more bytes)\n", (mapsize * 2 + 2 - appsize) * 512);
+		mfshnd->err_msg = "New app size too small, need %d more bytes";
+		mfshnd->err_arg1 = (void *)((mapsize * 2 + 2 - appsize) * 512);
 		mfs_reinit (mfshnd, O_RDWR);
 		return -1;
 	}
 
 	if (mfs_new_zone_map (mfshnd, appstart + 1, appstart + appsize - mapsize - 1, mediastart, mediasize, minalloc, ztMedia) < 0)
 	{
-		fprintf (stderr, "mfs_add_volume_pair: Failed initializing new zone map.\n");
+		mfshnd->err_msg = "Failed initializing new zone map";
 		mfs_reinit (mfshnd, O_RDWR);
 		return -1;
 	}
@@ -508,14 +514,13 @@ mfs_load_zone_map (struct mfs_handle *mfshnd, zone_map_ptr * ptr)
 /* Verify the CRC matches. */
 	if (!MFS_check_crc ((unsigned char *) hdr, htonl (ptr->length) * 512, hdr->checksum))
 	{
-		fprintf (stderr, "mfs_load_zone_map: Primary zone map corrupt, loading backup.\n");
+
 /* If the CRC doesn't match, try the backup map. */
 		mfsvol_read_data (mfshnd->vols, (unsigned char *) hdr, htonl (ptr->sbackup), htonl (ptr->length));
+
 		if (!MFS_check_crc ((unsigned char *) hdr, htonl (ptr->length) * 512, hdr->checksum))
 		{
-			fprintf (stderr, "mfs_load_zone_map: Secondary zone map corrupt, giving up.\n");
-
-			fprintf (stderr, "mfs_load_zone_map: Zone map checksum error!\n");
+			mfshnd->err_msg = "Zone map checksum error";
 			free (hdr);
 			return NULL;
 		}
@@ -560,7 +565,8 @@ mfs_load_zone_maps (struct mfs_handle *mfshnd)
 
 		if (htonl (cur->type) < 0 || htonl (cur->type) >= ztMax)
 		{
-			fprintf (stderr, "mfs_load_zone_maps: Bad map type %d.\n", htonl (cur->type));
+			mfshnd->err_msg = "Bad map type %d";
+			mfshnd->err_arg1 = (void *)htonl (cur->type);
 			free (cur);
 			return -1;
 		}
@@ -568,7 +574,7 @@ mfs_load_zone_maps (struct mfs_handle *mfshnd)
 		newmap = calloc (sizeof (*newmap), 1);
 		if (!newmap)
 		{
-			fprintf (stderr, "mfs_load_zone_maps: Out of memory.\n");
+			mfshnd->err_msg = "Out of memory";
 			free (cur);
 			return -1;
 		}

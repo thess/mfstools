@@ -26,9 +26,16 @@ struct volume_handle
 {
 	struct volume_info *volumes;
 	int fake_write;
+	char *hda;
+	char *hdb;
+
+	char *err_msg;
+	void *err_arg1;
+	void *err_arg2;
+	void *err_arg3;
 };
 
-char *mfsvol_device_translate (char *dev);
+char *mfsvol_device_translate (struct volume_handle *hnd, char *dev);
 int mfsvol_add_volume (struct volume_handle *hnd, char *path, int flags);
 struct volume_info *mfsvol_get_volume (struct volume_handle *hnd, unsigned int sector);
 int mfsvol_is_writable (struct volume_handle *hnd, unsigned int sector);
@@ -37,6 +44,10 @@ unsigned int mfsvol_volume_set_size (struct volume_handle *hnd);
 int mfsvol_read_data (struct volume_handle *hnd, void *buf, unsigned int sector, int count);
 int mfsvol_write_data (struct volume_handle *hnd, void *buf, unsigned int sector, int count);
 void mfsvol_cleanup (struct volume_handle *hnd);
-struct volume_handle *mfsvol_init ();
+struct volume_handle *mfsvol_init (const char *hda, const char *hdb);
+
+void mfsvol_perror (struct volume_handle *hnd, char *str);
+int mfsvol_strerror (struct volume_handle *hnd, char *str);
+int mfsvol_has_error (struct volume_handle *hnd);
 
 #endif /*VOLUME_H */

@@ -38,7 +38,8 @@ mfs_load_volume_header (struct mfs_handle *mfshnd, int flags)
 /* Read in the volume header. */
 	if (mfsvol_read_data (mfshnd->vols, buf, 0, 1) != 512)
 	{
-		perror ("mfs_load_volume_header: mfsvol_read_data");
+		mfshnd->err_msg = "%s reading volume header";
+		mfshnd->err_arg1 = strerror (errno);
 		return -1;
 	}
 
@@ -49,11 +50,11 @@ mfs_load_volume_header (struct mfs_handle *mfshnd, int flags)
 /* Verify the checksum. */
 	if (!MFS_check_crc (&mfshnd->vol_hdr, sizeof (mfshnd->vol_hdr), mfshnd->vol_hdr.checksum))
 	{
-		fprintf (stderr, "Primary volume header corrupt, trying backup.\n");
 /* If the checksum doesn't match, try the backup. */
 		if (mfsvol_read_data (mfshnd->vols, buf, mfsvol_volume_size (mfshnd->vols, 0) - 1, 1) != 512)
 		{
-			perror ("mfs_load_volume_header: mfsvol_read_data");
+			mfshnd->err_msg = "%s reading volume header";
+			mfshnd->err_arg1 = strerror (errno);
 			return -1;
 		}
 
@@ -62,8 +63,7 @@ mfs_load_volume_header (struct mfs_handle *mfshnd, int flags)
 		if (!MFS_check_crc (&mfshnd->vol_hdr, sizeof (mfshnd->vol_hdr), mfshnd->vol_hdr.checksum))
 		{
 /* Backup checksum doesn't match either.  It's the end of the world! */
-			fprintf (stderr, "Secondary volume header corrupt, giving up.\n");
-			fprintf (stderr, "mfs_load_volume_header: Bad checksum.\n");
+			mfshnd->err_msg = "Volume header corrupt";
 			return -1;
 		}
 	}
@@ -98,8 +98,9 @@ mfs_load_volume_header (struct mfs_handle *mfshnd, int flags)
 /* If the sectors mismatch, report it.. But continue anyway. */
 	if (total_sectors != htonl (mfshnd->vol_hdr.total_sectors))
 	{
-		fprintf (stderr, "mfs_load_volume_header: Total sectors(%u) mismatch with volume header (%d)\n", total_sectors, htonl (mfshnd->vol_hdr.total_sectors));
-		fprintf (stderr, "mfs_load_volume_header: Loading anyway.\n");
+		mfshnd->err_msg = "Volume size (%u) mismatch with reported size (%u)";
+		mfshnd->err_arg1 = (void *)total_sectors;
+		mfshnd->err_arg2 = (void *)htonl (mfshnd->vol_hdr.total_sectors);
 	}
 
 	return total_sectors;
@@ -118,7 +119,7 @@ mfs_partition_list (struct mfs_handle *mfshnd)
 /* TODO: If opened read-write, also replay journal and make sure real event */
 /* switcher is not running. */
 static int
-mfs_init_internal (struct mfs_handle *mfshnd, int flags)
+mfs_init_internal (struct mfs_handle *mfshnd, char *hda, char *hdb, int flags)
 {
 /* Bootstrap the first volume from MFS_DEVICE. */
 	char *cur_volume = getenv ("MFS_DEVICE");
@@ -141,7 +142,7 @@ mfs_init_internal (struct mfs_handle *mfshnd, int flags)
 
 	bzero (mfshnd, sizeof (*mfshnd));
 
-	mfshnd->vols = mfsvol_init ();
+	mfshnd->vols = mfsvol_init (hda, hdb);
 	if (!mfshnd->vols)
 	{
 		free (mfshnd);
@@ -151,6 +152,7 @@ mfs_init_internal (struct mfs_handle *mfshnd, int flags)
 /* Load the first volume by hand. */
 	if (mfsvol_add_volume (mfshnd->vols, cur_volume, flags) < 0)
 	{
+		mfs_perror (mfshnd, "mfs_init");
 		mfsvol_cleanup (mfshnd->vols);
 		free (mfshnd);
 		return -1;
@@ -159,6 +161,7 @@ mfs_init_internal (struct mfs_handle *mfshnd, int flags)
 /* Take care of loading the rest. */
 	if (mfs_load_volume_header (mfshnd, flags) <= 0)
 	{
+		mfs_perror (mfshnd, "mfs_init");
 		mfsvol_cleanup (mfshnd->vols);
 		free (mfshnd);
 		return -1;
@@ -167,6 +170,7 @@ mfs_init_internal (struct mfs_handle *mfshnd, int flags)
 /* Load the zone maps. */
 	if (mfs_load_zone_maps (mfshnd) < 0)
 	{
+		mfs_perror (mfshnd, "mfs_init");
 		mfs_cleanup_zone_maps (mfshnd);
 		mfsvol_cleanup (mfshnd->vols);
 		free (mfshnd);
@@ -179,19 +183,69 @@ mfs_init_internal (struct mfs_handle *mfshnd, int flags)
 /********************************/
 /* Wrapper for first init case. */
 struct mfs_handle *
-mfs_init (int flags)
+mfs_init (char *hda, char *hdb, int flags)
 {
 	struct mfs_handle *mfshnd = malloc (sizeof (*mfshnd));
 	if (!mfshnd)
 		return 0;
 
-	if (mfs_init_internal (mfshnd, flags))
+	if (mfs_init_internal (mfshnd, hda, hdb, flags))
 	{
 		free (mfshnd);
 		return 0;
 	}
 
 	return mfshnd;
+}
+
+/*************************/
+/* Display the MFS error */
+void
+mfs_perror (struct mfs_handle *mfshnd, char *str)
+{
+	int err = 0;
+
+	if (mfshnd->err_msg)
+	{
+		fprintf (stderr, "%s: ", str);
+		fprintf (stderr, mfshnd->err_msg, mfshnd->err_arg1, mfshnd->err_arg2, mfshnd->err_arg3);
+		fprintf (stderr, ".\n");
+		err = 1;
+	}
+
+	if (mfshnd->vols->err_msg)
+	{
+		mfsvol_perror (mfshnd->vols, str);
+		err = 2;
+	}
+
+	if (err == 0)
+	{
+		fprintf (stderr, "%s: No error.\n", str);
+	}
+}
+
+/*************************************/
+/* Return the MFS error in a string. */
+int
+mfs_strerror (struct mfs_handle *mfshnd, char *str)
+{
+	if (mfshnd->err_msg)
+		sprintf (str, mfshnd->err_msg, mfshnd->err_arg1, mfshnd->err_arg2, mfshnd->err_arg3);
+	else return (mfsvol_strerror (mfshnd->vols, str));
+
+	return 1;
+}
+
+/*******************************/
+/* Check if there is an error. */
+int
+mfs_has_error (struct mfs_handle *mfshnd)
+{
+	if (mfshnd->err_msg)
+		return 1;
+
+	return mfsvol_has_error (mfshnd->vols);
 }
 
 /************************************************/
@@ -209,12 +263,18 @@ mfs_cleanup (struct mfs_handle *mfshnd)
 int
 mfs_reinit (struct mfs_handle *mfshnd, int flags)
 {
+	int ret = 0;
+	struct volume_handle *vols = mfshnd->vols;
+
 	mfs_cleanup_zone_maps (mfshnd);
-	mfsvol_cleanup (mfshnd->vols);
-	if (mfs_init_internal (mfshnd, flags))
+
+	if (mfs_init_internal (mfshnd, vols->hda, vols->hdb, flags))
 	{
 		bzero (mfshnd, sizeof (mfshnd));
-		return -1;
+		ret = -1;
 	}
+
+	mfsvol_cleanup (vols);
+
 	return 0;
 }

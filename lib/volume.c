@@ -37,52 +37,44 @@
 /* with RO: the device or file will be opened O_RDONLY no matter what the */
 /* requested mode was. */
 char *
-mfsvol_device_translate (char *dev)
+mfsvol_device_translate (struct volume_handle *hnd, char *dev)
 {
 	static char devname[1024];
 	int dev_len = strcspn (dev, " ");
 
 /* See if it is in /dev, to be relocated. */
-	if (!strncmp (dev, "/dev/", 5))
+	if (!strncmp (dev, "/dev/hd", 7))
 	{
-		char dev_sub_var[128];
-		char *dev_sub = NULL;
-		int loop;
+		char *devbase = NULL;
 
-		strcpy (dev_sub_var, "MFS_");
-
-/* Copy in the entire rest of the name after /dev/, uppercasing it. */
-		for (loop = 0; dev[5 + loop] && dev[5 + loop] != ' '; loop++)
+		switch (dev[7])
 		{
-			dev_sub_var[loop + 4] = toupper (dev[loop + 5]);
-		}
-		dev_sub_var[loop + 4] = 0;
-
-/* Slowly eat off one character until it is MFS_X checking for a variable */
-/* each time, breaking when one is found. */
-		while (loop > 1 && !(dev_sub = getenv (dev_sub_var)))
-		{
-			dev_sub_var[--loop + 4] = 0;
+		case 'a':
+			devbase = hnd->hda;
+			break;
+		case 'b':
+			devbase = hnd->hdb;
+			break;
 		}
 
-/* If the variable is found, substitute it, tacking on the remainder of the */
-/* device name passed in. */
-		if (dev_sub)
+		if (devbase)
 		{
 #if TARGET_OS_MAC
-			sprintf (devname, "%ss%.*s", dev_sub, dev_len - (loop + 5), dev + loop + 5);
+			sprintf (devname, "%ss%.*s", devbase, dev_len - 8, dev + 8);
 #else
-			sprintf (devname, "%s%.*s", dev_sub, dev_len - (loop + 5), dev + loop + 5);
+			sprintf (devname, "%s%.*s", devbase, dev_len - 8, dev + 8);
 #endif
 
 			return devname;
 		}
 	}
 
-/* Otherwise, just copy out the name of this device.  This is always done */
-/* instead of just returning the name since the list is space seperated. */
-	sprintf (devname, "%.*s", dev_len, dev);
-	return devname;
+	// Only hda and hdb allowed as device names.
+	hnd->err_msg = "Unknown MFS partition device %.*s";
+	hnd->err_arg1 = (void *)dev_len;
+	hnd->err_arg2 = dev;
+
+	return 0;
 }
 
 /***************************************************************************/
@@ -97,12 +89,15 @@ mfsvol_add_volume (struct volume_handle *hnd, char *path, int flags)
 
 	if (!newvol)
 	{
-		fprintf (stderr, "Out of memory!");
+		hnd->err_msg = "Out of memory";
 		return -1;
 	}
 
 /* Translate the device name to it's real world equivelent. */
-	path = mfsvol_device_translate (path);
+	path = mfsvol_device_translate (hnd, path);
+
+	if (!path)
+		return -1;
 
 /* If the user requested RO, let them have it.  This may break a writer */
 /* program, but thats what it is intended to do.  Also if fake_write is set, */
@@ -118,8 +113,10 @@ mfsvol_add_volume (struct volume_handle *hnd, char *path, int flags)
 
 	if (!newvol->file)
 	{
-		perror (path);
-		return 0;
+		hnd->err_msg = "%s: %s";
+		hnd->err_arg1 = path;
+		hnd->err_arg2 = strerror (errno);
+		return -1;
 	}
 
 /* If read-only was requested, make it so, unless fake_write was selected. */
@@ -132,7 +129,9 @@ mfsvol_add_volume (struct volume_handle *hnd, char *path, int flags)
 	newvol->sectors = tivo_partition_size (newvol->file);
 	if (newvol->sectors == 0)
 	{
-		perror (path);
+		hnd->err_msg = "%s: %s";
+		hnd->err_arg1 = path;
+		hnd->err_arg2 = strerror (errno);
 	}
 
 /* TiVo rounds off the size of the partition to even counts of 1024 sectors. */
@@ -141,7 +140,8 @@ mfsvol_add_volume (struct volume_handle *hnd, char *path, int flags)
 /* If theres nothing there, assume the worst. */
 	if (!newvol->sectors)
 	{
-		fprintf (stderr, "Error: Empty partition %s.\n", path);
+		hnd->err_msg = "Empty partition %s";
+		hnd->err_arg1 = path;
 		tivo_partition_close (newvol->file);
 		free (newvol);
 		return -1;
@@ -250,6 +250,11 @@ mfsvol_cleanup (struct volume_handle *hnd)
 		tivo_partition_close (cur->file);
 		free (cur);
 	}
+
+	if (hnd->hda)
+		free (hnd->hda);
+	if (hnd->hdb)
+		free (hnd->hdb);
 
 	free (hnd);
 }
@@ -370,8 +375,9 @@ mfsvol_write_data (struct volume_handle *hnd, void *buf, unsigned int sector, in
 
 /******************************************************************************/
 /* Just a quick init.  All it really does is scan for the env MFS_FAKE_WRITE. */
+/* Also get the real device names of hda and hdb. */
 struct volume_handle *
-mfsvol_init ()
+mfsvol_init (const char *hda, const char *hdb)
 {
 	char *fake = getenv ("MFS_FAKE_WRITE");
 	struct volume_handle *hnd;
@@ -385,5 +391,58 @@ mfsvol_init ()
 		hnd->fake_write = 1;
 	}
 
+	if (hda && *hda)
+		hnd->hda = strdup (hda);
+
+	if (hdb && *hdb)
+		hnd->hdb = strdup (hdb);
+
 	return hnd;
+}
+
+/*************************/
+/* Display the MFS volume error */
+void
+mfsvol_perror (struct volume_handle *hnd, char *str)
+{
+	int err = 0;
+
+	if (hnd->err_msg)
+	{
+		fprintf (stderr, "%s: ", str);
+		fprintf (stderr, hnd->err_msg, hnd->err_arg1, hnd->err_arg2, hnd->err_arg3);
+		fprintf (stderr, ".\n");
+	}
+	else
+	{
+		fprintf (stderr, "%s: No error.\n", str);
+	}
+}
+
+/*************************************/
+/* Return the MFS error in a string. */
+int
+mfsvol_strerror (struct volume_handle *hnd, char *str)
+{
+	if (hnd->err_msg)
+		sprintf (str, hnd->err_msg, hnd->err_arg1, hnd->err_arg2, hnd->err_arg3);
+	else
+	{
+		sprintf (str, "No error");
+
+		return 0;
+	}
+
+	return 1;
+}
+
+/*******************************/
+/* Check if there is an error. */
+int
+mfsvol_has_error (struct volume_handle *hnd)
+{
+	if (hnd->err_msg)
+		return 1;
+
+	return 0;
 }

@@ -14,7 +14,7 @@ static struct mfs_handle *mfs;
 static void
 usage ()
 {
-	fprintf (stderr, "Usage:\n%s [-i inode] [-f fsid] [-s sector] [-c count] [-h] [-b]\n", progname);
+	fprintf (stderr, "Usage:\n%s [-i inode] [-f fsid] [-s sector] [-c count] [-h] [-b] /dev/hda [/dev/hdb]\n", progname);
 	fprintf (stderr, "    -f	Read from fsid\n");
 	fprintf (stderr, "    -i	Read from inode\n");
 	fprintf (stderr, "    -s	Read from sector, or from offset into file\n");
@@ -131,20 +131,20 @@ mfsd_main (int argc, char **argv)
 		}
 	}
 
-	if (sector == 0xdeadbeef && !fsid && inode == 0xdeadbeef)
+	if (sector == 0xdeadbeef && !fsid && inode == 0xdeadbeef || optind == argc || optind >= argc + 2)
 	{
 		usage ();
 		return 4;
 	}
 
-	mfs = mfs_init (O_RDONLY);
+	mfs = mfs_init (argv[optind], optind + 1 < argc? argv[optind + 1] : NULL, O_RDONLY);
 
 	if (fsid)
 	{
 		inode_buf = mfs_read_inode_by_fsid (mfs, fsid);
 		if (!inode_buf)
 		{
-			fprintf (stderr, "Unable to read fsid %d\n", fsid);
+			mfs_perror (mfs, "Read fsid");
 			return 1;
 		}
 		bufsize = sizeof (*inode_buf) + htonl (inode_buf->numblocks) * 8;
@@ -155,7 +155,7 @@ mfsd_main (int argc, char **argv)
 		inode_buf = mfs_read_inode (mfs, inode);
 		if (!inode_buf)
 		{
-			fprintf (stderr, "Unable to read inode %d\n", inode);
+			mfs_perror (mfs, "Read inode");
 			return 1;
 		}
 		bufsize = sizeof (*inode_buf) + htonl (inode_buf->numblocks) * 8;
@@ -177,7 +177,7 @@ mfsd_main (int argc, char **argv)
 			int nread = mfs_read_inode_data_part (mfs, inode_buf, buf, sector, count);
 			if (nread <= 0)
 			{
-				fprintf (stderr, "Error from mfs_read_inode_data_part\n");
+				mfs_perror (mfs, "Read data");
 				return 1;
 			}
 			bufsize = nread;
@@ -188,7 +188,7 @@ mfsd_main (int argc, char **argv)
 
 			if (nread <= 0)
 			{
-				fprintf (stderr, "Error from mfs_read_data\n");
+				mfs_perror (mfs, "Read data");
 				return 1;
 			}
 

@@ -16,6 +16,12 @@ char *progname;
 
 static struct mfs_handle *mfs;
 
+void
+mls_usage ()
+{
+	fprintf (stderr, "Usage:\n%s [/dev/hda [/dev/hdb]] /path", progname);
+}
+
 fs_entry *
 find_file_by_name (unsigned char *dir, unsigned int dirlen, unsigned char *name)
 {
@@ -99,7 +105,7 @@ list_file (unsigned char *name)
 	cur_nfo = mfs_read_inode_by_fsid (mfs, 1);
 	if (!cur_nfo)
 	{
-		fprintf (stderr, "Couldn't read root directory!\n");
+		mfs_perror (mfs, "Read root directory");
 		exit (1);
 	}
 
@@ -124,7 +130,7 @@ list_file (unsigned char *name)
 		cur_dir = mfs_read_inode_data (mfs, cur_nfo, &cur_dir_length);
 		if (!cur_dir)
 		{
-			fprintf (stderr, "No such file or directory!\n");
+			mfs_perror (mfs, "Read directory");
 			exit (1);
 		}
 
@@ -199,14 +205,47 @@ list_file (unsigned char *name)
 int
 mls_main (int argc, char **argv)
 {
-	mfs = mfs_init (O_RDONLY);
+	char *arg = argv[1];
+	char *hda, *hdb;
+
+	progname = argv[0];
+
+	if (argc > 2)
+	{
+		hda = argv[1];
+		arg = argv[2];
+
+		if (argc > 3)
+		{
+			hdb = argv[2];
+			arg = argv[3];
+
+			if (argc > 4)
+			{
+				mls_usage ();
+				return 1;
+			}
+		}
+	}
+	else
+	{
+		hda = getenv ("MFS_HDA");
+		hdb = getenv ("MFS_HDB");
+		if (!hda || !*hda)
+		{
+			hda = "/dev/hda";
+			hdb = "/dev/hdb";
+		}
+	}
+
+	mfs = mfs_init (hda, hdb, O_RDONLY);
 	if (!mfs)
 	{
 		fprintf (stderr, "mfs_init: Failed.  Bailing.\n");
 		return 1;
 	}
 
-	list_file (argv[1]);
+	list_file (arg);
 
 	return 0;
 }

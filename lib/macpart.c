@@ -150,7 +150,6 @@ tivo_read_partition_table (const char *device, int flags)
 		*fd = lfopen (device, flags);
 		if (*fd < 0)
 		{
-			perror (device);
 			free (table);
 			return 0;
 		}
@@ -164,7 +163,6 @@ tivo_read_partition_table (const char *device, int flags)
 			break;
 		default:
 			close (*fd);
-			perror (device);
 			free (table);
 			return 0;
 		}
@@ -173,7 +171,6 @@ tivo_read_partition_table (const char *device, int flags)
 		lseek (*fd, 0, SEEK_SET);
 		if (read (*fd, buf, 512) != 512)
 		{
-			perror (device);
 			close (*fd);
 			free (table);
 			return 0;
@@ -205,7 +202,6 @@ tivo_read_partition_table (const char *device, int flags)
 			lseek (*fd, 512 * cursec, SEEK_SET);
 			if (read (*fd, buf, 512) != 512)
 			{
-				perror (device);
 				close (*fd);
 				free (table);
 				return 0;
@@ -758,7 +754,6 @@ tivo_partition_table_init (const char *device, int swab)
 	table->rw_fd = lfopen (device, O_RDWR);
 	if (table->rw_fd < 0)
 	{
-		perror (device);
 		free (table);
 		return -1;
 	}
@@ -771,7 +766,6 @@ tivo_partition_table_init (const char *device, int swab)
 		break;
 	default:
 		close (table->rw_fd);
-		perror (device);
 		free (table);
 		return -1;
 	}

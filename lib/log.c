@@ -50,7 +50,8 @@ mfs_log_read (struct mfs_handle *mfshnd, void *buf, unsigned int logstamp)
 
 	if (!MFS_check_crc (buf, 512, tmp->crc))
 	{
-		fprintf (stderr, "MFS transaction logstamp %ud has invalid checksum\n", logstamp);
+		mfshnd->err_msg = "MFS transaction logstamp %ud has invalid checksum";
+		mfshnd->err_arg1 = (void *)logstamp;
 		return 0;
 	}
 

@@ -25,7 +25,6 @@ struct device_info
 
 struct backup_info
 {
-	char *lasterr;
 	struct mfs_handle *mfs;
 	int cursector;
 	int presector;
@@ -50,7 +49,12 @@ struct backup_info
 	int bswap;
 #else
 	unsigned int thresh;
+	char *hda;
 #endif
+	char *err_msg;
+	void *err_arg1;
+	void *err_arg2;
+	void *err_arg3;
 };
 
 struct block_info
@@ -99,17 +103,14 @@ struct backup_head
 #endif
 #endif
 
-EXTERNINLINE char *
-last_err (struct backup_info *info)
-{
-	return info->lasterr;
-}
-
 struct backup_info *init_backup (char *device, char *device2, int flags);
 void backup_set_thresh (struct backup_info *info, unsigned int thresh);
 int backup_start (struct backup_info *info);
 unsigned int backup_read (struct backup_info *info, char *buf, unsigned int size);
 int backup_finish (struct backup_info *info);
+void backup_perror (struct backup_info *info, char *str);
+int backup_strerror (struct backup_info *info, char *str);
+int backup_has_error (struct backup_info *info);
 
 struct backup_info *init_restore (unsigned int flags);
 void restore_set_varsize (struct backup_info *info, int size);
@@ -118,3 +119,6 @@ unsigned int restore_write (struct backup_info *info, char *buf, unsigned int si
 int restore_trydev (struct backup_info *info, char *dev1, char *dev2);
 int restore_start (struct backup_info *info);
 int restore_finish(struct backup_info *info);
+void restore_perror (struct backup_info *info, char *str);
+int restore_strerror (struct backup_info *info, char *str);
+int restore_has_error (struct backup_info *info);

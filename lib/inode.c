@@ -60,8 +60,6 @@ mfs_read_inode (struct mfs_handle *mfshnd, unsigned int inode)
 	}
 
 /* CRC is bad, try reading the backup on the next sector. */
-	fprintf (stderr, "mfs_read_inode: Inode %d corrupt, trying backup.\n", inode);
-
 	if (mfsvol_read_data (mfshnd->vols, (void *) in, sector + 1, 1) != 512)
 	{
 		free (in);
@@ -73,7 +71,9 @@ mfs_read_inode (struct mfs_handle *mfshnd, unsigned int inode)
 		return in;
 	}
 
-	fprintf (stderr, "mfs_read_inode: Inode %d backup corrupt, giving up.\n", inode);
+	mfshnd->err_msg = "Inode %d corrupt";
+	mfshnd->err_arg1 = (void *)inode;
+
 	return NULL;
 }
 

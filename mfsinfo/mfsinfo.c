@@ -103,15 +103,12 @@ mfsinfo_main (int argc, char **argv)
 		return 1;
 	}
 
-	setenv ("MFS_HDA", drives[0], 1);
-	if (ndrives > 1)
-		setenv ("MFS_HDB", drives[1], 1);
-	else
-		setenv ("MFS_HDB", "Second MFS Drive Needed", 1);
-
-	mfs = mfs_init (O_RDONLY);
+	mfs = mfs_init (drives[0], drives[1], O_RDONLY);
 	if (!mfs)
+	{
+		fprintf (stderr, "Could not open MFS volume set.\n");
 		return 1;
+	}
 
 	fprintf (stderr, "MFS volume set for %s%s%s\n", drives[0], ndrives > 1? " and ": "", ndrives > 1? drives[1]: "");
 
