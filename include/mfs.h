@@ -9,13 +9,13 @@
 #define MFS_PARTITION_ROUND 1024
 
 /* Flags for vol_flags below */
-#define VOL_FILE        1       /* This volume is really a file */
+/* #define VOL_FILE        1        This volume is really a file */
 #define VOL_RDONLY      2       /* This volume is read-only */
-#define VOL_SWAB        4       /* This volume is byte-swapped */
+/* #define VOL_SWAB        4        This volume is byte-swapped */
 
 /* Information about the list of volumes needed for reads */
 struct volume_info {
-        int fd;
+        struct tivo_partition_file *file;
         unsigned int start;
         unsigned int sectors;
         unsigned int offset;
@@ -35,23 +35,6 @@ struct zone_map_head {
         unsigned int size;
         unsigned int free;
         struct zone_map *next;
-};
-
-/* TiVo partition map partition */
-struct tivo_partition {
-        unsigned int sectors;
-        unsigned int start;
-};
- 
-/* TiVo partition map information */
-struct tivo_partition_table {
-        unsigned char *device;
-        int ro_fd;
-        int rw_fd;
-        int vol_flags;
-        int count;
-        struct tivo_partition *partitions;
-        struct tivo_partition_table *next;
 };
 
 extern volume_header vol_hdr;
