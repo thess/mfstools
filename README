@@ -1,16 +1,54 @@
-MFS Utils version 0.8
+MFS Tools version 0.8
 by Steven Lang (Tiger on www.avsforum.com)
 
-This is the initial release of the MFS utils.  Currently, MFS utils is a
+This is the initial release of the MFS Tools.  Currently, MFS Tools is a
 backup and a restore program.  (Well, actually it is the same program,
 busybox style, so it fits on boot disks better)  There are several options
 so be sure to read the full documentation before proceeding.  (If you are
 really impatient, the defaults work most the time)
 
 To setup the command, either create link (Symbolic or hard) to the main
-binary (mfsutil) named after one of the utils.  (Currently backup or restore)
+binary (mfstool) named after one of the tools.  (Currently backup or restore)
 If the binary name is not a recognized utility, the first argument is assumed
 to be the name of the utility, and the second argument forward the parameters.
+
+
+
+BACKUP AND RESTORE QUICKSTART
+
+For the impatient, this should be enough to get you a usable backup, and be
+able to restore it.  Start by taking the drive out of your TiVo and connecting
+it to your computer as the secondary master.  Connect your DOS drive as the
+primary master.  If the TiVo drive is a locked drive, follow the procedures
+to unlock it as outlined in the hack FAQ.  Boot to DOS (Or whatever OS you
+normally used)  Put the "mfstool" file on a floppy disk.  Reboot to Linux,
+either through a normal Linux boot or a TiVo upgrade disk.  Mount the
+floppy with the command:
+
+mkdir /mnt
+mkdir /mnt/floppy
+mount /dev/fd0 /mnt/floppy
+
+Next, mount your DOS drive, which is the first partition on the primary master,
+with the command:
+
+mkdir /mnt/dos
+mount /dev/hda1 /mnt/dos
+
+Now you are ready to backup.  To backup, issue the command:
+
+/mnt/floppy/mfstool backup -o /mnt/dos/tivo.bak /dev/hdc
+
+Go for a quick snack, and when you get back, you should be done, unless any
+errors were reported.
+
+To restore, follow the procedures above.  Instead of putting the TiVo drive
+as secondary master, put the drive you are going to restore to as secondary
+master.  Again mount with the above commands.  Then start the restore with:
+
+/mnt/floppy/mfstool restore -i /mnt/dos/tivo.bak /dev/hdc
+
+Now read the rest of this document so you know what you are doing.
 
 
 
@@ -35,9 +73,9 @@ To set this variable in csh/tcsh
 setenv MFS_HDA /dev/hdc
 (Again replace the A and c with the appropriate letters)
 
-Unlike past MFS utilities released by others, the MFS Utils package does not
+Unlike past MFS utilities released by others, the MFS Tools package does not
 require a special kernel or boot parameters.  In fact, it is quicker without
-byte-swapping.  The MFS utils themself recognize both swapped bytes and
+byte-swapping.  The MFS Tools themself recognize both swapped bytes and
 the TiVo partition format.
 
 
@@ -69,12 +107,10 @@ TiVo "A" drive, and /dev/hdY is the device file for the TiVo "B" drive.
 
 The full list of available options for backup are:
 
--h
-	Give help.
-
 -o file
 	This tells backup where to write the backup.  For most uses, this
-	will need about 200 megs of free space.
+	will need about 200 megs of free space.  If - is specified, the
+	backup will be written to stdout.
 
 -1 .. -9
 	Create a compressed backup.  Any number between 1 and 9 may be used.
@@ -164,6 +200,14 @@ This will restore the file /mnt/TiVo.bak onto the secondary Master.
 
 Other options available:
 
+-q
+	Quiet operation mode.  The progress display will not be displayed.
+	Given twice will cause only error messages to be displayed.
+
+-i file
+	Read backup from file.  If - is specified, backup will be read from
+	stdin.
+
 -v size
 	Create the /var partition this size, in megabytes.  This is useful
 	if you have a big drive, and want to create a little sand-box space
@@ -171,9 +215,10 @@ Other options available:
 
 -s size
 	Create the swap partition this size, in megabytes.  This is useful
-	if you are running a lot of utils, or have VERY large drives, and
-	want to put in a little extra swap.  (fsfix REQUIRES this for drives
-	totaling over 120 megs)  Default 64.  Values up to 511 are possible.
+	if you are running a lot of programs on the TiVo, or have VERY large
+	drives, and want to put in a little extra swap.  (fsfix REQUIRES this
+	for drives totaling over 120 megs)  Default 64.  Values up to 511 are
+	possible.
 
 -z
 	Zero out partitions not backed up.  This means the inactive bootstrap,
@@ -201,15 +246,15 @@ CPU bound.
 
 FAQ
 
-Q. Will I still need ZapTiVo/ZapStream/dd with this?
+Q. Will I still need ZapTiVo/ZapStream/dd/gzip with this?
 
-No, MFS Utils replaces the functionality of all other Linux based backup
+No, MFS Tools replaces the functionality of all other Linux based backup
 utilities.
 
 Q. Will this work with a dual drive TiVo, such as the 312, original UK TiVo,
 60 hour standalone, or original DirecTV with TiVo recievers?
 
-Absolutely.  In fact, with the right set of options, MFS Utils can restore
+Absolutely.  In fact, with the right set of options, MFS Tools can restore
 these systems to single drives, in such a way as a second drive can then
 be added by "Blessing" it and adding it, as covered in the normal TiVo hack
 FAQ.
@@ -219,13 +264,43 @@ backup image.
 
 That was not a question.
 
-Since MFS Utils does not read the entire drive, only the requred data, the
+Since MFS Tools does not read the entire drive, only the requred data, the
 chance that the bad block on the data surface is in the needed data is much
 lower, so you may yet be able to produce a good backup.
 
+Q. Can I restore my backups made with MFS Tools using dd or Dolly?
+
+No.  MFS Tools uses a special format that condenses the information needed
+for the backup, so no unnecessary data, even easily compressible, is backed
+up.  This results in small and FAST backups.
+
+Q. Can I restore my backups made with dd or Dolly with MFS Tools?
+
+No.  You can use dd or Dolly to restore those.  However, if you have a raw
+drive image as a file (And you have large file support) MFS Tools can turn
+your existing drive image into an MFS Tools backup.  Just give MFS Tools
+the filename instead of a device.
+
 Q. Is there a Windows version?
 
-Not Yet.(TM)
+Not Yet.(TM)  A port should not be too hard, so I may work on one at some
+point.  I will need help, not being too familiar with Windows API.
+Specifically for accessing a hard disk as a raw device.  If you think you
+can help, I would love to hear from you.
+
+Q. I made a backup of my drive, then restored it to the same drive.  Now
+I see extra free space that wasn't there before.  What is going on?
+
+MFS Tools creates the partition sizes based on how much space TiVo says the
+partition uses, not how much space the partition table says the partition
+uses.  To simplify access, TiVo rounds off all partitions to even values of
+a power of two.  Any space beyond that is wasted.  That is where the free
+space came from.  The wasted space was merely collected.
+
+Q. Why do you call it MFS Tools if all it does is backup and restore?
+
+Because some day I may add more utilities.  Some trivial stuff like mls
+(That runs on x86) and some less trivial stuff.
 
 Q. Does this help TiVo, Inc. at all?
 
@@ -245,7 +320,7 @@ Q. Does this hurt TiVo, Inc. at all?
 
 No worse than other programs already released in source form.
 
-Q. Will you be releasing the source to MFS Utils?
+Q. Will you be releasing the source to MFS Tools?
 
 No.
 
@@ -306,7 +381,7 @@ http://www.cdrom.com/pub/infozip/zlib/.
 
 LEGAL
 
-MFS Utils are Copyrighted (C) 2000-2001 by Steven Lang, all rights reserved.
+MFS Tools are Copyrighted (C) 2000-2001 by Steven Lang, all rights reserved.
 
 TiVo is a registered trademark of TiVo, Inc.
 
