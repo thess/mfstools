@@ -22,6 +22,7 @@ backup_usage (char *progname)
 {
 	fprintf (stderr, "Usage: %s [options] Adrive [Bdrive]\n", progname);
 	fprintf (stderr, "Options:\n");
+	fprintf (stderr, " -h        Display this help message\n");
 	fprintf (stderr, " -o file   Output to file, - for stdout\n");
 	fprintf (stderr, " -1 .. -9  Compress backup, quick (-1) through best (-9)\n");
 	fprintf (stderr, " -v        Do not include /var in backup\n");
@@ -128,7 +129,7 @@ backup_main (int argc, char **argv)
 
 	tivo_partition_direct ();
 
-	while ((loop = getopt (argc, argv, "o:123456789vsf:l:tTaq")) > 0)
+	while ((loop = getopt (argc, argv, "ho:123456789vsf:l:tTaq")) > 0)
 	{
 		switch (loop)
 		{
@@ -203,6 +204,7 @@ backup_main (int argc, char **argv)
 			break;
 		default:
 			backup_usage (argv[0]);
+			return 1;
 		}
 	}
 
