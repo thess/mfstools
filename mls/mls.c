@@ -189,7 +189,7 @@ list_file (unsigned char *name)
 }
 
 int
-main (int argc, char **argv)
+mls_main (int argc, char **argv)
 {
 	if (mfs_init (O_RDONLY) < 0)
 	{

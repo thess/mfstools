@@ -6,7 +6,7 @@
 
 char *progname;
 
-void
+static void
 usage ()
 {
 	fprintf (stderr, "Usage:\n%s [-i inode] [-f fsid] [-s sector] [-c count] [-h] [-b]\n", progname);
@@ -68,7 +68,7 @@ hexdump (unsigned char *buf, unsigned int sector, unsigned int size)
 }
 
 int
-main (int argc, char **argv)
+mfsd_main (int argc, char **argv)
 {
 	int args[2];
 	int curarg;

@@ -577,6 +577,7 @@ find_optimal_partitions (struct backup_info *info, unsigned int min1, unsigned i
 	unsigned int bestleft = secs1 - min1;
 	int loop, loop2, loop3;
 	int count;
+	char *err = 0;
 
 	for (loop = 0; loop < (1 << (info->nmfs / 2 - 1)); loop++)
 	{
@@ -601,14 +602,19 @@ find_optimal_partitions (struct backup_info *info, unsigned int min1, unsigned i
 
 		if (max1 < 16 && max2 < 16 && free1 >= 0 && free2 >= 0 && free1 <= bestleft)
 		{
-			bestorder = loop;
-			bestleft = free1;
+			if ((max1 - 9) * 10 + max2 * 10 + (max2 & 7) <= 128)
+			{
+				bestorder = loop;
+				bestleft = free1;
+			}
+			else
+				err = "Too many MFS partitions.";
 		}
 	}
 
 	if (bestorder < 0)
 	{
-		info->lasterr = "Unable to fit backup onto drives.";
+		info->lasterr = err? err: "Unable to fit backup onto drives.";
 		return -1;
 	}
 

@@ -65,13 +65,56 @@ free_block_list (struct blocklist **blocks)
 	}
 }
 
+/*********************************/
+/* Free an array of block lists. */
+static void
+free_block_list_array (struct blocklist **blocks)
+{
+	while (*blocks)
+	{
+		free_block_list (blocks);
+		blocks++;
+	}
+}
+
+/***********************************************************************/
+/* Concatenates an array of block lists into a single list.  This list */
+/* should be read or free only.  Any write to it will likely confuse the */
+/* add function. */
+static struct blocklist *
+block_list_array_concat (struct blocklist **blocks)
+{
+	struct blocklist *res = NULL;
+	struct blocklist **last = &res;
+
+	while (*blocks)
+	{
+		*last = *blocks;
+
+		while (*last)
+		{
+			last = &(*last)->next;
+		}
+		*blocks = 0;
+		blocks++;
+	}
+
+	return res;
+}
+
 /************************************************/
 /* Add a block to the list of blocks to backup. */
 static int
-backup_add_block (struct blocklist **blocks, struct blocklist **pool, int sector, int count)
+backup_add_block (struct blocklist **blocks, unsigned int *partstart, struct blocklist **pool, int sector, int count)
 {
 	struct blocklist **loop;
 	struct blocklist *prev = 0;
+
+	while (partstart[1] < sector)
+	{
+		partstart++;
+		blocks++;
+	}
 
 /* A little debug here and there never hurt anything. */
 #ifdef DEBUG
@@ -280,16 +323,30 @@ scan_inodes (struct backup_info *info)
 {
 	unsigned int loop, loop2, loop3;
 	int ninodes = mfs_inode_count ();
-	struct blocklist *blocks = NULL;
+	struct blocklist *blocks[32];
+	unsigned int partstart[32];
 	struct blocklist *pool = NULL;
 	unsigned int highest = 0;
 
-	blocks = calloc (sizeof (*blocks), 1);
-	if (!blocks)
+	bzero (blocks, sizeof (blocks));
+
+	for (loop = 0, loop3 = 0; loop2 = mfs_volume_size (loop); loop += loop2, loop3++)
 	{
-		info->lasterr = "Memory exhausted.";
-		return 0;
+		partstart[loop3] = loop;
+		blocks[loop3] = calloc (sizeof (**blocks), 1);
+		if (!blocks[loop3])
+		{
+			while (loop3 > 0)
+			{
+				loop3--;
+				free (blocks[loop3]);
+				info->lasterr = "Memory exhausted.";
+				return 0;
+			}
+		}
 	}
+	partstart[loop3] = ~0;
+	blocks[loop3] = 0;
 
 /* Add inodes. */
 	for (loop = 0; loop < ninodes; loop++)
@@ -328,9 +385,9 @@ scan_inodes (struct backup_info *info)
 						fprintf (stderr, "Inode %d: ", htonl (inode->fsid));
 #endif
 
-						if (backup_add_block (&blocks, &pool, thissector, thiscount) != 0)
+						if (backup_add_block (blocks, partstart, &pool, thissector, thiscount) != 0)
 						{
-							free_block_list (&blocks);
+							free_block_list_array (blocks);
 							free_block_list (&pool);
 							free (inode);
 							info->lasterr = "Memory exhausted.";
@@ -374,9 +431,9 @@ scan_inodes (struct backup_info *info)
 			{
 				break;
 			}
-			if (backup_add_block (&blocks, &pool, loop, loop2) != 0)
+			if (backup_add_block (blocks, partstart, &pool, loop, loop2) != 0)
 			{
-				free_block_list (&blocks);
+				free_block_list_array (blocks);
 				free_block_list (&pool);
 				info->lasterr = "Memory exhausted.";
 				return 0;
@@ -389,7 +446,7 @@ scan_inodes (struct backup_info *info)
 /* Free the data. */
 	free_block_list (&pool);
 
-	return blocks;
+	return block_list_array_concat (blocks);
 }
 
 /***********************************************************/

@@ -1,6 +1,6 @@
 AC_INIT(include/mfs.h)
 
-AM_INIT_AUTOMAKE(mfstools, 0.8a)
+AM_INIT_AUTOMAKE("MFS Tools", 0.8a)
 
 AC_PROG_CC
 AC_PROG_MAKE_SET
@@ -15,4 +15,6 @@ mfsadd/Makefile
 mls/Makefile
 mfsd/Makefile
 backup/Makefile
+restore/Makefile
+mfstool/Makefile
 )
