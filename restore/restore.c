@@ -841,7 +841,7 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 		return -1;
 	}
 /* Make sure there is at least 1 device. */
-	if (!dev1)
+	if (!dev1 || !*dev1)
 	{
 		info->err_msg = "No restore target device";
 		return -1;
@@ -878,7 +878,7 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 
 	if (tivo_partition_devswabbed (dev1))
 		swab1 ^= 1;
-	if (dev2 && tivo_partition_devswabbed (dev2))
+	if (dev2 && *dev2 && tivo_partition_devswabbed (dev2))
 		swab2 ^= 1;
 
 /* Try to initialize the drive partition table. */
@@ -898,12 +898,12 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 #endif
 
 /* If there is a second device, do the same. */
-	if (dev2)
+	if (*dev2)
 	{
 		if (tivo_partition_table_init (dev2, swab2) < 0)
 		{
 			info->err_msg = "Unable to open %s for writing";
-			info->err_arg1 = dev1;
+			info->err_arg1 = dev2;
 			return -1;
 		}
 

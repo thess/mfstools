@@ -2,7 +2,7 @@ Version 3.0
 MFS Lib
   Ability to open a truncated MFS volume (Bad 2nd drive case)
   Function to manipulate MFS allocation bitmap (Allocate new space)
-  Remove dependency on environment variables
+*DONE*  Remove dependency on environment variables
 Backup format
   Addition of list of inodes (Not fsids)
     Inodes replace block list for the listed streams
@@ -29,12 +29,13 @@ Restore
       Build new MFS volume pairs
       Walk list of backed up inodes and allocate storage
       Finish V3 backup as normal (Allocating space from inodes)
-Direct drive copy
-  New tool to combine backup/restore in one process for direct copy
+*DONE* Direct drive copy
+*DONE*  New tool to combine backup/restore in one process for direct copy
 Misc bug fixes
-  Swap size (Fixed)
-  Mfsadd to drives larger than 256mb (Need to investigate)
-  Better handling and reporting of error cases
+*DONE*  Swap size
+  Mfsadd to drives larger than 256gb (Need to investigate)
+  Better handling of error cases
+*DONE*  Better reporting of error cases
 
 Plan V3.0
 1. Clean up error reporting/return (All)
@@ -62,9 +63,9 @@ Restore
   X Ability to save extra partitions at end of drive
   X Ability to create new MFS partitions to fill drive
 MfsCopy
-  New tool to do a direct drive to drive copy of MFS.
-  Ability to copy A+B to new A+B drive
+  X New tool to do a direct drive to drive copy of MFS.
+  X Ability to copy A+B to new A+B drive
   Ability to copy A+B to old A+new B or old B as A+new B
   Ability to copy contents of just A or just B drive to new drive
 MFS Info
-  New tool to display some info on MFS drive
+  X New tool to display some info on MFS drive

@@ -1,7 +1,7 @@
 AC_INIT(include/mfs.h)
 AM_CONFIG_HEADER(include/config.h:include/config.h.in)
 
-AM_INIT_AUTOMAKE("MFSTools", 2.0)
+AM_INIT_AUTOMAKE("MFSTools", snapshot`date +%y%m%d%H`)
 
 AC_ARG_ENABLE(debug,
 [  --enable-debug	Turn on debugging output],
@@ -10,6 +10,7 @@ AC_ARG_ENABLE(debug,
   no)  : ;;
   *) AC_MSG_ERROR(bad value ${enableval} for --enable-debug) ;;
 esac])
+AH_TEMPLATE([DEBUG],[Build with debug symbols and debug messages enabled.])
 
 AC_ARG_ENABLE(mfsadd,
 [  --disable-mfsadd	Don't build mfsadd],
@@ -18,6 +19,8 @@ AC_ARG_ENABLE(mfsadd,
   no)  build_mfsadd=false ;;
 esac],[build_mfsadd=true; AC_DEFINE(BUILD_MFSADD)])
 AM_CONDITIONAL(BUILD_MFSADD, test x$build_mfsadd = xtrue)
+AH_TEMPLATE([BUILD_MFSADD],
+	[Build the mfsadd standalone utility or mfstool utility.])
   
 AC_ARG_ENABLE(mls,
 [  --disable-mls	Don't build mls],
@@ -26,6 +29,8 @@ AC_ARG_ENABLE(mls,
   no)  build_mls=false ;;
 esac],[build_mls=true; AC_DEFINE(BUILD_MLS)])
 AM_CONDITIONAL(BUILD_MLS, test x$build_mls = xtrue)
+AH_TEMPLATE([BUILD_MLS],
+	[Build the mls standalone utility or mfstool utility.])
   
 AC_ARG_ENABLE(mfsd,
 [  --disable-mfsd	Don't build mfsd],
@@ -34,6 +39,8 @@ AC_ARG_ENABLE(mfsd,
   no)  build_mfsd=false ;;
 esac],[build_mfsd=true; AC_DEFINE(BUILD_MFSD)])
 AM_CONDITIONAL(BUILD_MFSD, test x$build_mfsd = xtrue)
+AH_TEMPLATE([BUILD_MFSD],
+	[Build the mfs dump standalone utility or mfstool utility.])
   
 AC_ARG_ENABLE(backup,
 [  --disable-backup	Don't build backup],
@@ -42,6 +49,8 @@ AC_ARG_ENABLE(backup,
   no)  build_backup=false ;;
 esac],[build_backup=true; AC_DEFINE(BUILD_BACKUP)])
 AM_CONDITIONAL(BUILD_BACKUP, test x$build_backup = xtrue)
+AH_TEMPLATE([BUILD_BACKUP],
+	[Build the mfs backup standalone utility or mfstool utility.])
   
 AC_ARG_ENABLE(restore,
 [  --disable-restore	Don't build restore],
@@ -50,6 +59,18 @@ AC_ARG_ENABLE(restore,
   no)  build_restore=false ;;
 esac],[build_restore=true; AC_DEFINE(BUILD_RESTORE)])
 AM_CONDITIONAL(BUILD_RESTORE, test x$build_restore = xtrue)
+AH_TEMPLATE([BUILD_RESTORE],
+	[Build the mfs restore standalone utility or mfstool utility.])
+
+AC_ARG_ENABLE(copy,
+[  --disable-copy	Don't build copy],
+[case "${enableval}" in
+  yes) build_copy=true; AC_DEFINE(BUILD_COPY) ;;
+  no)  build_copy=false ;;
+esac],[build_copy=true; AC_DEFINE(BUILD_COPY)])
+AM_CONDITIONAL(BUILD_COPY, test x$build_copy = xtrue)
+AH_TEMPLATE([BUILD_COPY],
+	[Build the mfs copy standalone utility or mfstool utility.])
   
 AC_ARG_ENABLE(mfsinfo,
 [  --disable-mfsinfo	Don't build mfsinfo],
@@ -58,6 +79,8 @@ AC_ARG_ENABLE(mfsinfo,
   no)  build_mfsinfo=false ;;
 esac],[build_mfsinfo=true; AC_DEFINE(BUILD_MFSINFO)])
 AM_CONDITIONAL(BUILD_MFSINFO, test x$build_mfsinfo = xtrue)
+AH_TEMPLATE([BUILD_MFSINFO],
+	[Build the mfs info standalone utility or mfstool utility.])
   
 AC_ARG_ENABLE(mfstool,
 [  --disable-mfstool	Don't build mfstool mega-app],
@@ -66,6 +89,8 @@ AC_ARG_ENABLE(mfstool,
   no)  build_mfstool=false ;;
 esac],[build_mfstool=true])
 AM_CONDITIONAL(BUILD_MFSTOOL, test x$build_mfstool = xtrue)
+AH_TEMPLATE([BUILD_MFSINFO],
+	[Build the utilities into a single mfstool command.])
   
 AC_ARG_ENABLE(apps,
 [  --disable-apps	Don't build standalone apps],
@@ -74,10 +99,11 @@ AC_ARG_ENABLE(apps,
   no)  build_apps=false ;;
 esac],[build_apps=true])
 AM_CONDITIONAL(BUILD_MFSAPPS, test x$build_apps = xtrue)
+AH_TEMPLATE([BUILD_MFSAPPS],
+	[Build the utilities as standalone applications.])
   
 AC_PROG_CC
 AC_PROG_MAKE_SET
-AC_ARG_PROGRAM
 AC_PROG_INSTALL
 AC_PROG_RANLIB
 
@@ -112,6 +138,7 @@ mls/Makefile
 mfsd/Makefile
 backup/Makefile
 restore/Makefile
+mfscopy/Makefile
 mfsinfo/Makefile
 mfstool/Makefile
 )

@@ -17,6 +17,9 @@ extern int backup_main (int, char **);
 #if BUILD_RESTORE
 extern int restore_main (int, char **);
 #endif
+#if BUILD_COPY
+extern int copy_main (int, char **);
+#endif
 #if BUILD_MFSADD
 extern int mfsadd_main (int, char **);
 #endif
@@ -40,6 +43,9 @@ struct {
 #endif
 #if BUILD_RESTORE
 	{"restore", restore_main, "Restore mfstool backups to TiVo drive."},
+#endif
+#if BUILD_COPY
+	{"copy", copy_main, "Copy TiVo drive to a new drive."},
 #endif
 #if BUILD_MFSADD
 	{"add", mfsadd_main, "Add partitions to your TiVo MFS volume."},
