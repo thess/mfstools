@@ -21,3 +21,5 @@ MfsCopy
   Ability to copy A+B to new A+B drive
   Ability to copy A+B to old A+new B or old B as A+new B
   Ability to copy contents of just A or just B drive to new drive
+MFS Info
+  New tool to display some info on MFS drive

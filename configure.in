@@ -51,6 +51,14 @@ AC_ARG_ENABLE(restore,
 esac],[build_restore=true; AC_DEFINE(BUILD_RESTORE)])
 AM_CONDITIONAL(BUILD_RESTORE, test x$build_restore = xtrue)
   
+AC_ARG_ENABLE(mfsinfo,
+[  --disable-mfsinfo	Don't build mfsinfo],
+[case "${enableval}" in
+  yes) build_mfsinfo=true; AC_DEFINE(BUILD_MFSINFO) ;;
+  no)  build_mfsinfo=false ;;
+esac],[build_mfsinfo=true; AC_DEFINE(BUILD_MFSINFO)])
+AM_CONDITIONAL(BUILD_MFSINFO, test x$build_mfsinfo = xtrue)
+  
 AC_ARG_ENABLE(mfstool,
 [  --disable-mfstool	Don't build mfstool mega-app],
 [case "${enableval}" in
@@ -104,5 +112,6 @@ mls/Makefile
 mfsd/Makefile
 backup/Makefile
 restore/Makefile
+mfsinfo/Makefile
 mfstool/Makefile
 )
