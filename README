@@ -1,4 +1,4 @@
-MFS Tools version 0.8
+MFS Tools version 1.0
 by Steven Lang (Tiger on www.avsforum.com)
 
 This is the initial release of the MFS Tools.  Currently, MFS Tools is a
@@ -252,13 +252,37 @@ Q. Will I still need ZapTiVo/ZapStream/dd/gzip with this?
 No, MFS Tools replaces the functionality of all other Linux based backup
 utilities.
 
+Q. Does this require a serial or network connection to my TiVo?
+
+All that is required is the same thing required in the past for backup.  A
+PC that you can hook up your TiVo drive to and boot into Linux.
+
+Q. What is the difference between the static and dynamic packages?
+
+If you have to ask, chances are you want the static package.  The dynamic
+package is most useful to those with full Linux installs, or those making
+utility disks.  More technically, the static package is entirely self
+contained.  The dynamic package depends on ld-linux.so, libc, and zlib.
+People creating utility disks will probably also want to create symbolic
+links named backup, restore and mls that point to mfstool, so the commands
+can be run directly.
+
+Q. Can I backup a dual drive and restore to a single drive?
+
+Yes.  If the drive is large enough.  The MFS Tools restore automatically
+tries to fill up the A drive before putting anything on the B drive.
+However, failing fitting everything on the A drive, it will then try to
+fit as much as it can on the A drive.
+
 Q. Will this work with a dual drive TiVo, such as the 312, original UK TiVo,
 60 hour standalone, or original DirecTV with TiVo recievers?
 
 Absolutely.  In fact, with the right set of options, MFS Tools can restore
 these systems to single drives, in such a way as a second drive can then
 be added by "Blessing" it and adding it, as covered in the normal TiVo hack
-FAQ.
+FAQ.  For the 312, or 60 hour standalone, all that is needed is a large
+enough drive to restore to.  For the dual drive UK TiVo and idual drive
+combo, the -s option is needed.
 
 Q. I have a drive with errors on it.  Both dd and Dolly fail to produce a good
 backup image.
@@ -282,6 +306,42 @@ drive image as a file (And you have large file support) MFS Tools can turn
 your existing drive image into an MFS Tools backup.  Just give MFS Tools
 the filename instead of a device.
 
+Q. When I use -s, can I restore to a smaller drive than my TiVo came with?
+
+No.  The smallest drive you can restore to is (in most cases) the size of
+your TiVo's original A drive, or (in the case of dual drive 30hr or 60hr
+standalone) the size of both drives combined.  The -s option does not
+actually change any sizes, it just removes partitions when it can.
+
+Q. When I use -s, the size reported for the backup is the same as the base
+size reported.
+
+The -s option is only useful when you have space added, reported on a seperate
+line from the base size.  Furthermore, it only cuts it down to as small as it
+can get without losing any data being backed up.  So if you use -s and -a
+together, chances are -s will not be able to do much, unless you have just
+added extra space and not recorded anything yet.
+
+Q. Can I use -s and save my recordings?
+
+Probably not.  See the above question.
+
+Q. Can I use -s and save my season passes, thumbs, setup, etc?
+
+Anything not a recording is always saved.  Always.
+
+Q. The size claims I have over 40 hours, but I only have a 35 hour combo.
+
+The size reports are calibrated to standalone.  Sorry, I do not have the
+exact conversion ratio to get the size of a combo at this time.
+
+Q. How confident can I be in the backup made?
+
+As confident as you want.  Feel free to test the backup before doing anything
+to your source drive.  In fact, I encourage you to test your backup.  There
+are a few instances I am still a little uncertain about.  Besides, it only
+takes a few minutes to test.
+
 Q. Is there a Windows version?
 
 Not Yet.(TM)  A port should not be too hard, so I may work on one at some
@@ -303,6 +363,29 @@ Q. Why do you call it MFS Tools if all it does is backup and restore?
 Because some day I may add more utilities.  Some trivial stuff like mls
 (That runs on x86) and some less trivial stuff.
 
+Q. Okay, so what is this mls thing and how do I use it?
+
+It is just a simply clone of the mls in tivosh.  It doesn't have any options
+besides a directory.  However, if the directiry is given without a trailing
+slash, it will just list that entry instead of the directory contents.
+If your TiVo A and B drive are not primary master and slave, you will need
+to use MFS_HDA and MFS_HDB.
+
+Q. What versions of the	TiVo software does MFS tools work with?
+
+So far, it has worked 100% with versions up to 2.01.  It SHOULD continue to
+work in the future.  However, I can not speak for that which has not been
+created yet.  Version 2.5 seems to work but has not been thoroughly tested.
+
+Q. Will data restored from these backups work for all future TiVo software
+versions when the software is upgraded through the normal process?
+
+No garuntees.  It works for all past versions I have tested, and I see no
+reason it will not work with future versions.  However, the drive image does
+not exactly match what TiVo will produce.  It should be a close enough
+approximation for any forseeable changes.  But I'm not (very) psychic, so
+I won't predict the future.
+
 Q. Does this help TiVo, Inc. at all?
 
 Not directly.  However it is my hope that it will result in less MORON(TM)
@@ -320,6 +403,17 @@ more sales for TiVo, Inc.
 Q. Does this hurt TiVo, Inc. at all?
 
 No worse than other programs already released in source form.
+
+Q. Is this software sanctioned by TiVo, Inc.?
+
+No.  Wow, I feel negative after those last few questions.  TiVo, Inc. can not
+condone any activity involving opening up hardware produced by TiVo, Inc. or
+their partners.  The hardware is not designed to be consumer upgradable,
+and has dangerous exposed electronics.  Furthermore, opening of the TiVo
+Customer Device by anyone other than a qualified service agent will void the
+warranty and any rights you as a consumer have to any repair services.  In
+other words, if you open your TiVo, and do something to break it, you are
+stuck with both pieces.
 
 Q. Will you be releasing the source to MFS Tools?
 
@@ -340,24 +434,6 @@ concepts have good ideas behind them. But I also respect TiVo's wish to keep
 some things out of the public eye, as they have made clear to me in past
 exchanges. (Besides, what source is out there is already quite a bit)  So no
 source.
-
-Q. Will data restored from these backups work for all future TiVo software
-versions?
-
-No garuntees.  It works for all past versions I have tested, and I see no
-reason it will not work with future versions.  However, the drive image does
-not exactly match what TiVo will produce.  It should be a close enough
-approximation for any forseeable changes.  But I'm not (very) psychic, so
-I won't predict the future.
-
-Q. Is this software sanctioned by TiVo, Inc.?
-
-No.  Wow, I feel negative after those last few questions.  TiVo, Inc. can not
-condone any activity involving opening up hardware produced by TiVo, Inc. or
-their partners.  The hardware is not designed to be consumer upgradable,
-and has dangerous exposed electronics.  Furthermore, opening of the TiVo
-Customer Device by anyone other than a qualified service agent will void the
-warranty and any rights you as a consumer have to any repair services.
 
 Q. Why does this FAQ seem kind of contrived?
 

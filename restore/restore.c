@@ -1003,6 +1003,7 @@ build_partition_table (struct backup_info *info, int devno)
 	unsigned int curstart = 1;
 
 	bzero (buf, sizeof (buf));
+	*(unsigned short *)buf = htons (TIVO_BOOT_MAGIC);
 
 	for (loop = 0; loop < info->nnewparts; loop++)
 	{

@@ -11,7 +11,23 @@
 
 #define BUFSIZE 512 * 2048
 
-#define backup_usage()
+void
+backup_usage (char *progname)
+{
+	fprintf (stderr, "Usage: %s [options] Adrive [Bdrive]\n", progname);
+	fprintf (stderr, "Options:\n");
+	fprintf (stderr, " -o file   Output to file, - for stdout\n");
+	fprintf (stderr, " -1 .. -9  Compress backup, quick (-1) through best (-9)\n");
+	fprintf (stderr, " -v        Do not include /var in backup\n");
+	fprintf (stderr, " -s        Shrink MFS in backup\n");
+	fprintf (stderr, " -q        Do not display progress\n");
+	fprintf (stderr, " -qq       Do not display anything but error messages\n");
+	fprintf (stderr, " -f max    Backup only fsids below max\n");
+	fprintf (stderr, " -l max    Backup only streams less than max megabytes\n");
+	fprintf (stderr, " -t        Use total length of stream instead of used length\n");
+	fprintf (stderr, " -T        Backup total length of stream instead of used length\n");
+	fprintf (stderr, " -a        Backup all streams\n");
+}
 
 static unsigned int
 get_percent (unsigned int current, unsigned int max)
@@ -180,13 +196,13 @@ backup_main (int argc, char **argv)
 			quiet++;
 			break;
 		default:
-			backup_usage ();
+			backup_usage (argv[0]);
 		}
 	}
 
 	if (!filename)
 	{
-		fprintf (stderr, "%s: No filename given.\n", argv[0]);
+		backup_usage (argv[0]);
 		return 1;
 	}
 
@@ -198,7 +214,7 @@ backup_main (int argc, char **argv)
 		drive2 = argv[optind++];
 	if (optind < argc || !drive)
 	{
-		fprintf (stderr, "%s: No devices to backup!\n", argv[0]);
+		backup_usage (argv[0]);
 		return 1;
 	}
 

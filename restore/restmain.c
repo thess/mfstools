@@ -11,9 +11,18 @@
 
 #define BUFSIZE 512 * 2048
 
-#define backup_usage()
-#define mfsadd_usage()
-#define restore_usage()
+void
+restore_usage (char *progname)
+{
+	fprintf (stderr, "Usage: %s [options] Adrive [Bdrive]\n", progname);
+	fprintf (stderr, "Options:\n");
+	fprintf (stderr, " -i file   Input from file, - for stdin\n");
+	fprintf (stderr, " -q        Do not display progress\n");
+	fprintf (stderr, " -qq       Do not display anything but error messages\n");
+	fprintf (stderr, " -v size   Recreate /var as size megabytes (Only if not in backup)\n");
+	fprintf (stderr, " -s size   Recreate swap as size megabytes\n");
+	fprintf (stderr, " -z        Zero out partitions not backed up\n");
+}
 
 static unsigned int
 get_percent (unsigned int current, unsigned int max)
@@ -80,14 +89,14 @@ restore_main (int argc, char **argv)
 			flags |= RF_ZEROPART;
 			break;
 		default:
-			restore_usage ();
+			restore_usage (argv[0]);
 			return 1;
 		}
 	}
 
 	if (!filename)
 	{
-		fprintf (stderr, "%s: Backup file name expected.\n", argv[0]);
+		restore_usage (argv[0]);
 		return 1;
 	}
 
@@ -101,7 +110,7 @@ restore_main (int argc, char **argv)
 
 	if (optind < argc || !drive)
 	{
-		fprintf (stderr, "%s: Device name expected.\n", argv[0]);
+		restore_usage (argv[0]);
 		return 1;
 	}
 

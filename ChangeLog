@@ -1,3 +1,12 @@
+Version 1.0
+	Added usage.  Packaged for release.
+
+Version 0.8g
+	Fixed error in restore of backups with /var included, where the
+	restore would claim not to fit into the drive it was just backed up
+	from.
+
+Version 0.8f
 	Added check for locked drive.  Any drive with a good partition table
 		who's size is less than 2048 megabytes is considered locked.
 	Changed case of -v option, so it now DISABLES inclusion of /var in
