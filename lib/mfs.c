@@ -912,7 +912,7 @@ int mfs_add_volume_pair (char *app, char *media)
 	}
 
 /* Walk the list of zone maps to find the last loaded zone map. */
-	for (cur = loaded_zones; cur && cur->next_loaded; cur = cur->next_loaded):
+	for (cur = loaded_zones; cur && cur->next_loaded; cur = cur->next_loaded);
 
 /* For cur to be null, it must have never been set. */
 	if (!cur) {

@@ -1,0 +1,11 @@
+AC_INIT(premake.sh)
+
+AM_INIT_AUTOMAKE(mfstools, 0.1)
+
+AC_PROG_CC
+AC_PROG_MAKE_SET
+AC_ARG_PROGRAM
+AC_PROG_INSTALL
+AC_PROG_RANLIB
+
+AC_OUTPUT(Makefile lib/Makefile mfsadd/Makefile mls/Makefile mfsd/Makefile)
