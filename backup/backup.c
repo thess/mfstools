@@ -10,6 +10,7 @@
 #include <fcntl.h>
 #include <zlib.h>
 #include <string.h>
+#include <linux/fs.h>
 
 #include "mfs.h"
 #include "macpart.h"
@@ -734,7 +735,7 @@ init_backup (char *device, char *device2, int flags)
  		setenv ("MFS_HDB", device2, 1);
  	else
  		setenv ("MFS_HDB", "Second MFS drive", 1);
- 
+
  	if (mfs_init (O_RDONLY) < 0)
  	{
  		return 0;

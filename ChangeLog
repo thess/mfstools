@@ -1,3 +1,13 @@
+	Added check for locked drive.  Any drive with a good partition table
+		who's size is less than 2048 megabytes is considered locked.
+	Changed case of -v option, so it now DISABLES inclusion of /var in
+		backup per suggestion.  Dunno if I'll keep it this way or
+		not.
+	Fixed size report for combo and dual drive standalone.  Note that the
+		combo still reports in standalone equivelent hours.
+	Fixed restore error for dual drive systems restored to a single
+		larger drive without divorce.
+
 Version 0.8e
 	Added a few more debug message.
 	At the beginning of backup, summarize base TiVo size, upgraded size,

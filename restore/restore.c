@@ -847,8 +847,10 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 		info->devs->devname = dev1;
 		info->devs[0].sectors = secs1;
 
-		for (loop = 2; loop < info->nmfs; loop++)
+		for (loop = 0; loop < info->nmfs; loop++)
 		{
+			info->mfsparts[loop].devno = 0;
+			info->mfsparts[loop].partno = 10 + loop;
 			info->newparts[loop + 9].sectors = info->mfsparts[loop].sectors;
 			info->newparts[loop + 9].partno = loop + 10;
 		}

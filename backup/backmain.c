@@ -72,7 +72,7 @@ display_backup_info (struct backup_info *info)
 		else
 			while (count > 1)
 			{
-				sizes[0] += sizes[count--];
+				sizes[0] += sizes[--count];
 			}
 	}
 
@@ -96,7 +96,7 @@ backup_main (int argc, char **argv)
 {
 	struct backup_info *info;
 	int loop, thresh = 0;
-	unsigned int flags = 0;
+	unsigned int flags = BF_BACKUPVAR;
 	char threshopt = '\0';
 	char *drive, *drive2;
 	char *filename;
@@ -126,7 +126,7 @@ backup_main (int argc, char **argv)
 			compressed = 0;
 			break;
 		case 'v':
-			flags |= BF_BACKUPVAR;
+			flags &= ~BF_BACKUPVAR;
 			break;
 		case 's':
 			flags |= BF_SHRINK;
@@ -203,8 +203,12 @@ backup_main (int argc, char **argv)
 	}
 
 	info = init_backup (drive, drive2, flags);
-
-	if (info)
+	if (!info)
+	{
+		fprintf (stderr, "%s: Backup failed to startup.  Make sure you specified the right\ndevices, and that the drives are not locked.\n", argv[0]);
+		return 1;
+	}
+	else
 	{
 		int secleft = 0;
 		char buf[BUFSIZE];
@@ -270,11 +274,6 @@ backup_main (int argc, char **argv)
 				fprintf (stderr, "Backup failed.");
 			return 1;
 		}
-	}
-	else
-	{
-		fprintf (stderr, "%s: Backup failed.\n", argv[0]);
-		return 1;
 	}
 
 	if (quiet < 1)
