@@ -144,6 +144,9 @@ tivo_read_partition_table (const char *device, int flags)
 			return 0;
 		}
 
+		table->ro_fd = -1;
+		table->rw_fd = -1;
+
 /* Figure out if we are supposed to open it RO or RW, and use the right fd */
 /* variable. */
 		fd = (flags & O_ACCMODE) == O_RDONLY ? &table->ro_fd : &table->rw_fd;

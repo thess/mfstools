@@ -181,6 +181,7 @@ mfsadd_main (int argc, char **argv)
 {
 	unsigned int minalloc = 0x800 << 2;
 	int opt;
+	int init_b_part = 0;
 	int extendall = 0;
 	int extendmfs = 0;
 	char *xdevs[2] = {0, 0};
@@ -301,6 +302,12 @@ mfsadd_main (int argc, char **argv)
 			fprintf (stderr, "%s: Arguments to -x must be one of %s or %s.\n", argv[0], drives[0], drives[1]);
 			return 1;
 		}
+	}
+
+	if (extendmfs || xdevs[0] && xdevs[0] == drives[1] ||
+		xdevs[1] && xdevs[1] == drives[1])
+	{
+		init_b_part = 1;
 	}
 
 /* Make sure both extend drives are not the same device. */
@@ -463,7 +470,7 @@ mfsadd_main (int argc, char **argv)
 			swab ^= 1;
 		if (tivo_partition_devswabbed (drives[1]))
 			swab ^= 1;
-		if (tivo_partition_table_init (drives[1], swab) < 0)
+		if (init_b_part && tivo_partition_table_init (drives[1], swab) < 0)
 		{
 			fprintf (stderr, "Error initializing new B drive!\n");
 			return 1;

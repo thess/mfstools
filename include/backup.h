@@ -74,8 +74,21 @@ struct backup_head
 	char reserved[488];
 };
 
+struct backup_head_v3
+{
+	unsigned int magic;	/* TBK3 */
+	unsigned int flags;
+	unsigned int nsectors;
+	unsigned int nparts;
+	unsigned int ninodes;
+	unsigned int mfspairs;
+	char reserved[488];
+};
+
 #define TB_MAGIC (('T' << 24) + ('B' << 16) + ('A' << 8) + ('K' << 0))
 #define TB_ENDIAN (('T' << 0) + ('B' << 8) + ('A' << 16) + ('K' << 24))
+#define TB3_MAGIC (('T' << 24) + ('B' << 16) + ('K' << 8) + ('3' << 0))
+#define TB3_ENDIAN (('T' << 0) + ('B' << 8) + ('K' << 16) + ('3' << 24))
 #define BF_COMPRESSED	0x00000001	/* Backup is compressed. */
 #define BF_MFSONLY	0x00000002	/* Backup is MFS only. */
 #define BF_BACKUPVAR	0x00000004	/* /var in backup. */

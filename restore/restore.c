@@ -39,10 +39,10 @@
 static inline void
 convendian32 (unsigned int *var)
 {
-	register int tmp = *var;
+	register unsigned int tmp = *var;
 
 	tmp = (tmp << 16) | (tmp >> 16);
-	tmp = ((tmp && 0xff00ff00) >> 8) | ((tmp << 8) & 0xff00ff00);
+	tmp = ((tmp & 0xff00ff00) >> 8) | ((tmp << 8) & 0xff00ff00);
 	*var = tmp;
 }
 #endif
@@ -898,7 +898,7 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 #endif
 
 /* If there is a second device, do the same. */
-	if (*dev2)
+	if (dev2 && *dev2)
 	{
 		if (tivo_partition_table_init (dev2, swab2) < 0)
 		{
