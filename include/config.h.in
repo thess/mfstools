@@ -5,6 +5,7 @@
 #define BUILD_MFSD 0
 #define BUILD_BACKUP 0
 #define BUILD_RESTORE 0
+#define BUILD_MFSINFO 0
 #define DEBUG 0
 
 /* Define if you have the <asm/page.h> header file.  */

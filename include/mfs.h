@@ -57,6 +57,8 @@ struct mfs_handle
 	struct zone_map *loaded_zones;
 };
 
+#define SABLOCKSEC 1630000
+
 int mfs_compute_crc (unsigned char *data, unsigned int size, unsigned int off);
 int mfs_check_crc (unsigned char *data, unsigned int size, unsigned int off);
 void mfs_update_crc (unsigned char *data, unsigned int size, unsigned int off);
