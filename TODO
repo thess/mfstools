@@ -1,3 +1,37 @@
+Version 3.0
+MFS Lib
+  Ability to open a truncated MFS volume (Bad 2nd drive case)
+  Function to manipulate MFS allocation bitmap (Allocate new space)
+Backup format
+  Addition of list of inodes (Not fsids)
+    Inodes replace block list for the listed streams
+    Restore to figure out blocks to restore to
+  New magic: TBK3
+Backup
+  Re-order blocks so application data is always before streams
+  Verify all needed data is within the MFS volume pair
+    Inode tables/data bearing application partitions
+    Streams to be backed up
+Restore
+  Support for V1/2 and V3 backup format
+  New restore mode - MFS rebuild
+    Requires V3 backup format
+    Truncates MFS volume at last data storing app partition/media partition pair
+    Creates volume pairs to fill up drives
+    Allocates storage for streams out of new MFS media partitions
+    Execution flow:
+      Create partitions for OS and required MFS volume pairs
+      Restore OS partitions
+      Restore app partitions
+      Replay transaction log entries that modify stream inodes
+      Adjust transaction log so entries not committed are last
+      Build new MFS volume pairs
+      Walk list of backed up inodes and allocate storage
+      Finish V3 backup as normal (Allocating space from inodes)
+Misc bug fixes
+  Swap size (Fixed)
+  Mfsadd to drives larger than ? (Need to investigate)
+
 Macpart
   API for modifying/creating partition table
     X Read table to validate partitions
