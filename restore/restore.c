@@ -706,6 +706,10 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 		return -1;
 	}
 
+#if DEBUG
+	fprintf (stderr, "Drive 1 size: %d\n", secs1);
+#endif
+
 	if (dev2)
 	{
 		fd2 = open (dev2, O_RDWR);
@@ -723,6 +727,10 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 			close (fd2);
 			return -1;
 		}
+
+#if DEBUG
+		fprintf (stderr, "Drive 2 size: %d\n", secs2);
+#endif
 	}
 
 	for (loop = 0, count=0; loop < info->nparts; loop++)
@@ -748,9 +756,10 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 			}
 
 			info->varsize = info->parts[loop].sectors;
-		} else {
 			count++;
+		} else {
 			min1 += info->parts[loop].sectors;
+			count++;
 		}
 
 		if (count == 3)
@@ -769,7 +778,11 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 	}
 
 /* Boot sector, partition table, swap, var, mfs set 1 */
-	min1 += 1 + 63 + info->swapsize * info->varsize + info->mfsparts[0].sectors + info->mfsparts[1].sectors;
+	min1 += 1 + 63 + info->swapsize + info->varsize + info->mfsparts[0].sectors + info->mfsparts[1].sectors;
+
+#if DEBUF
+	fprintf (stderr, "Minimum drive 1 size: %d\n", count);
+#endif
 
 	if (min1 > secs1)
 	{
@@ -798,6 +811,10 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 	{
 		count += info->mfsparts[loop].sectors;
 	}
+
+#if DEBUG
+	fprintf (stderr, "Size needed for single drive restore: %d\n", count);
+#endif
 
 	bzero (info->newparts, info->nnewparts * sizeof (struct backup_partition));
 	info->newparts[0].partno = 1;
