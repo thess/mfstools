@@ -1,0 +1,9 @@
+Lib
+  Make libmfs safe to run with multiple MFS sets open
+  Make mac partition code into seperate library
+Mfsadd
+  Function to move MFS partition from one drive to another
+Backup
+  Scan if drive was byte-swapped, and save state in backup
+Restore
+  Set byte swapping to match backup
