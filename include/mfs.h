@@ -73,7 +73,7 @@ mfs_inode *mfs_read_inode (unsigned int inode);
 mfs_inode *mfs_read_inode_by_fsid (unsigned int fsid);
 int mfs_read_inode_data_part (mfs_inode *inode, unsigned char *data, unsigned int start, unsigned int count);
 unsigned char *mfs_read_inode_data (mfs_inode *inode, int *size);
-int mfs_add_volume_pair (char *app, char *media);
+int mfs_add_volume_pair (char *app, char *media, unsigned int minalloc);
 void mfs_cleanup_volumes ();
 int mfs_load_volume_header (int flags);
 void mfs_cleanup_zone_maps ();

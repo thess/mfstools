@@ -242,7 +242,7 @@ static int mfs_new_zone_map (unsigned int sector, unsigned int backup, unsigned 
 /***********************************************************************/
 /* Add a new set of partitions to the MFS volume set.  In other words, */
 /* mfsadd. */
-int mfs_add_volume_pair (char *app, char *media)
+int mfs_add_volume_pair (char *app, char *media, unsigned int minalloc)
 {
 	struct zone_map *cur;
 	int fdApp, fdMedia;
@@ -250,6 +250,11 @@ int mfs_add_volume_pair (char *app, char *media)
 	int appsize, mediasize, mapsize;
 	char *tmp;
 	unsigned char foo[512];
+
+/* If no minalloc, make it default. */
+	if (minalloc == 0) {
+		minalloc = 0x800;
+	}
 
 /* Make sure the volumes being added don't overflow the 128 bytes. */
 	if (strlen (vol_hdr.partitionlist) + strlen (app) + strlen (media) + 3 >= 128) {
@@ -314,7 +319,7 @@ int mfs_add_volume_pair (char *app, char *media)
 
 	appsize = mfs_volume_size (appstart);
 	mediasize = mfs_volume_size (mediastart);
-	mapsize = (mfs_new_zone_map_size (mediasize / 0x800) + 511) / 512;
+	mapsize = (mfs_new_zone_map_size (mediasize / minalloc) + 511) / 512;
 
 	if (mapsize * 2 + 2 > appsize) {
 		fprintf (stderr, "mfs_add_volume_pair: New app size too small!  (Need %d more bytes)\n", (mapsize * 2 + 2 - appsize) * 512);
@@ -322,7 +327,7 @@ int mfs_add_volume_pair (char *app, char *media)
 		return -1;
 	}
 
-	if (mfs_new_zone_map (appstart + 1, appstart + appsize - mapsize - 1, mediastart, mediasize, 0x800, ztMedia) < 0) {
+	if (mfs_new_zone_map (appstart + 1, appstart + appsize - mapsize - 1, mediastart, mediasize, minalloc, ztMedia) < 0) {
 		fprintf (stderr, "mfs_add_volume_pair: Failed initializing new zone map.\n");
 		mfs_reinit (O_RDWR);
 		return -1;
