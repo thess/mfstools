@@ -748,12 +748,15 @@ backup_next_sectors (struct backup_info *info, char *buf, int sectors)
 /* This is part of the block list in the header. */
 				int presector = info->cursector - 1;
 				int curoff = presector * 512;
+				int headerused = 0;
+				int cursize;
 
 /* First, the list of partitions.  The array in memory will be copied */
 /* directly to the array on disk. */
-				if (presector * 512 < info->nparts * sizeof (struct backup_partition))
+				cursize = info->nparts * sizeof (struct backup_partition);
+				if (curoff < cursize + headerused)
 				{
-					int needed_space = info->nparts * sizeof (struct backup_partition) - curoff;
+					int needed_space = headerused + cursize - curoff;
 					int have_space = sectors * 512 - curoff;
 
 					if (needed_space > have_space)
@@ -761,7 +764,65 @@ backup_next_sectors (struct backup_info *info, char *buf, int sectors)
 						needed_space = have_space;
 					}
 
-					memcpy (buf, (char *)info->parts + curoff, needed_space);
+					memcpy (buf, (char *)info->parts + curoff - headerused, needed_space);
+
+					buf += needed_space;
+
+					curoff += needed_space;
+					needed_space = curoff;
+
+					while (needed_space > 512)
+					{
+						sectors--;
+						retval++;
+						presector++;
+						needed_space -= 512;
+						info->cursector++;
+					}
+				}
+				headerused += cursize;
+
+				cursize = info->nblocks * sizeof (struct backup_block);
+				if (sectors > 0 && curoff < cursize * headerused)
+				{
+					int needed_space = headerused + cursize - curoff;
+					int have_space = sectors * 512 - curoff;
+
+					if (needed_space > have_space)
+					{
+						needed_space = have_space;
+					}
+
+					memcpy (buf, (char *)info->blocks + curoff - headerused, needed_space);
+
+					buf += needed_space;
+
+					curoff += needed_space;
+					needed_space = curoff;
+
+					while (needed_space > 512)
+					{
+						sectors--;
+						retval++;
+						presector++;
+						needed_space -= 512;
+						info->cursector++;
+					}
+				}
+				headerused += cursize;
+
+				cursize = info->nmfs * sizeof (struct backup_partition);
+				if (sectors > 0 && curoff < cursize * headerused)
+				{
+					int needed_space = headerused + cursize - curoff;
+					int have_space = sectors * 512 - curoff;
+
+					if (needed_space > have_space)
+					{
+						needed_space = have_space;
+					}
+
+					memcpy (buf, (char *)info->mfsparts + curoff - headerused, needed_space);
 
 					buf += needed_space;
 
@@ -778,32 +839,6 @@ backup_next_sectors (struct backup_info *info, char *buf, int sectors)
 					}
 				}
 
-				if (sectors > 0 && presector * 512 < info->nparts * sizeof (struct backup_partition) + info->nblocks * sizeof (struct backup_block))
-				{
-					int needed_space = info->nparts * sizeof (struct backup_partition) + info->nblocks * sizeof (struct backup_block) - curoff;
-					int have_space = sectors * 512 - curoff;
-
-					if (needed_space > have_space)
-					{
-						needed_space = have_space;
-					}
-
-					memcpy (buf, (char *)info->blocks + curoff - info->nparts * sizeof (struct backup_partition), needed_space);
-
-					buf += needed_space;
-
-					curoff += needed_space;
-					needed_space = curoff;
-
-					while (needed_space > 512)
-					{
-						sectors--;
-						retval++;
-						presector++;
-						needed_space -= 512;
-						info->cursector++;
-					}
-				}
 
 				while (sectors > 0 && presector < info->presector - 1)
 				{
