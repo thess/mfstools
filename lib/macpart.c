@@ -214,6 +214,55 @@ tivo_read_partition_table (char *device, int flags)
 	return table;
 }
 
+/***************************************************************************/
+/* Preforms the equivelent of the BLKRRPART ioctl.  Really this just frees */
+/* the structure, forsing a device re-read next time. */
+int
+tivo_partition_rrpart (char *device)
+{
+	struct tivo_partition_table **table;
+
+/* See if this device has been opened yet. */
+	for (table = &partition_tables; *table; table = &(*table)->next)
+	{
+		if (!strcmp (device, (*table)->device))
+		{
+			break;
+		}
+	}
+
+	if (*table)
+	{
+		int loop;
+		struct tivo_partition_table *tofree = *table;
+
+		if (tofree->refs != 0)
+			return -1;
+
+		*table = tofree->next;
+
+		for (loop = 0; loop < tofree->count; loop++)
+		{
+			if (tofree->partitions[loop].name)
+				free (tofree->partitions[loop].name);
+			if (tofree->partitions[loop].type)
+				free (tofree->partitions[loop].type);
+		}
+		free (tofree->partitions);
+		if (tofree->ro_fd >= 0)
+			close (tofree->ro_fd);
+		if (tofree->rw_fd >= 0)
+			close (tofree->rw_fd);
+		if (tofree->device)
+			free (tofree->device);
+		bzero (tofree, sizeof (tofree));
+		free (tofree);
+		return 0;
+	}
+
+	return 0;
+}
+
 /********************************************************************/
 /* Open a partition that is not byte-swapped or the kernel does not */
 /* recognize.  This also handles regular files or partition devices. */
@@ -404,6 +453,8 @@ tivo_partition_open_direct_int (tpFILE *file, char *path, int partnum, int flags
 		file->extra.direct.pt = table;
 		file->extra.direct.part = &table->partitions[partnum - 1];
 
+		table->refs++;
+
 		return 1;
 	}
 
@@ -464,6 +515,8 @@ tivo_partition_close (tpFILE * file)
 		close (file->fd);
 		file->fd = -1;
 	}
+	else
+		file->extra.direct.pt->refs--;
 	free (file);
 }
 

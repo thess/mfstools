@@ -1010,7 +1010,7 @@ build_partition_table (struct backup_info *info, int devno)
 			part[loop].p.map_count = htonl (htonl (part[loop].p.map_count) + 1);
 		}
 		part[loop].p.signature = 0x4d50;
-		part[loop].p.map_count = htons (info->devs[devno].nparts + 1);
+		part[loop].p.map_count = htonl (info->devs[devno].nparts + 1);
 		part[loop].p.start_block = htonl (curstart);
 		part[loop].p.block_count = htonl (info->devs[devno].sectors - curstart);
 		strcpy (part[loop].p.name, "Extra");

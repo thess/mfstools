@@ -63,6 +63,7 @@ struct tivo_partition_table
 	int rw_fd;
 	int vol_flags;
 	int count;
+	int refs;
 	struct tivo_partition *partitions;
 	struct tivo_partition_table *next;
 };
@@ -78,6 +79,7 @@ char *tivo_partition_name (char *device, int partnum);
 char *tivo_partition_type (char *device, int partnum);
 unsigned int tivo_partition_offset (tpFILE * file);
 const char *tivo_partition_device_name (tpFILE * file);
+int tivo_partition_rrpart (char *device);
 void tivo_partition_direct ();
 void tivo_partition_file ();
 void tivo_partition_auto ();

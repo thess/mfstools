@@ -9,6 +9,7 @@
 #include <asm/types.h>
 #include <fcntl.h>
 #include <zlib.h>
+#include <string.h>
 
 #include "mfs.h"
 #include "macpart.h"
@@ -568,6 +569,8 @@ add_partitions_to_backup_info (struct backup_info *info, char *device)
 {
 	int loop;
 	char bootsector[512];
+	int rootdev;
+	char *tmpc;
 
 /* Four.  Always Four.  Or three. */
 	if (info->back_flags & BF_BACKUPVAR)
@@ -648,11 +651,33 @@ add_partitions_to_backup_info (struct backup_info *info, char *device)
 		return -1;
 	}
 
+	rootdev = bootsector[2] + 1;
+
+/* Scan boot sector for root device.  2.5 seems to need this. */
+	tmpc = &bootsector[4];
+	while (*tmpc && strncmp (tmpc, "root=/dev/hda", 13))
+	{
+		tmpc = strchr (tmpc, ' ');
+		if (tmpc)
+			tmpc++;
+	}
+
+	if (*tmpc)
+	{
+		if ((tmpc[13] == '4' || tmpc[13] == '7') && tmpc[14] == 0 || isspace (tmpc[14]))
+		{
+			rootdev = tmpc[13] - '0';
+#if DEBUG
+			fprintf (stderr, "Using root partition %d from boot sector.\n", rootdev);
+#endif
+		}
+	}
+
 	info->parts[0].partno = bootsector[2] - 1;
 	info->parts[0].devno = 0;
 	info->parts[1].partno = bootsector[2];
 	info->parts[1].devno = 0;
-	info->parts[2].partno = bootsector[2] + 1;
+	info->parts[2].partno = rootdev;
 	info->parts[2].devno = 0;
 	if (info->nparts > 3)
 	{

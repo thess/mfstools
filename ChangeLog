@@ -1,3 +1,7 @@
+Version 0.8d
+	Fixed corruption of partition table when extra space was created.
+	Made root device come from bootpage.
+
 Version 0.8c
 	Fixed bug with using -s flag on combo and dual drive standalone.
 
