@@ -1,4 +1,4 @@
-AC_INIT(premake.sh)
+AC_INIT(include/mfs.h)
 
 AM_INIT_AUTOMAKE(mfstools, 0.1)
 
