@@ -4,7 +4,12 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdio.h>
+#if HAVE_MALLOC_H
 #include <malloc.h>
+#endif
+#if HAVE_SYS_MALLOC_H
+#include <sys/malloc.h>
+#endif
 #include <sys/types.h>
 #ifdef HAVE_ASM_TYPES_H
 #include <asm/types.h>
@@ -419,7 +424,7 @@ scan_inodes (struct backup_info *info)
 		while ((hdr = mfs_next_zone (info->mfs, hdr)) != 0)
 		{
 #if DEBUG
-			fprintf (stderr, "Checking zone at %d of type %d for region %d-%d\n", htonl (hdr->sector), htonl (hdr->type), htonl (hdr->first), htonl (hdr->last));
+			fprintf (stderr, "Checking zone at %ld of type %d for region %ld-%ld\n", htonl (hdr->sector), htonl (hdr->type), htonl (hdr->first), htonl (hdr->last));
 #endif
 			if (htonl (hdr->type) != ztMedia)
 			{

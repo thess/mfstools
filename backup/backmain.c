@@ -148,7 +148,7 @@ backup_main (int argc, char **argv)
 		case '8':
 		case '9':
 			flags |= BF_SETCOMP (loop - '0');
-			compressed = 0;
+			compressed = 1;
 			break;
 		case 'v':
 			flags &= ~BF_BACKUPVAR;

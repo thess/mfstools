@@ -34,7 +34,6 @@ mfs_load_volume_header (struct mfs_handle *mfshnd, int flags)
 	unsigned char buf[512];
 	unsigned char *volume_names;
 	unsigned int total_sectors = 0;
-	struct volume_info *vol;
 
 /* Read in the volume header. */
 	if (mfsvol_read_data (mfshnd->vols, buf, 0, 1) != 512)

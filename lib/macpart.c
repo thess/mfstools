@@ -10,6 +10,9 @@
 #include <string.h>
 #include <fcntl.h>
 #include <ctype.h>
+#if HAVE_SYS_DISK_H
+#include <sys/disk.h>
+#endif
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
@@ -50,6 +53,25 @@ file_or_dev_size (int fd, uint32_t *size)
 #else
 	struct stat st;
 #endif
+
+#ifdef DKIOCGETBLOCKCOUNT      /* For Mac OS X */
+	{
+		uint32_t	blocksize;
+		uint64_t	size64;
+		
+		if (ioctl(fd, DKIOCGETBLOCKSIZE, &blocksize) == 0 &&
+			ioctl(fd, DKIOCGETBLOCKCOUNT, &size64) == 0)
+		{
+			if ((sizeof(*size) < sizeof(unsigned long long))
+			   && ((size64 / (blocksize / 512)) > 0xFFFFFFFF))
+			       return EFBIG;
+
+			*size = size64 / (blocksize / 512);
+			return 1;
+		}
+	}
+#endif
+
 #ifdef BLKGETSIZE
 	if (ioctl (fd, BLKGETSIZE, size) == 0)
 	{
@@ -335,7 +357,6 @@ tivo_partition_validate (struct tivo_partition_table *table)
 {
 	unsigned int loop;
 	char partsused[256];
-	int lastfree = 0;
 
 	if (!table)
 		return -1;
@@ -859,7 +880,6 @@ tpFILE *
 tivo_partition_open (char *path, int flags)
 {
 	char devpath[MAXPATHLEN];
-	size_t partoff;
 	int partnum;
 	tpFILE newfile;
 	tpFILE *file = &newfile;
@@ -905,7 +925,23 @@ tivo_partition_open (char *path, int flags)
 	if ((newfile.tptype == pUNKNOWN && tivo_partition_accmode == accAUTO) || tivo_partition_accmode == accDIRECT)
 	{
 /* Find the device name. */
+
+#if TARGET_OS_MAC
+		int disk;
+		char extra;
+		
+		if (sscanf (path, "/dev/disk%ds%d%c", &disk, &partnum, &extra) == 2 && partnum > 0)
+		{
+			sprintf (devpath, "/dev/disk%d", disk);
+
+/* Read the partition.  Don't care about the return value, cause the type */
+/* set will be enough to know if it succeeded. */
+			tivo_partition_open_direct_int (&newfile, devpath, partnum, flags);
+		}
+#else
 		int tmp = 0;
+		size_t partoff;
+
 		do
 		{
 			partoff = tmp;
@@ -949,6 +985,7 @@ tivo_partition_open (char *path, int flags)
 				tivo_partition_open_direct_int (&newfile, devpath, partnum, flags);
 			}
 		}
+#endif
 	}
 
 /* If the type is still unknown, it is an error, the file was unable to be */

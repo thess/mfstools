@@ -23,7 +23,11 @@ mfsadd_usage (char *progname)
 	fprintf (stderr, " -x        Create partitions to fill all drives\n");
 	fprintf (stderr, " -X drive  Create partitions to fill specific drive\n");
 	fprintf (stderr, "NewApp / NewMedia\n");
+#if TARGET_OS_MAC
+	fprintf (stderr, "  Existing partitions (Such as /dev/disk1s14 /dev/disk1s15) to add to\n");
+#else
 	fprintf (stderr, "  Existing partitions (Such as /dev/hda13 /dev/hda14) to add to\n");
+#endif
 	fprintf (stderr, "  the MFS volume set\n");
 }
 
@@ -127,10 +131,17 @@ mfsadd_add_extends (struct mfs_handle *mfs, char **drives, char **xdevs, char **
 
 		pairnums[(*npairs)++] = (devn << 6) | part1;
 		pairnums[(*npairs)++] = (devn << 6) | part2;
+#if TARGET_OS_MAC
+		sprintf (tmp, "%ss%d", xdevs[loop], part1);
+		pairs[*npairs - 2] = strdup (tmp);
+		sprintf (tmp, "%ss%d", xdevs[loop], part2);
+		pairs[*npairs - 1] = strdup (tmp);
+#else
 		sprintf (tmp, "%s%d", xdevs[loop], part1);
 		pairs[*npairs - 2] = strdup (tmp);
 		sprintf (tmp, "%s%d", xdevs[loop], part2);
 		pairs[*npairs - 1] = strdup (tmp);
+#endif
 		if (!pairs[*npairs - 2] || !pairs[*npairs - 1])
 		{
 			fprintf (stderr, "Memory exhausted!\n");
@@ -172,10 +183,10 @@ mfsadd_main (int argc, char **argv)
 	int opt;
 	int extendall = 0;
 	int extendmfs = 0;
-	char *xdevs[2];
+	char *xdevs[2] = {0, 0};
 	int npairs = 0;
 	char *pairs[32];
-	char pairnums[32];
+	char pairnums[32] = {0};
 	int loop, loop2;
 	int hours;
 	char *drives[2] = {0, 0};
@@ -208,12 +219,12 @@ mfsadd_main (int argc, char **argv)
 			minalloc = 0x800 << strtoul (optarg, &tmp, 10);
 			if (tmp && *tmp)
 			{
-				fprintf (stderr, "%S: Integer argument expected for -s.\n", argv[0]);
+				fprintf (stderr, "%s: Integer argument expected for -s.\n", argv[0]);
 				return 1;
 			}
 			if (minalloc < 0x800 || minalloc > (0x800 << 4))
 			{
-				fprintf (stderr, "%S: Value for -s must be between 4 and 4.\n", argv[0]);
+				fprintf (stderr, "%s: Value for -s must be between 4 and 4.\n", argv[0]);
 				return 1;
 			}
 			break;
@@ -225,9 +236,17 @@ mfsadd_main (int argc, char **argv)
 
 	while (optind < argc)
 	{
+#if TARGET_OS_MAC
+		int disk;
+		int partnum;
+		char extra;
+		
+		if (sscanf (argv[optind], "/dev/disk%ds%d%c", &disk, &partnum, &extra) == 2 && partnum > 0)
+#else
 		int len = strlen (argv[optind]);
 
 		if (isdigit (argv[optind][len - 1]))
+#endif
 		{
 /* If the device is a partition, add that partition to the list. */
 			if (npairs + 4 >= sizeof (pairs) / sizeof (*pairs))
@@ -333,7 +352,11 @@ mfsadd_main (int argc, char **argv)
 			drives[pairnums[loop] >> 6] = new;
 		}
 
+#if TARGET_OS_MAC
+		tmp = strtoul (pairs[loop] + strlen (drives[pairnums[loop] >> 6]) + 1, &str, 10);
+#else
 		tmp = strtoul (pairs[loop] + strlen (drives[pairnums[loop] >> 6]), &str, 10);
+#endif
 		if (str && *str)
 		{
 			fprintf (stderr, "%s: added partition %s is not a partition of %s\n", argv[0], pairs[loop], drives[pairnums[loop] >> 6]);

@@ -4,7 +4,12 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
+#if HAVE_MALLOC_H
 #include <malloc.h>
+#endif
+#if HAVE_SYS_MALLOC_H
+#include <sys/malloc.h>
+#endif
 #include <sys/types.h>
 #ifdef HAVE_ASM_TYPES_H
 #include <asm/types.h>
@@ -27,6 +32,7 @@
 #define RESTORE
 #include "backup.h"
 
+#if !TARGET_OS_MAC
 static inline void
 convendian32 (unsigned int *var)
 {
@@ -36,6 +42,7 @@ convendian32 (unsigned int *var)
 	tmp = ((tmp && 0xff00ff00) >> 8) | ((tmp << 8) & 0xff00ff00);
 	*var = tmp;
 }
+#endif
 
 /*************************************************/
 /* Initializes the backup structure for restore. */
@@ -198,7 +205,11 @@ restore_next_sectors (struct backup_info *info, char *buf, int sectors)
 					int devno = info->mfsparts[loop].devno;
 					int partno = info->mfsparts[loop].partno;
 
+#if TARGET_OS_MAC
+					sprintf (devname, "%ss%d", info->devs[devno].devname, partno);
+#else
 					sprintf (devname, "%s%d", info->devs[devno].devname, partno);
+#endif
 					mfsvol_add_volume (info->vols, devname, O_RDWR);
 				}
 			}
@@ -353,18 +364,31 @@ restore_next_sectors (struct backup_info *info, char *buf, int sectors)
 					{
 						for (loop = 0; loop < info->nparts; loop++)
 						{
+#if TARGET_OS_MAC
+							info->parts[loop].sectors = Endian32_Swap (info->parts[loop].sectors);
+#else
 							convendian32 (&info->parts[loop].sectors);
+#endif
 						}
 
 						for (loop = 0; loop < info->nblocks; loop++)
 						{
+#if TARGET_OS_MAC
+							info->blocks[loop].firstsector = Endian32_Swap (info->blocks[loop].firstsector);
+							info->blocks[loop].sectors = Endian32_Swap (info->blocks[loop].sectors);
+#else
 							convendian32 (&info->blocks[loop].firstsector);
 							convendian32 (&info->blocks[loop].sectors);
+#endif
 						}
 
 						for (loop = 0; loop < info->nmfs; loop++)
 						{
+#if TARGET_OS_MAC
+							info->mfsparts[loop].sectors = Endian32_Swap (info->mfsparts[loop].sectors);
+#else
 							convendian32 (&info->mfsparts[loop].sectors);
+#endif
 						}
 					}
 
@@ -394,6 +418,24 @@ restore_next_sectors (struct backup_info *info, char *buf, int sectors)
 					return -1;
 				}
 
+#if TARGET_OS_MAC
+				if (head->magic == TB_ENDIAN)
+				{
+					info->back_flags |= Endian32_Swap (head->flags);
+					info->nsectors = Endian32_Swap (head->nsectors);
+					info->nparts = Endian32_Swap (head->nparts);
+					info->nblocks = Endian32_Swap (head->nblocks);
+					info->nmfs = Endian32_Swap (head->mfspairs);
+				}
+				else
+				{
+					info->back_flags |= head->flags;
+					info->nsectors = head->nsectors;
+					info->nparts = head->nparts;
+					info->nblocks = head->nblocks;
+					info->nmfs = head->mfspairs;
+				}
+#else
 				if (info->back_flags & RF_ENDIAN)
 					convendian32 (&info->back_flags);
 				info->back_flags |= head->flags;
@@ -410,7 +452,7 @@ restore_next_sectors (struct backup_info *info, char *buf, int sectors)
 					convendian32 (&info->nblocks);
 					convendian32 (&info->nmfs);
 				}
-
+#endif
 				info->presector = (info->nblocks * sizeof (struct backup_block) + info->nparts * sizeof (struct backup_partition) + info->nmfs * sizeof (struct backup_partition) + 511) / 512 + 1;
 
 				info->parts = calloc (sizeof (struct backup_partition), info->nparts);
@@ -1095,11 +1137,6 @@ static char *mfsnames[12] =
 int
 build_partition_table (struct backup_info *info, int devno)
 {
-	char buf[65536];
-	union {
-		struct mac_partition p;
-		char c[512];
-	} *part = (void *)buf;
 	int loop;
 	unsigned int curstart;
 
