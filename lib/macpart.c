@@ -28,6 +28,24 @@ static enum
 { accAUTO, accDIRECT, accKERNEL }
 tivo_partition_accmode = accAUTO;
 
+static int tivo_partition_open_direct_int (tpFILE *file, char *path, int partnum, int flags);
+
+/****************************************************************************/
+/* Opens a file normally.  If it fails with EFBIG open it with O_LARGEFILE. */
+int
+lfopen (char *device, int flags)
+{
+	int fd = open (device, flags);
+
+	if (fd < 0 && errno == EFBIG)
+	{
+		errno = 0;
+		fd = open (device, flags | O_LARGEFILE);
+	}
+
+	return fd;
+}
+
 /**************************************************/
 /* Read the TiVo partition table off of a device. */
 struct tivo_partition_table *
@@ -65,7 +83,7 @@ tivo_read_partition_table (char *device, int flags)
 /* Figure out if we are supposed to open it RO or RW, and use the right fd */
 /* variable. */
 		fd = (flags & O_ACCMODE) == O_RDONLY ? &table->ro_fd : &table->rw_fd;
-		*fd = open (device, flags);
+		*fd = lfopen (device, flags);
 		if (*fd < 0)
 		{
 			perror (device);
@@ -174,14 +192,14 @@ tivo_read_partition_table (char *device, int flags)
 		{
 			if (table->ro_fd < 0)
 			{
-				table->ro_fd = open (device, flags);
+				table->ro_fd = lfopen (device, flags);
 			}
 		}
 		else
 		{
 			if (table->rw_fd < 0)
 			{
-				table->rw_fd = open (device, flags);
+				table->rw_fd = lfopen (device, flags);
 			}
 		}
 	}
@@ -205,7 +223,6 @@ tivo_partition_open (char *path, int flags)
 	char devpath[MAXPATHLEN];
 	size_t partoff;
 	int partnum;
-	struct tivo_partition_table *table;
 	tpFILE newfile;
 	tpFILE *file = &newfile;
 
@@ -216,7 +233,7 @@ tivo_partition_open (char *path, int flags)
 /* If the preferred access mode is kernel, or if it is auto, try to open it. */
 	if (tivo_partition_accmode == accAUTO || tivo_partition_accmode == accKERNEL)
 	{
-		newfile.fd = open (path, flags);
+		newfile.fd = lfopen (path, flags);
 		if (newfile.fd >= 0)
 		{
 /* The file exists, time to see what it is.  Use the 64 version just incase */
@@ -264,10 +281,17 @@ tivo_partition_open (char *path, int flags)
 	if (newfile.tptype == pUNKNOWN && tivo_partition_accmode == accAUTO || tivo_partition_accmode == accDIRECT)
 	{
 /* Find the device name. */
-		partoff = strcspn (path, "0123456789");
+		int tmp = 0;
+		do
+		{
+			partoff = tmp;
+			tmp += strspn (path + tmp, "0123456789");
+			tmp += strcspn (path + tmp, "0123456789");
+		}
+		while (path[tmp] != 0);
 
-/* Check to make sure it is in /dev, and has a partition number. */
-		if (!strncmp (path, "/dev/", 5) && partoff >= MAXPATHLEN && !path[partoff])
+/* Check to make sure it has a partition number. */
+		if (partoff < MAXPATHLEN && path[partoff])
 		{
 			strncpy (devpath, path, partoff);
 			devpath[partoff] = '\0';
@@ -296,36 +320,9 @@ tivo_partition_open (char *path, int flags)
 
 			if (!(path && *path) && partnum > 0)
 			{
-
-/* Get the partition table for that dev.  This may have to read it. */
-				table = tivo_read_partition_table (devpath, flags);
-
-/* Make sure the table and partition are valid. */
-				if (table && table->count >= partnum)
-				{
-
-/* Get the proper fd. */
-					if ((flags & O_ACCMODE) == O_RDONLY)
-					{
-						newfile.fd = table->ro_fd;
-					}
-					else
-					{
-						newfile.fd = table->rw_fd;
-					}
-
-					if (table->vol_flags & VOL_FILE)
-					{
-						newfile.tptype = pDIRECTFILE;
-					}
-					else
-					{
-						newfile.tptype = pDIRECT;
-					}
-
-					newfile.extra.direct.pt = table;
-					newfile.extra.direct.part = &table->partitions[partnum - 1];
-				}
+/* Read the partition.  Don't care about the return value, cause the type */
+/* set will be enough to know if it succeeded. */
+				tivo_partition_open_direct_int (&newfile, devpath, partnum, flags);
 			}
 		}
 	}
@@ -354,6 +351,91 @@ tivo_partition_open (char *path, int flags)
 	}
 
 	return file;
+}
+
+/********************************************************************/
+/* Internal routine to open a partition directly by device name and */
+/* partition number.  Only difference is it does not allocate a file, but */
+/* uses the past in file instead. */
+static int
+tivo_partition_open_direct_int (tpFILE *file, char *path, int partnum, int flags)
+{
+	struct tivo_partition_table *table;
+
+/* Get the partition table for that dev.  This may have to read it. */
+	table = tivo_read_partition_table (path, flags);
+
+/* Make sure the table and partition are valid. */
+	if (table && table->count >= partnum && partnum > 0)
+	{
+
+/* Get the proper fd. */
+		if ((flags & O_ACCMODE) == O_RDONLY)
+		{
+			file->fd = table->ro_fd;
+		}
+		else
+		{
+			file->fd = table->rw_fd;
+		}
+
+		if (table->vol_flags & VOL_FILE)
+		{
+			file->tptype = pDIRECTFILE;
+		}
+		else
+		{
+			file->tptype = pDIRECT;
+		}
+
+		file->extra.direct.pt = table;
+		file->extra.direct.part = &table->partitions[partnum - 1];
+
+		return 1;
+	}
+
+    return 0;
+}
+
+/******************************************************************/
+/* Open a partition directly by device name and partition number. */
+tpFILE *
+tivo_partition_open_direct (char *path, int partnum, int flags)
+{
+	tpFILE newfile;
+	tpFILE *file = NULL;
+
+	bzero (&newfile, sizeof (newfile));
+
+	if (tivo_partition_open_direct_int (&newfile, path, partnum, flags))
+	{
+		file = malloc (sizeof (newfile));
+
+		if (file)
+		{
+			memcpy (file, &newfile, sizeof (newfile));
+		}
+	} 
+
+	return file;
+}
+
+/**************************************************************************/
+/* Return the count for the number of partitions on a given device.  This */
+/* count is the number of the last partition, inclusive. */
+int tivo_partition_count (char *path)
+{
+	struct tivo_partition_table *table;
+
+/* Get the partition table for that dev.  This may have to read it. */
+	table = tivo_read_partition_table (path, O_RDONLY);
+
+	if (table)
+	{
+		return table->count;
+	}
+
+	return 0;
 }
 
 /**************************************************************************/
@@ -392,6 +474,22 @@ tivo_partition_size (tpFILE * file)
 	}
 }
 
+/**********************************************/
+/* Returns the size of a partition, directly. */
+unsigned int
+tivo_partition_sizeof (char *device, int partnum)
+{
+	struct tivo_partition_table *table;
+	table = tivo_read_partition_table (device, O_RDONLY);
+
+	if (partnum < 1 || partnum > table->count)
+	{
+		return 0;
+	}
+
+	return table->partitions[partnum - 1].sectors;
+}
+
 /******************************************************/
 /* Return the offset into the file of this partition. */
 unsigned int
@@ -425,6 +523,33 @@ tivo_partition_device_name (tpFILE * file)
 /* If we own the file, the device name is unknown. */
 		return NULL;
 	}
+}
+
+/*****************************/
+/* Read the first 512 bytes. */
+int
+tivo_partition_read_bootsector (char *device, void *buf)
+{
+	struct tivo_partition_table *table;
+	tpFILE file;
+	struct tivo_partition part;
+
+	table = tivo_read_partition_table (device, O_RDONLY);
+
+	if (!table)
+	{
+		return -1;
+	}
+
+	part.sectors = 1;
+	part.start = 0;
+	part.table = table;
+	file.tptype = table->vol_flags & VOL_FILE? pDIRECTFILE: pDIRECT;
+	file.fd = table->ro_fd;
+	file.extra.direct.pt = table;
+	file.extra.direct.part = &part;
+
+	return (tivo_partition_read (&file, buf, 0, 1));
 }
 
 /*******************************************************************/

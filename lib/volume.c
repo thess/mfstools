@@ -439,6 +439,14 @@ mfs_write_data (void *buf, unsigned int sector, int count)
 	return tivo_partition_write (vol->file, buf, sector, count);
 }
 
+/***********************************************************************/
+/* Return the list of partitions from the volume header.  That is all. */
+char *
+mfs_partition_list ()
+{
+	return vol_hdr.partitionlist;
+}
+
 /******************************************************************************/
 /* Just a quick init.  All it really does is scan for the env MFS_FAKE_WRITE. */
 int

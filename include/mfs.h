@@ -68,6 +68,7 @@ int mfs_init (int flags);
 int mfs_readwrite_init ();
 int mfs_reinit (int flags);
 void mfs_cleanup ();
+char *mfs_partition_list ();
 
 #define MFS_check_crc(data, size, crc) (mfs_check_crc ((unsigned char *)(data), (size), (unsigned int *)&(crc) - (unsigned int *)(data)))
 #define MFS_update_crc(data, size, crc) (mfs_update_crc ((unsigned char *)(data), (size), (unsigned int *)&(crc) - (unsigned int *)(data)))
