@@ -583,6 +583,8 @@ restore_write (struct backup_info *info, char *buf, unsigned int size)
 	return retval;
 }
 
+/* Tries to figure out the best arrangement of partitions to use disk space */
+/* appropriately. */
 static int
 find_optimal_partitions (struct backup_info *info, unsigned int min1, unsigned int secs1, unsigned int secs2)
 {
@@ -593,15 +595,33 @@ find_optimal_partitions (struct backup_info *info, unsigned int min1, unsigned i
 	int count;
 	char *err = 0;
 
+/* This is a very simple process since there are only 2 drives max; a */
+/* partition is either on one drive or the other.  If we call them 1 and 0, */
+/* suddenly the problem is turned into a bitfield.  Take one bit for each */
+/* partition, and count through all the numbers from 000... to 111... */
+/* Of course, media partitions stick with app partition pairs.  Should work */
+/* without this, but eh, why bother.  Spread the work out and all. */
 	for (loop = 0; loop < (1 << (info->nmfs / 2 - 1)); loop++)
 	{
+/* Partitions 10 and 11, the first MFS pair, are always first.  It has the */
+/* info where to find the others.  Therefore, the current highest partition */
+/* on drive 1 is 11.  On drive 2 there is just the hypothetical partition */
+/* table, which is always partition 1. */
 		int max1 = 11;
 		int max2 = 1;
+/* Again, free space is calculated, partition 1 has some unknown space used, */
+/* which is passed in.  Partition two, once again, has the partition table. */
 		int free1 = secs1 - min1;
 		int free2 = secs2 - 64;
 
-		for (loop2 = 1 << (info->nmfs / 2 - 1), loop3 = 2; loop2; loop2 >>= 1, loop3 += 2)
+/* All these loops.  Maybe I should re-think my naming convention.  Well, */
+/* loop is the current bitfeild map, loop2 is a walker which parses the map */
+/* and adds up the space used on each drive, and loop3 is the current MFS */
+/* pair index. */
+		for (loop2 = 1 << (info->nmfs / 2 - 2), loop3 = 2; loop2 && free1 >= 0 && free2 >= 0; loop2 >>= 1, loop3 += 2)
 		{
+/* This looks at which drive the partition is on and adds it to the */
+/* appropriate total. */
 			if (loop & loop2)
 			{
 				max1 += 2;
@@ -614,6 +634,12 @@ find_optimal_partitions (struct backup_info *info, unsigned int min1, unsigned i
 			}
 		}
 
+/* Check to make sure there are not too many partitions.  Linux can handle */
+/* up to 128, but TiVo only has devices for 1-16.  But it is moot, since */
+/* TiVo only has storage for 12 partitions (128 bytes) in MFS.  I suppose */
+/* you could munge device names to get more on there, like putting them in */
+/* / instead of /dev and naming them like /ha11 /ha12 /ha13 or whatever. */
+/* But..  nah. */
 		if (max1 < 16 && max2 < 16 && free1 >= 0 && free2 >= 0 && free1 <= bestleft)
 		{
 			if ((max1 - 9) * 10 + max2 * 10 + (max2 & 7) <= 128)
@@ -632,10 +658,15 @@ find_optimal_partitions (struct backup_info *info, unsigned int min1, unsigned i
 		return -1;
 	}
 
-	count = 11;
-	for (loop = 1 << (info->nmfs / 2 - 1), loop2 = 2, loop3 = 12; loop; loop >>= 1, loop2 += 2)
+/* Now redefining.  The bitfeild is bestorder, which is now known to be the */
+/* best order, loop is the walker, loop2 is the mfs partition index, and */
+/* loop3 is the next available partition on drive A.  Only drive A at the */
+/* moment. */
+	count = 12;
+	for (loop = 1 << (info->nmfs / 2 - 1), loop2 = 0, loop3 = 12; loop; loop >>= 1, loop2 += 2)
 	{
-		if (bestorder & loop2)
+/* Add to the partitions to be created list if it is on this device. */
+		if (bestorder & loop)
 		{
 			info->newparts[count].devno = 0;
 			info->mfsparts[loop2].devno = 0;
@@ -647,15 +678,19 @@ find_optimal_partitions (struct backup_info *info, unsigned int min1, unsigned i
 			info->newparts[count + 1].partno = loop3 + 1;
 			info->mfsparts[loop2 + 1].partno = loop3 + 1;
 			info->newparts[count + 1].sectors = info->mfsparts[loop2 + 1].sectors;
+			info->devs[0].nparts += 2;
+
 			count += 2;
 			loop3 += 2;
-			info->devs[0].nparts += 2;
 		}
 	}
 
-	for (loop = 1 << (info->nmfs / 2 - 1), loop2 = 2, loop3 = 2; loop; loop >>= 1, loop2 += 2)
+/* Do the same for device 1.  The numbers look a little fishy here if you */
+/* are paying attention.  They don't match above.  It is just a minor */
+/* optimization - the first partition will always be on drive 1. */
+	for (loop = 1 << (info->nmfs / 2 - 2), loop2 = 2, loop3 = 2; loop; loop >>= 1, loop2 += 2)
 	{
-		if (!(bestorder & loop2))
+		if (!(bestorder & loop))
 		{
 			info->newparts[count].devno = 1;
 			info->mfsparts[loop2].devno = 1;
@@ -676,6 +711,9 @@ find_optimal_partitions (struct backup_info *info, unsigned int min1, unsigned i
 	return 0;
 }
 
+/* Test a device to see if the MFS will fit on it.  This is non-destructive */
+/* but the restore can not start without it.  It also cannot be done again */
+/* once it succeeds. */
 int
 restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 {
@@ -687,22 +725,27 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 	unsigned int count;
 	int loop;
 
+/* Make sure this is a first potentially sucessful run. */
 	if (info->back_flags & RF_INITIALIZED || info->cursector < info->presector)
 	{
 		info->lasterr = "Internal error 4.";
 		return -1;
 	}
+/* Make sure there is at least 1 device. */
 	if (!dev1)
 	{
 		info->lasterr = "No backup device.";
 		return -1;
 	}
+/* Make sure the MFS set is an even number. */
 	if ((info->nmfs & 1) == 1)
 	{
 		info->lasterr = "Internal error 5.";
 		return -1;
 	}
 
+/* Try to open the drive for writing.  This function may be non-destructive, */
+/* but it needs to make sure it can write to restore. */
 	fd1 = open (dev1, O_RDWR);
 	if (fd1 < 0)
 	{
@@ -710,6 +753,8 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 		return -1;
 	}
 
+/* Get the size, so fittingness will be known, and any non device will be */
+/* detected. */
 	if (ioctl (fd1, BLKGETSIZE, &secs1) != 0)
 	{
 		info->lasterr = "Destination is not a device.";
@@ -721,6 +766,7 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 	fprintf (stderr, "Drive 1 size: %d\n", secs1);
 #endif
 
+/* If there is a second device, do the same. */
 	if (dev2)
 	{
 		fd2 = open (dev2, O_RDWR);
@@ -744,8 +790,11 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 #endif
 	}
 
+/* Check for consistency in the partitions. */
 	for (loop = 0, count=0; loop < info->nparts; loop++)
 	{
+/* All partitions should be device 0 - it is up to restore to decide. */
+/* Furthermore, partitions less than 2 are special. */
 		if (info->parts[loop].devno != 0 || info->parts[loop].partno < 2)
 		{
 			close (fd1);
@@ -755,6 +804,7 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 			return (-1);
 		}
 
+/* If /var was in the backup, and a varsize was given, make sure they match. */
 		if (info->parts[loop].partno > 7 && info->parts[loop].partno == 9)
 		{
 			if (info->varsize && info->varsize != info->parts[loop].sectors)
@@ -769,16 +819,20 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 			info->varsize = info->parts[loop].sectors;
 			count++;
 		} else {
+/* If it's not /var, count it in the total, /var will be handles later. */
 			min1 += info->parts[loop].sectors;
 			count++;
 		}
 
+/* If there are 3 partitions, double it.  No backup currently has both */
+/* sets of root.  If they do in the future, this will be changed. */
 		if (count == 3)
 		{
 			min1 *= 2;
 		}
 	}
 
+/* Set the default swapsize and varsize. */
 	if (info->swapsize == 0)
 	{
 		info->swapsize = 64 * 1024 * 2;
@@ -788,6 +842,8 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 		info->varsize = 128 * 1024 * 2;
 	}
 
+/* Account for misc generated partitions and first MFS pair, which is always */
+/* on the first drive. */
 /* Boot sector, partition table, swap, var, mfs set 1 */
 	min1 += 1 + 63 + info->swapsize + info->varsize + info->mfsparts[0].sectors + info->mfsparts[1].sectors;
 
@@ -795,6 +851,7 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 	fprintf (stderr, "Minimum drive 1 size: %d\n", count);
 #endif
 
+/* Make sure the first drive is big enough for the basics. */
 	if (min1 > secs1)
 	{
 		info->lasterr = "First target drive too small.";
@@ -804,10 +861,13 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 		return -1;
 	}
 
+/* Allocate the new partition list.  If this is not the first call, it will */
+/* already be allocated. */
 	if (info->newparts == NULL)
 	{
+/* One extra, for the second drive partition table if needed. */
 		info->nnewparts = 9 + info->nmfs;
-		info->newparts = calloc (info->nnewparts, sizeof (struct backup_partition));
+		info->newparts = calloc (info->nnewparts + 1, sizeof (struct backup_partition));
 		if (!info->newparts)
 		{
 			info->lasterr = "Memory exhausted.";
@@ -818,6 +878,7 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 		}
 	}
 
+/* Figure out the total size needed. */
 	for (count = min1, loop = 2; loop < info->nmfs; loop++)
 	{
 		count += info->mfsparts[loop].sectors;
@@ -827,6 +888,8 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 	fprintf (stderr, "Size needed for single drive restore: %d\n", count);
 #endif
 
+/* Initialize the initial new partitions.  The values are just defaults and */
+/* could be overridden by the backup information. */
 	bzero (info->newparts, info->nnewparts * sizeof (struct backup_partition));
 	info->newparts[0].partno = 1;
 	info->newparts[0].sectors = 63;
@@ -846,19 +909,24 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 	info->newparts[7].sectors = info->swapsize;
 	info->newparts[8].partno = 9;
 	info->newparts[8].sectors = info->varsize;
+/* Override for the odd size partitions. */
 	for (loop = 0; loop < info->nparts; loop++)
 	{
 		info->newparts[info->parts[loop].partno - 1] = info->parts[loop];
 	}
+/* First MFS pair. */
 	info->newparts[9].partno = 10;
 	info->newparts[9].sectors = info->mfsparts[0].sectors;
 	info->newparts[10].partno = 11;
 	info->newparts[10].sectors = info->mfsparts[1].sectors;
 
+/* If it fits on the first drive, yay us. */
 	if (count <= secs1)
 	{
 		if (fd2 >= 0)
 			close (fd2);
+		if (info->devs)
+			free (info->devs);
 
 		info->ndevs = 1;
 		info->devs = calloc (1, sizeof (struct device_info));
@@ -870,11 +938,13 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 			return -1;
 		}
 
+/* Basic info for the device. */
 		info->devs->fd = fd1;
 		info->devs->nparts = info->nnewparts;
 		info->devs->devname = dev1;
 		info->devs[0].sectors = secs1;
 
+/* Add the MFS partitions to the partition table. */
 		for (loop = 0; loop < info->nmfs; loop++)
 		{
 			info->mfsparts[loop].devno = 0;
@@ -883,9 +953,11 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 			info->newparts[loop + 9].partno = loop + 10;
 		}
 
+/* In business. */
 		return 1;
 	}
 
+/* First drive not big enough.  If there is no second drive, bail. */
 	if (fd2 < 0)
 	{
 		info->lasterr = "Backup target not large enough for entire backup by itself.";
@@ -893,6 +965,14 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 		return -1;
 	}
 
+/* Add in the partition table for drive 2, and count it as a new partition. */
+	info->newparts[11].devno = 1;
+	info->newparts[11].partno = 1;
+	info->newparts[11].sectors = 63;
+	info->nnewparts++;
+
+	if (info->devs)
+		free (info->devs);
 	info->ndevs = 2;
 	info->devs = calloc (2, sizeof (struct device_info));
 
@@ -904,6 +984,7 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 		return -1;
 	}
 
+/* Basic info.  Partition count not yet known per device. */
 	info->devs[0].fd = fd1;
 	info->devs[0].nparts = 11;
 	info->devs[0].devname = dev1;
@@ -913,6 +994,7 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 	info->devs[1].devname = dev2;
 	info->devs[1].sectors = secs2;
 
+/* Do the grunt work. */
 	if (find_optimal_partitions (info, min1, secs1, secs2) < 0)
 	{
 		free (info->devs);
@@ -922,6 +1004,7 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 		return -1;
 	}
 
+/* In business. */
 	return 1;
 }
 
@@ -1002,6 +1085,7 @@ static const char *partition_strings [2][16][2] =
 	}
 };
 
+/* Build the actual partition tables on the drive.  Called once per device. */
 int
 build_partition_table (struct backup_info *info, int devno)
 {
@@ -1011,20 +1095,76 @@ build_partition_table (struct backup_info *info, int devno)
 		char c[512];
 	} *part = (void *)buf;
 	int loop;
-	unsigned int curstart = 1;
+	unsigned int curstart;
 
+/* If this is the first device, do re-ordering of the partitions to */
+/* "balance" the partitions for better performance. */
+/* XXX - this should be an option. */
+	if (devno == 0)
+	{
+/* Walk through each partition.  This looks wrong because it starts at the */
+/* beginning (The partition table) but accounts for it in curstart.  However */
+/* it is fine because it only looks at MFS partitions (> 10) and only media */
+/* (odd partition number) - furthermore, the number should come from the */
+/* partition size instead of being hard-coded.  But this is just for */
+/* purposes of estimating the center of the drive for partition balancing. */
+		for (loop = 0, curstart = 64; loop < info->nnewparts && curstart < info->devs[devno].sectors / 2; loop++)
+		{
+/* Check if it is MFS media on device 0. */
+			if (info->newparts[loop].devno == devno && info->newparts[loop].partno > 10 && (info->newparts[loop].partno & 1) == 1)
+			{
+/* Check if the partition is primarily on the beginning of the drive.  This */
+/* is done by seeing if the distance between the middle of the drive and the */
+/* end of the partition is less than the distance between the middle of the */
+/* drive and the beginning of the partition.  Of course, if it entirely */
+/* falls into the beginning, no worries. */
+				struct backup_partition tmp;
+				curstart += info->newparts[loop].sectors;
+				if (curstart > info->devs[devno].sectors / 2 && curstart - info->devs[devno].sectors / 2 < info->devs[devno].sectors / 2 - (curstart - info->newparts[loop].sectors))
+					break;
+#if DEBUG
+				fprintf (stderr, "Moving partition %d\n", info->newparts[loop].partno);
+#endif
+/* Move the partition to the beginning of the drive. */
+				tmp = info->newparts[loop];
+				memmove (&info->newparts[2], &info->newparts[1], (loop - 1) * sizeof (tmp));
+				info->newparts[1] = tmp;
+			}
+		}
+	}
+
+/* That was kind of lame.  It does not attempt to move partitions to */
+/* best optimize the balancing.  It is just a quick dumb pass. */
+/* Notice no balancing for drive 2.  It's app partitions are only hit */
+/* one every 10 seconds or so, in theory.  Well, if the second app of a */
+/* factory married dual drive is in there, it could be worse.  Will have */
+/* to consider that. XXX */
+
+/* Start from the beginning this time.  No fudging. */
+	curstart = 1;
+
+/* Fudge the boot sector for now.  The real one will be written later.  This */
+/* is just to make the mac partition table code happy so it will read the */
+/* table before any data is restored. */
 	bzero (buf, sizeof (buf));
 	*(unsigned short *)buf = htons (TIVO_BOOT_MAGIC);
 
+/* Create the partitions in the order they are in the list.  This allocates */
+/* the space sequentially, but the partition number is allocated randomly. */
 	for (loop = 0; loop < info->nnewparts; loop++)
 	{
+/* If it is this device, make it. */
 		if (info->newparts[loop].devno == devno)
 		{
+/* Damn byte sex problems.  Fortunately PPC uses network byte order, so */
+/* I can cheat and use the network functions.  Even the new MIPS TiVo is */
+/* big endian. */
 			int partno = info->newparts[loop].partno;
 			part[partno].p.signature = 0x4d50;
 			part[partno].p.map_count = htonl (info->devs[devno].nparts);
 			part[partno].p.start_block = htonl (curstart);
 			part[partno].p.block_count = htonl (info->newparts[loop].sectors);
+/* I got lazy and made the strings static.  So sue me. */
 			strcpy (part[partno].p.name, partition_strings [devno][partno][0]);
 			strcpy (part[partno].p.type, partition_strings [devno][partno][1]);
 			part[partno].p.data_count = part[partno].p.block_count;
@@ -1034,6 +1174,7 @@ build_partition_table (struct backup_info *info, int devno)
 		}
 	}
 
+/* If there is space left over (Likely) create a "bonus" partition. */
 	if (curstart < info->devs[devno].sectors)
 	{
 		for (loop = 1; loop <= info->devs[devno].nparts; loop++)
@@ -1050,6 +1191,7 @@ build_partition_table (struct backup_info *info, int devno)
 		part[loop].p.status = htonl (0x33);
 	}
 
+/* If it needs byte swapping, swap it. */
 	if (info->devs[devno].swab)
 	{
 		unsigned int *ints = (unsigned int *)buf;
@@ -1065,7 +1207,9 @@ build_partition_table (struct backup_info *info, int devno)
 		return -1;
 	}
 
-	ioctl (info->devs[devno].fd, BLKRRPART, 0);
+/* Also let Linux re-read the partition table. */
+/* XXX why bother.  May add this in after restore is done. */
+/*	ioctl (info->devs[devno].fd, BLKRRPART, 0); */
 
 	return 0;
 }
@@ -1576,7 +1720,7 @@ restore_cleanup_parts(struct backup_info *info)
 			else
 				tot = 2048 / 512;
 
-			for (loop2 = 0; loop2 < tot; loop2 += sizeof (buf))
+			for (loop2 = 0; loop2 < tot; loop2 += sizeof (buf) / 512)
 			{
 				int towrite;
 
