@@ -217,7 +217,7 @@ tivo_read_partition_table (char *device, int flags)
 
 /***************************************************************************/
 /* Preforms the equivelent of the BLKRRPART ioctl.  Really this just frees */
-/* the structure, forsing a device re-read next time. */
+/* the structure, forcing a device re-read next time. */
 int
 tivo_partition_rrpart (char *device)
 {
@@ -501,6 +501,69 @@ int tivo_partition_count (char *path)
 	}
 
 	return 0;
+}
+
+/***********************************************************/
+/* Return if a device is being byte-swapped by the kernel. */
+int tivo_partition_devswabbed (char *path)
+{
+	int fd, tmp;
+	char tempfile[MAXPATHLEN];
+	char *tmp2;
+	char buf[4096];
+	int retval = 0;
+
+	path = strrchr (path, '/');
+
+	if (!path)
+		return 0;
+
+	sprintf (tempfile, "/proc/ide/%s/settings", path + 1);
+
+	fd = open (tempfile, O_RDONLY);
+	if (fd < 0)
+		return 0;
+
+	buf[0] = 0;
+	read (fd, buf, 4096);
+	buf[4096] = 0;
+
+	close (fd);
+
+	tmp2 = strstr (buf, "bswap");
+
+	if (tmp2)
+	{
+		tmp = strcspn (tmp2, "01");
+
+		if (tmp)
+			retval = (tmp2[tmp] - '0') ^ 1;
+	}
+
+	return retval;
+}
+
+/***************************************************************************/
+/* Returns weather the data physically on the drive is byte swapped.  This */
+/* is an xor of the kernel byte swapping and the access being byte swapped. */
+/* If both the kernel AND the partition read are byte swapping, that means */
+/* the data itself is not byte-swapped.  Similar if neither is.  But that */
+/* should go without saying. */
+int tivo_partition_swabbed (char *path)
+{
+	int result = 0;
+	struct tivo_partition_table *table;
+
+/* Get the partition table for that dev.  This may have to read it. */
+	table = tivo_read_partition_table (path, O_RDONLY);
+
+	if (table && table->vol_flags & VOL_SWAB)
+		result ^= 1;
+
+	if (tivo_partition_devswabbed (path))
+		result ^= 1;
+
+	return result;
 }
 
 /**************************************************************************/

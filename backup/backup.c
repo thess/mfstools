@@ -757,6 +757,9 @@ init_backup (char *device, char *device2, int flags)
  	info->back_flags = flags;
 
 	info->thresh = 2000;
+
+	if (!tivo_partition_swabbed (device))
+		info->back_flags |= BF_NOBSWAP;
  
 	return info;
 }

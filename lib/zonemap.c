@@ -276,7 +276,7 @@ mfs_new_zone_map (struct mfs_handle *mfshnd, unsigned int sector, unsigned int b
 /* Add a new set of partitions to the MFS volume set.  In other words, */
 /* mfsadd. */
 int
-mfsvol_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsigned int minalloc)
+mfs_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsigned int minalloc)
 {
 	struct zone_map *cur;
 	int fdApp, fdMedia;
@@ -302,7 +302,7 @@ mfsvol_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsig
 /* the end and not be able to update the volume header. */
 	if (!mfsvol_is_writable (mfshnd->vols, 0))
 	{
-		fprintf (stderr, "mfsvol_add_volume_pair: Readonly volume set.\n");
+		fprintf (stderr, "mfs_add_volume_pair: Readonly volume set.\n");
 		return -1;
 	}
 
@@ -312,7 +312,7 @@ mfsvol_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsig
 /* For cur to be null, it must have never been set. */
 	if (!cur)
 	{
-		fprintf (stderr, "mfsvol_add_volume_pair: Zone maps not loaded?\n");
+		fprintf (stderr, "mfs_add_volume_pair: Zone maps not loaded?\n");
 		return -1;
 	}
 
@@ -320,7 +320,7 @@ mfsvol_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsig
 /* new pointer. */
 	if (!mfsvol_is_writable (mfshnd->vols, htonl (cur->map->sector)))
 	{
-		fprintf (stderr, "mfsvol_add_volume_pair: Readonly volume set.\n");
+		fprintf (stderr, "mfs_add_volume_pair: Readonly volume set.\n");
 		return -1;
 	}
 
@@ -348,14 +348,14 @@ mfsvol_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsig
 
 	if (appstart < 0 || mediastart < 0)
 	{
-		fprintf (stderr, "mfsvol_add_volume_pair: Error adding new volumes to set.\n");
+		fprintf (stderr, "mfs_add_volume_pair: Error adding new volumes to set.\n");
 		mfs_reinit (mfshnd, O_RDWR);
 		return -1;
 	}
 
 	if (!mfsvol_is_writable (mfshnd->vols, appstart) || !mfsvol_is_writable (mfshnd->vols, mediastart))
 	{
-		fprintf (stderr, "mfsvol_add_volume_pair: Could not add new volumes writable.\n");
+		fprintf (stderr, "mfs_add_volume_pair: Could not add new volumes writable.\n");
 		mfs_reinit (mfshnd, O_RDWR);
 		return -1;
 	}
@@ -366,14 +366,14 @@ mfsvol_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsig
 
 	if (mapsize * 2 + 2 > appsize)
 	{
-		fprintf (stderr, "mfsvol_add_volume_pair: New app size too small!  (Need %d more bytes)\n", (mapsize * 2 + 2 - appsize) * 512);
+		fprintf (stderr, "mfs_add_volume_pair: New app size too small!  (Need %d more bytes)\n", (mapsize * 2 + 2 - appsize) * 512);
 		mfs_reinit (mfshnd, O_RDWR);
 		return -1;
 	}
 
 	if (mfs_new_zone_map (mfshnd, appstart + 1, appstart + appsize - mapsize - 1, mediastart, mediasize, minalloc, ztMedia) < 0)
 	{
-		fprintf (stderr, "mfsvol_add_volume_pair: Failed initializing new zone map.\n");
+		fprintf (stderr, "mfs_add_volume_pair: Failed initializing new zone map.\n");
 		mfs_reinit (mfshnd, O_RDWR);
 		return -1;
 	}

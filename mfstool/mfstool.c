@@ -69,7 +69,7 @@ main (int argc, char **argv)
 	char *tmp;
 	int loop;
 
-	tmp = strchr(argv[0], '/');
+	tmp = strrchr(argv[0], '/');
 	tmp = tmp? tmp + 1: argv[0];
 
 	if ((toolmain = find_function (tmp)))

@@ -84,6 +84,9 @@ void tivo_partition_direct ();
 void tivo_partition_file ();
 void tivo_partition_auto ();
 
+int tivo_partition_swabbed (char *path);
+int tivo_partition_devswabbed (char *path);
+
 /* There is no write bootsector on purpose. */
 int tivo_partition_read_bootsector (char *device, void *buf);
 

@@ -80,7 +80,7 @@ struct backup_head
 #define BF_THRESHSIZE	0x00000010
 #define BF_THRESHTOT	0x00000020
 #define BF_STREAMTOT	0x00000040
-#define BF_BSWAP	0x00000080
+#define BF_NOBSWAP	0x00000080
 #define BF_COMPLVL(f)	(((f) >> 12) & 0xf)
 #define BF_SETCOMP(l)	((((l) & 0xf) << 12) | BF_COMPRESSED)
 #define BF_FLAGS	0x0000ffff
@@ -88,6 +88,7 @@ struct backup_head
 #define RF_ENDIAN	0x00020000
 #define RF_NOMORECOMP	0x00040000
 #define RF_ZEROPART	0x00080000
+#define RF_BALANCE	0x00100000
 #define RF_FLAGS	0xffff0000
 
 #ifndef EXTERNINLINE

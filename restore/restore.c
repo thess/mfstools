@@ -1014,43 +1014,6 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 	return 1;
 }
 
-int
-scan_swab (char *devname)
-{
-	int fd, tmp;
-	char tempfile[MAXPATHLEN];
-	char *tmp2;
-	char buf[4096];
-	int retval = 0;
-
-	devname = strrchr (devname, '/');
-
-	if (!devname)
-		return 0;
-
-	sprintf (tempfile, "/proc/ide/%s/settings", devname + 1);
-
-	fd = open (tempfile, O_RDONLY);
-	if (fd < 0)
-		return 0;
-
-	buf[0] = 0;
-	read (fd, buf, 4096);
-	buf[4096] = 0;
-
-	tmp2 = strstr (buf, "bswap");
-
-	if (tmp2)
-	{
-		tmp = strcspn (tmp2, "01");
-
-		if (tmp)
-			retval = (tmp2[tmp] - '0') ^ 1;
-	}
-	close (fd);
-	return retval;
-}
-
 static const char *partition_strings [2][16][2] =
 {
 	{
@@ -1238,7 +1201,12 @@ restore_start (struct backup_info *info)
 		}
 		else
 		{
-			info->devs[loop].swab = scan_swab (info->devs[loop].devname);
+			if (info->back_flags & BF_NOBSWAP)
+				info->devs[loop].swab = 0;
+			else
+				info->devs[loop].swab = 1;
+			if (tivo_partition_devswabbed (info->devs[loop].devname))
+				info->devs[loop].swab ^= 1;
 		}
 		if (build_partition_table (info, loop) < 0)
 			return -1;
