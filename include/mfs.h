@@ -8,11 +8,61 @@
 /* Size that TiVo rounds the partitions down to whole increments of. */
 #define MFS_PARTITION_ROUND 1024
 
+/* Flags for vol_flags below */
+#define VOL_FILE        1       /* This volume is really a file */
+#define VOL_RDONLY      2       /* This volume is read-only */
+#define VOL_SWAB        4       /* This volume is byte-swapped */
+
+/* Information about the list of volumes needed for reads */
+struct volume_info {
+        int fd;
+        unsigned int start;
+        unsigned int sectors;
+        unsigned int offset;
+        int vol_flags;
+        struct volume_info *next;
+};
+
+/* Linked lists of zone maps for a certain type of map */
+struct zone_map {
+        zone_header *map;
+        struct zone_map *next;
+        struct zone_map *next_loaded;
+};
+ 
+/* Head of zone maps linked list, contains totals as well */
+struct zone_map_head {
+        unsigned int size;
+        unsigned int free;
+        struct zone_map *next;
+};
+
+/* TiVo partition map partition */
+struct tivo_partition {
+        unsigned int sectors;
+        unsigned int start;
+};
+ 
+/* TiVo partition map information */
+struct tivo_partition_table {
+        unsigned char *device;
+        int ro_fd;
+        int rw_fd;
+        int vol_flags;
+        int count;
+        struct tivo_partition *partitions;
+        struct tivo_partition_table *next;
+};
+
+extern volume_header vol_hdr;
+
 int mfs_compute_crc (unsigned char *data, unsigned int size, unsigned int off);
 int mfs_check_crc (unsigned char *data, unsigned int size, unsigned int off);
 void mfs_update_crc (unsigned char *data, unsigned int size, unsigned int off);
 char *mfs_device_translate(char *dev);
+void data_swab (void *data, int size);
 int mfs_add_volume (char *path, int flags);
+struct volume_info *mfs_get_volume (unsigned int sector);
 int mfs_is_writable (unsigned int sector);
 int mfs_volume_size (unsigned int sector);
 int mfs_read_data (void *buf, unsigned int sector, int count);
@@ -29,6 +79,7 @@ int mfs_load_volume_header (int flags);
 void mfs_cleanup_zone_maps ();
 int mfs_load_zone_maps ();
 int mfs_init (int flags);
+int mfs_readwrite_init ();
 int mfs_reinit (int flags);
 void mfs_cleanup ();
 
