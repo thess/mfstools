@@ -1,5 +1,5 @@
 INCLUDES += -I${top_srcdir}/include
-LDADD += -L${top_srcdir}/lib -lmfs
+LDADD += -L${top_builddir}/lib -lmfs
 
 bin_PROGRAMS = mfsd
 
