@@ -467,7 +467,9 @@ restore_write (struct backup_info *info, char *buf, unsigned int size)
 
 		info->comp->avail_in = size;
 		info->comp->next_in = buf;
-		while ((info->comp && info->comp->avail_in > 0) || ((info->back_flags & RF_NOMORECOMP) && (unsigned int)info->comp->next_out - (unsigned int)info->comp_buf > 512))
+		while ((info->comp && info->comp->avail_in > 0) ||
+			(((info->back_flags & RF_NOMORECOMP) || !(info->back_flags & RF_INITIALIZED)) &&
+			(unsigned int)info->comp->next_out - (unsigned int)info->comp_buf > 512))
 		{
 			if ((unsigned int)info->comp->next_out - (unsigned int)info->comp_buf > 512)
 			{
