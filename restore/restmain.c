@@ -258,7 +258,13 @@ restore_main (int argc, char **argv)
 		if (filename[0] == '-' && filename[1] == '\0')
 			fd = 0;
 		else
+		{
+#ifdef O_LARGEFILE
+			fd = open (filename, O_RDONLY | O_LARGEFILE);
+#else
 			fd = open (filename, O_RDONLY);
+#endif
+		}
 
 		if (fd < 0)
 		{

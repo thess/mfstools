@@ -269,7 +269,11 @@ backup_main (int argc, char **argv)
 		if (filename[0] == '-' && filename[1] == '\0')
 			fd = 1;
 		else
+#if O_LARGEFILE
+			fd = open (filename, O_WRONLY | O_CREAT | O_TRUNC | O_LARGEFILE, 0644);
+#else
 			fd = open (filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+#endiF
 
 		if (fd < 0)
 		{
