@@ -6,7 +6,10 @@
 #include <fcntl.h>
 #include <string.h>
 #include <sys/param.h>
-#include <linux/types.h>
+#include <sys/types.h>
+#ifdef HAVE_STDINT_H
+#include <stdint.h>
+#endif
 #include "mfs.h"
 #include "macpart.h"
 
