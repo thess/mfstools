@@ -29,7 +29,7 @@ restore_usage (char *progname)
 	fprintf (stderr, " -i file   Input from file, - for stdin\n");
 	fprintf (stderr, " -p        Optimize partition layout\n");
 	fprintf (stderr, " -x        Expand the backup to fill the drive(s)\n");
-	fprintf (stderr, " -X scale  Expand the backup with block size scale\n");
+	fprintf (stderr, " -r scale  Expand the backup with block size scale\n");
 	fprintf (stderr, " -q        Do not display progress\n");
 	fprintf (stderr, " -qq       Do not display anything but error messages\n");
 	fprintf (stderr, " -v size   Recreate /var as size megabytes (Only if not in backup)\n");
@@ -192,7 +192,7 @@ restore_main (int argc, char **argv)
 			expandscale = strtoul (optarg, &tmp, 10);
 			if (tmp && *tmp)
 			{
-				fprintf (stderr, "%s: Integer argument expected for -X.\n", argv[0]);
+				fprintf (stderr, "%s: Integer argument expected for -r.\n", argv[0]);
 				return 1;
 			}
 			if (expandscale < 0 || expandscale > 4)

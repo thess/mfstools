@@ -620,6 +620,10 @@ find_optimal_partitions (struct backup_info *info, unsigned int min1, unsigned i
 	char *err = 0;
 	int partlimit = 16;
 
+#if DEBUG
+	fprintf (stderr, "find_optimal_partitions (..., %d, %d, %d)\n", min1, secs1, secs2);
+#endif
+
 	if (info->back_flags & RF_NOFILL)
 		partlimit = 14;
 
@@ -682,7 +686,7 @@ find_optimal_partitions (struct backup_info *info, unsigned int min1, unsigned i
 				unsigned int left = secs1 / 2 > free1? secs1 / 2 - free1: free1 - secs1 / 2;
 				if (left <= bestleft)
 				{
-					if ((max1 - 9) * 10 + max2 * 10 + (max2 & 7) < 128)
+					if ((max1 - 9) * 11 + (max2 - 1) * 10 < 128)
 					{
 						bestorder = loop;
 						bestleft = left;
@@ -690,10 +694,9 @@ find_optimal_partitions (struct backup_info *info, unsigned int min1, unsigned i
 					else
 						err = "Too many MFS partitions.";
 				}
-			}
-			if (free1 <= bestleft)
+			} else if (free1 <= bestleft)
 			{
-				if ((max1 - 9) * 10 + max2 * 10 + (max2 & 7) < 128)
+				if ((max1 - 9) * 11 + (max2 - 1) * 10 < 128)
 				{
 					bestorder = loop;
 					bestleft = free1;
@@ -759,6 +762,8 @@ find_optimal_partitions (struct backup_info *info, unsigned int min1, unsigned i
 			info->devs[1].nparts += 2;
 		}
 	}
+
+	err = NULL;
 
 	return 0;
 }
@@ -873,13 +878,16 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 			min1 += info->parts[loop].sectors;
 			count++;
 		}
+	}
 
 /* If there are 3 partitions, double it.  No backup currently has both */
 /* sets of root.  If they do in the future, this will be changed. */
-		if (count == 3 || count == 4)
-		{
-			min1 *= 2;
-		}
+	if (count == 3 || count == 4)
+	{
+#if DEBUG
+		fprintf (stderr, "Size of non-var partitions in backup: %d\n", min1);
+#endif
+		min1 *= 2;
 	}
 
 /* Set the default swapsize and varsize. */
@@ -898,7 +906,7 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 	min1 += info->swapsize + info->varsize + info->mfsparts[0].sectors + info->mfsparts[1].sectors;
 
 #if DEBUG
-	fprintf (stderr, "Minimum drive 1 size: %d\n", count);
+	fprintf (stderr, "Minimum drive 1 size: %d\n", min1);
 #endif
 
 /* Make sure the first drive is big enough for the basics. */
@@ -1137,7 +1145,7 @@ build_partition_table (struct backup_info *info, int devno)
 /* falls into the beginning, no worries. */
 				struct backup_partition tmp;
 				curstart += info->newparts[loop].sectors;
-				if (curstart > info->devs[devno].sectors / 2 && curstart - info->devs[devno].sectors / 2 < info->devs[devno].sectors / 2 - (curstart - info->newparts[loop].sectors))
+				if (curstart > info->devs[devno].sectors / 2 && curstart - info->devs[devno].sectors / 2 > info->devs[devno].sectors / 2 - (curstart - info->newparts[loop].sectors))
 					break;
 #if DEBUG
 				fprintf (stderr, "Moving partition %d\n", info->newparts[loop].partno);
