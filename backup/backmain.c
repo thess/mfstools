@@ -33,6 +33,64 @@ get_percent (unsigned int current, unsigned int max)
 	return prcnt;
 }
 
+#define SABLOCKSEC 1630000
+
+unsigned int
+sectors_no_reserved (unsigned int sectors)
+{
+	if (sectors < 14 * 1024 * 1024 * 2)
+		return sectors;
+	if (sectors > 72 * 1024 * 1024 * 2)
+		return sectors - 12 * 1024 * 1024 * 2;
+	return sectors - (sectors - 14 * 1024 * 1024 * 2) / 4;
+}
+
+void
+display_backup_info (struct backup_info *info)
+{
+	zone_header *hdr = 0;
+	unsigned int sizes[32];
+	int count = 0;
+	int loop;
+	unsigned int backuptot = 0;
+	unsigned int backupmfs = 0;
+
+	for (loop = 0; loop < info->nmfs; loop++)
+	{
+		backupmfs += info->mfsparts[loop].sectors;
+	}
+
+	while ((hdr = mfs_next_zone (hdr)) != 0)
+	{
+		if (htonl (hdr->type) == ztMedia)
+		{
+			unsigned int size = htonl (hdr->size);
+			if (htonl (hdr->first) < backupmfs)
+				backuptot += size;
+			sizes[count++] = size;
+		}
+		else
+			while (count > 1)
+			{
+				sizes[0] += sizes[count--];
+			}
+	}
+
+	if (sizes > 0)
+	{
+		unsigned int running = sizes[0];
+		fprintf (stderr, "Source drive size is %d hours\n", sectors_no_reserved (running) / SABLOCKSEC, 0);
+		if (count > 1)
+			for (loop = 1; loop < count; loop++)
+			{
+				running += sizes[loop];
+				fprintf (stderr, "       - Upgraded to %d hours\n", sectors_no_reserved (running) / SABLOCKSEC, 0);
+			}
+		if (info->back_flags & BF_SHRINK)
+			fprintf (stderr, "Backup image will be %d hours\n", sectors_no_reserved (backuptot) / SABLOCKSEC, 0);
+	}
+}
+
 int
 backup_main (int argc, char **argv)
 {
@@ -178,6 +236,9 @@ backup_main (int argc, char **argv)
 				fprintf (stderr, "Backup failed.\n");
 			return 1;
 		}
+
+		if (quiet < 1)
+			display_backup_info (info);
 
 		if (quiet < 2)
 			fprintf (stderr, "Uncompressed backup size: %d megabytes\n", info->nsectors / 2048);

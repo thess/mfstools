@@ -1,3 +1,9 @@
+Version 0.8e
+	Added a few more debug message.
+	At the beginning of backup, summarize base TiVo size, upgraded size,
+		and size that backup will be if -s option is used.
+	Fixed read across volume boundry for real this time.
+
 Version 0.8d
 	Fixed corruption of partition table when extra space was created.
 	Made root device come from bootpage.

@@ -165,11 +165,11 @@ restore_main (int argc, char **argv)
 
 		if (restore_write (info, buf + nwrit, nread - nwrit) != nread - nwrit)
 		{
-			return 1;
 			if (last_err (info))
 				fprintf (stderr, "Restore failed: %s\n", last_err (info));
 			else
 				fprintf (stderr, "Restore failed.\n", last_err (info));
+			return 1;
 		}
 
 		fprintf (stderr, "Starting restore\nUncompressed backup size: %d megabytes\n", info->nsectors / 2048);
@@ -182,6 +182,7 @@ restore_main (int argc, char **argv)
 					fprintf (stderr, "Restore failed: %s\n", last_err (info));
 				else
 					fprintf (stderr, "Restore failed.\n");
+				return 1;
 			}
 			cursec += curcount / 512;
 			prcnt = get_percent (info->cursector, info->nsectors);

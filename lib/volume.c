@@ -354,7 +354,11 @@ mfs_read_data (void *buf, unsigned int sector, int count)
 
 	if (sector + count > vol->sectors)
 	{
+#if DEBUG
+		fprintf (stderr, "Attempt to read across volume boundry %d %d %d %d!", sector + vol->start, count, vol->start, vol->sectors);
+#else
 		fprintf (stderr, "Attempt to read across volume boundry!");
+#endif
 		errno = EIO;
 		return -1;
 	}

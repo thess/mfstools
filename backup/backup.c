@@ -112,7 +112,7 @@ backup_add_block (struct blocklist **blocks, unsigned int *partstart, struct blo
 	struct blocklist **loop;
 	struct blocklist *prev = 0;
 
-	while (partstart[1] < sector)
+	while (partstart[1] <= sector)
 	{
 		partstart++;
 		blocks++;
@@ -120,7 +120,7 @@ backup_add_block (struct blocklist **blocks, unsigned int *partstart, struct blo
 
 /* A little debug here and there never hurt anything. */
 #if DEBUG
-	fprintf (stderr, "Adding block %d of %d\n", sector, count);
+	fprintf (stderr, "Adding block %d of %d from volume at %d\n", sector, count, partstart[0]);
 #endif
 
 /* Find where in the list this block fits.  This will return with &loop */
@@ -411,7 +411,7 @@ scan_inodes (struct backup_info *info)
 		while ((hdr = mfs_next_zone (hdr)) != 0)
 		{
 #if DEBUG
-			fprintf (stderr, "Checking zone at %d of type %d\n", htonl (hdr->sector), htonl (hdr->type));
+			fprintf (stderr, "Checking zone at %d of type %d for region %d-%d\n", htonl (hdr->sector), htonl (hdr->type), htonl (hdr->first), htonl (hdr->last));
 #endif
 			if (htonl (hdr->type) != ztMedia)
 			{
@@ -428,8 +428,11 @@ scan_inodes (struct backup_info *info)
 	{
 		if (loop3)
 		{
-			if (info->back_flags & BF_SHRINK && loop >= highest)
+			if ((info->back_flags & BF_SHRINK) && loop >= highest)
 			{
+#if DEBUG
+				fprintf (stderr, "Truncating MFS at %d\n", loop);
+#endif
 				break;
 			}
 			if (backup_add_block (blocks, partstart, &pool, loop, loop2) != 0)
