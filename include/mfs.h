@@ -27,8 +27,10 @@ typedef struct volume_header_s
 	unsigned int offc0;
 	zone_map_ptr zonemap;
 	unsigned int offd8;
-	unsigned int offdc;
-	unsigned int offe0;
+								/* Following two used in transaction log */
+								/* And inodes */
+	unsigned int bootcycles;	/* Seems to be times booted on */
+	unsigned int bootsecs;		/* Seems to be seconds since boot */
 	unsigned int offe4;
 }
 volume_header;

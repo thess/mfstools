@@ -152,8 +152,23 @@ mfs_write_inode_data_part (struct mfs_handle *mfshnd, mfs_inode * inode, unsigne
 		return 0;
 	}
 
+/* If it all fits in the inode block... */
+	if (inode->inode_flags & htonl (INODE_DATA))
+	{
+		int result;
+
+		if (start)
+		{
+			return 0;
+		}
+
+		memcpy ((unsigned char *)inode + 0x3c, data, 512 - 0x3c);
+		result = mfs_write_inode (mfshnd, inode);
+
+		return result < 0? result: 512;
+	}
+	else if (inode->numblocks)
 /* If it doesn't fit in the sector find out where it is. */
-	if (inode->numblocks)
 	{
 		int loop;
 
@@ -211,20 +226,6 @@ mfs_write_inode_data_part (struct mfs_handle *mfshnd, mfs_inode * inode, unsigne
 			}
 		}
 	}
-	else if (htonl (inode->size) < 512 - 0x3c && inode->type != tyStream)
-	{
-		int result;
-
-		if (start)
-		{
-			return 0;
-		}
-
-		memcpy ((unsigned char *)inode + 0x3c, data, htonl (inode->size));
-		result = mfs_write_inode (mfshnd, inode);
-
-		return result < 0? result: 512;
-	}
 
 /* They must have asked for more data than there was.  Return the total written. */
 	return totwrit;
@@ -243,8 +244,26 @@ mfs_read_inode_data_part (struct mfs_handle *mfshnd, mfs_inode * inode, unsigned
 		return 0;
 	}
 
+/* All the data fits in the inode */
+	if (inode->inode_flags & htonl (INODE_DATA))
+	{
+		int size = htonl (inode->size);
+
+		if (start)
+		{
+			return 0;
+		}
+
+/* Corrupted inode, but fake it at least */
+		if (size > 512 - 0x3c)
+			size = 512 - 0xc3;
+
+		memset (data + size, 0, 512 - size);
+		memcpy (data, (unsigned char *) inode + 0x3c, size);
+		return 512;
+	}
 /* If it doesn't fit in the sector find out where it is. */
-	if (inode->numblocks)
+	else if (inode->numblocks)
 	{
 		int loop;
 
@@ -301,16 +320,6 @@ mfs_read_inode_data_part (struct mfs_handle *mfshnd, mfs_inode * inode, unsigned
 				return totread;
 			}
 		}
-	}
-	else if (htonl (inode->size) < 512 - 0x3c && inode->type != tyStream)
-	{
-		if (start)
-		{
-			return 0;
-		}
-		memset (data, 0, 512);
-		memcpy (data, (unsigned char *) inode + 0x3c, htonl (inode->size));
-		return 512;
 	}
 
 /* They must have asked for more data than there was.  Return the total read. */

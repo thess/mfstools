@@ -138,7 +138,7 @@ backup_scan_inodes (struct backup_info *info)
 			fprintf (stderr, "Inode %d (%d) added\n", htonl (inode->inode), htonl (inode->fsid));
 #endif
 		}
-		else if (inode->refcount != 0 && inode->type != tyStream && inode->size > 512 - offsetof (mfs_inode, datablocks) && inode->numblocks > 0)
+		else if (inode->refcount != 0 && inode->type != tyStream && htonl (inode->size) > 512 - offsetof (mfs_inode, datablocks) && inode->numblocks > 0)
 		{
 /* Count the space used by non-stream inodes */
 			appsectors += ((htonl (inode->size) + 511) & ~511) >> 9;
@@ -1120,14 +1120,17 @@ backup_state_app_inodes_v3 (struct backup_info *info, void *data, unsigned size,
 		inode_size += htonl (inode->numblocks) * sizeof (inode->datablocks[0]);
 
 /* Data in inode. */
-		if (inode->type != tyStream && inode->size <= 512 - offsetof (mfs_inode, datablocks) && inode->refcount != 0 && inode->numblocks == 0)
+		if (inode->type != tyStream && (inode->inode_flags & htonl (INODE_DATA)))
 		{
 			inode_size += htonl (inode->size);
+			if (inode_size > 512)
+				inode_size = 512;
 		}
 
 /* Zeros compress easier, so might as well eliminate any unneeded data. */
 		memcpy (data, inode, inode_size);
-		memset ((char *)data + inode_size, 0, 512 - inode_size);
+		if (inode_size < 512)
+			memset ((char *)data + inode_size, 0, 512 - inode_size);
 
 		data = (char *)data + 512;
 		--size;
@@ -1142,7 +1145,7 @@ backup_state_app_inodes_v3 (struct backup_info *info, void *data, unsigned size,
 		inode = info->state_ptr1;
 	}
 
-	if (inode->type != tyStream && inode->refcount > 0 && inode->numblocks > 0)
+	if (inode->type != tyStream && inode->refcount > 0 && inode->numblocks > 0 && !(inode->inode_flags & htonl (INODE_DATA)))
 		tocopy = htonl (inode->size) - (info->state_val2 - 1) * 512;
 
 	copied = tocopy;
@@ -1292,6 +1295,11 @@ backup_state_complete_v3 (struct backup_info *info, void *data, unsigned size, u
 	{
 		fprintf (stderr, "nsectors %d != cursector + 1 %d\n", info->nsectors, info->cursector);
 	}
+#endif
+
+#if HAVE_SYNC
+/* Make sure changes are committed to disk */
+	sync ();
 #endif
 
 	return bsNextState;

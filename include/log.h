@@ -14,8 +14,8 @@ typedef struct log_entry_s
 {
 	unsigned short length;
 	unsigned int unk1;
-	unsigned int transmaj;
-	unsigned int transmin;
+	unsigned int bootcycles;		/* See comment in mfs.h */
+	unsigned int bootsecs;			/* See comment in mfs.h */
 	unsigned int inode;
 	unsigned int transtype;
 	unsigned int unk2;
@@ -37,19 +37,19 @@ typedef struct log_inode_update_s
 	log_entry log;
 	unsigned int fsid;			/* This FSID */
 	unsigned int refcount;		/* References to this FSID */
-	unsigned int transmaj;
-	unsigned int transmin;		/* Seems to be related to last ?transaction? block used */
-	unsigned int inode;			/* Should be *sectornum - 1122) / 2 */
+	unsigned int bootcycles;
+	unsigned int bootsecs;
+	unsigned int inode;
 	unsigned int unk3;			/* Also block size? */
 	unsigned int size;			/* In bytes or blocksize sized blocks */
 	unsigned int blocksize;
 	unsigned int blockused;
 	unsigned int lastmodified;	/* In seconds since epoch */
-	fsid_type type;				/* For files not referenced by filesystem */
-	unsigned char unk6;			/* Always 8? */
-	unsigned short beef;		/* Placeholder */
-	unsigned int unk2;
-	unsigned int dbsize;		/* Size of datablocks array / data in inode */
+	fsid_type type;
+	unsigned char zone;
+	unsigned short pad;
+	unsigned int inodedata;		/* 1 if data in inode, 0 if blocks */
+	unsigned int datasize;		/* Size of datablocks array / data in inode */
 	struct
 	{
 		unsigned int sector;

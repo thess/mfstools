@@ -65,6 +65,9 @@ init_restore (unsigned int flags)
 
 	info->nsectors = 1;
 	info->back_flags = flags;
+
+	info->crc = ~0;
+
 	return info;
 }
 
@@ -925,7 +928,7 @@ restore_state_app_inodes_v3 (struct backup_info *info, void *data, unsigned size
 		inode = info->state_ptr1;
 	}
 
-	if (inode->type != tyStream && inode->refcount > 0 && inode->numblocks > 0)
+	if (inode->type != tyStream && inode->refcount > 0 && inode->numblocks > 0 && !(inode->inode_flags & htonl (INODE_DATA)))
 		tocopy = 1 + (htonl (inode->size) + 511) / 512 - (info->state_val2);
 
 	copied = tocopy;
@@ -1089,6 +1092,11 @@ restore_state_complete_v1 (struct backup_info *info, void *data, unsigned size, 
 	if (restore_fudge_transactions (info) < 0)
 		return bsError;
 
+#if HAVE_SYNC
+/* Make sure changes are committed to disk */
+	sync ();
+#endif
+
 	return bsNextState;
 }
 
@@ -1126,6 +1134,19 @@ restore_state_complete_v3 (struct backup_info *info, void *data, unsigned size, 
 		return bsError;
 	if (restore_fudge_transactions (info) < 0)
 		return bsError;
+
+#if HAVE_SYNC
+/* Make sure changes are committed to disk */
+	sync ();
+#endif
+
+	if (compute_crc (data, 512, info->crc) != CRC32_RESIDUAL)
+	{
+		info->err_msg = "Backup CRC check failed: %08x != %08x";
+		info->err_arg1 = (void *)compute_crc (data, 512, info->crc);
+		info->err_arg2 = (void *)CRC32_RESIDUAL;
+		return -1;
+	}
 
 	*consumed = 1;
 	return bsNextState;
@@ -2202,7 +2223,7 @@ restore_fudge_log (char *trans, unsigned int volsize)
 			return 0;
 		}
 
-		if (htons (cur->log.length) >= htonl (cur->inode.dbsize) + sizeof (log_inode_update) - 2)
+		if (htons (cur->log.length) >= htonl (cur->inode.datasize) + sizeof (log_inode_update) - 2)
 		{
 			int loc, spot;
 			unsigned int shrunk = 0;
@@ -2213,7 +2234,7 @@ restore_fudge_log (char *trans, unsigned int volsize)
 			dused = htonl (cur->inode.blockused) * bsize;
 			curblks = 0;
 
-			for (loc = 0, spot = 0; loc < htonl (cur->inode.dbsize) / sizeof (cur->inode.datablocks[0]); loc++)
+			for (loc = 0, spot = 0; loc < htonl (cur->inode.datasize) / sizeof (cur->inode.datablocks[0]); loc++)
 			{
 				if (htonl (cur->inode.datablocks[loc].sector) < volsize)
 				{
@@ -2247,7 +2268,7 @@ restore_fudge_log (char *trans, unsigned int volsize)
 				cur->log.length = htons (htons (cur->log.length) - shrunk);
 				cur->inode.size = htonl (dsize / bsize);
 				cur->inode.blockused = htonl (dused / bsize);
-				cur->inode.dbsize = htonl (htonl (cur->inode.dbsize) - shrunk);
+				cur->inode.datasize = htonl (htonl (cur->inode.datasize) - shrunk);
 			}
 			return shrunk;
 		}
