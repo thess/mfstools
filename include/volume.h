@@ -17,9 +17,9 @@ typedef struct volume_header_s
 	unsigned char partitionlist[128];
 	unsigned int total_sectors;
 	unsigned int offa8;
-	unsigned int offac;
-	unsigned int offb0;
-	unsigned int offb4;
+	unsigned int logstart;
+	unsigned int lognsectors;
+	unsigned int logstamp;
 	unsigned int offb8;
 	unsigned int offbc;
 	unsigned int offc0;

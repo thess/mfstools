@@ -37,7 +37,7 @@ typedef struct zone_header_s
 	unsigned long length;		/* Length of this table in sectors */
 	zone_map_ptr next;			/* Next zone map */
 	zone_type type;				/* Type of data in zone */
-	unsigned long transaction;	/* Last completed transaction */
+	unsigned long logstamp;		/* Last log stamp */
 	unsigned long checksum;		/* Checksum of ??? */
 	unsigned long first;		/* First sector in this partition */
 	unsigned long last;			/* Last sector in this partition */
