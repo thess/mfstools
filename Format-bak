@@ -1,0 +1,137 @@
+The data in the MFS Tools backup files is split into 3 sections.  First comes
+the header, which is always 512 bytes, and always not compressed.  If the
+header indicates that the backup is compressed, everything following the
+header is compressed using the zlib "deflate" call.  Following the header is
+a description of what is in the backup, then finally the actual data.
+
+The structure and flags for the header is described in include/backup.h.
+Briefly going over the fieldss...
+
+	unsigned int magic;
+This is the letters "TBAK" with "T" in the MSB position and "K" in the LSB
+position.  If it is instead "KABT", the backup was taken on a machine with a
+different byte order, and any header fields should be byte-swapped.
+
+	unsigned int flags;
+The flags are defined in include/backup.h.  There are only 3 that restore
+cares about.  BF_COMPRESSED says all data after the header is compressed using
+the "deflate" routine from zlib.  BF_SHRINK says the backup was taken divorced.
+All backup has done is truncated the volume and excluded any streams that are
+not of interest.  It is up to restore to clean up dangling references to the
+missing data.  Look at restore_fudge_* in restore/restore.c for how this
+happens.  BF_NOSWAP says that the source drive was determined to be not byte-
+swapped, so the restore should not byte-swap the drive as it is initializing
+it.
+
+	unsigned int nsectors;
+This is merely a count of 512-byte sectors in the data section of the backup.
+
+	unsigned int nparts;
+A count of partitions which are included in the backup.  Currently MFS Tools
+only supports 3 without /var or 4 with /var.  This should probably be fixed.
+The partitions are described first after the header.
+
+	unsigned int nblocks;
+A count of block lists from the MFS volume.  The description of the blocks
+immediately follows the description of the partitions.
+
+	unsigned int mfspairs;
+A count of MFS partitions the MFS volume consists of.  Despite the name, this
+is a count of all partitions, not just pairs.
+
+
+The rest of the first 512 bytes is all 0.  After that, the data may be
+compressed.  In the description of the backup, first is the partitions.  The
+partitions are described by the following structure:
+
+	unsigned int sectors;
+How big the partition is.
+
+	char partno;
+The number of the partition on the drive.
+
+	char devno;
+Which device the partition is on.  Only dev 0 is supported by MFS Tools
+currently.
+
+	char reserved[2];
+Padding.
+
+These are end-to-end.  Immediately after this is a description of backup
+blocks, in the format of:
+
+	unsigned int firstsector;
+This is the offset into the MFS volume for the block list.  This does not
+relate directly to disk sectors, since MFS data can be moved around.
+
+	unsigned int sectors;
+The number of 512 byte sectors in this data block.
+
+
+Finally, the MFS pairs are described the same way partitions are.  However
+the devno and partno, while present and accurate, are ignored.  Note that the
+size may not be exactly the size of the source partition.  The sector count
+is taken from what MFS considers the partition size, which may be smaller than
+the partition really is.
+
+
+Finally, after the description comes a series of 512 byte blocks to fill in
+the data.  The first block is always the boot sector of the A drive.  On
+restore this is used for both drives.  Following it is a raw sector dump of
+the partitions backed up, in the order listed.  Finally, the data from the MFS
+volume, again in the order described.
+
+In summary, the backup file looks like this..
+
+
+magic
+flags
+nsectors
+nparts
+nblocks
+mfspairs
+... [ padding to 512 bytes ]
+------
+part0 sectors
+part0 partition number
+part0 device number
+... [ Repeated for 0...N where N is nparts-1 ]
+partN sectors
+partN partition number
+partN device number
+block0 first sector
+block0 sector count
+... [ Repeated for 0...N where N is nblocks-1 ]
+blockN first sector
+blockN sector count
+mfs0 sectors
+mfs0 partition number
+mfs0 device number
+... [ Repeated for 0...N whete N is nmfs-1 ]
+mfsN sectors
+mfsN partition number
+mfsN device number
+... [ Padding to 512 bytes ]
+------
+boot sector (sector 0 on the drive)
+------
+part0 sector 0
+--
+... [ Repeat for 0...N where N is part0 sectors-1 ]
+--
+part0 sector N
+--
+... [ Repeat for 0...M where M is nparts-1 ]
+--
+partM sector N
+------
+block0 sector first sector
+--
+... [ Repeat for count sectors ]
+--
+block0 sector first sector + sector count
+--
+... [ Repeat for 0...N where N is nblocks-1 ]
+--
+blockN sector first sector + sector count
+------
