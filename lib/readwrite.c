@@ -57,7 +57,11 @@ data_swab (void *data, int size)
 /* Do it 32 bits at a time if possible. */
 	while (size > 3)
 	{
+#if TARGET_OS_MAC
+		*idata = Endian32_Swap (*idata);
+#else
 		*idata = ((*idata << 8) & 0xff00ff00) | ((*idata & 0xff00ff00) >> 8);
+#endif
 		size -= 4;
 		idata++;
 	}
@@ -128,7 +132,11 @@ tivo_partition_read (tpFILE * file, void *buf, unsigned int sector, int count)
 #ifdef USE_LLSEEK
 	if (_llseek (_tivo_partition_fd (file), sector >> 23, sector << 9, &result, SEEK_SET) < 0)
 #else
+#if TARGET_OS_MAC
+	if (lseek (_tivo_partition_fd (file), (off_t)sector << 9, SEEK_SET) != (off_t)sector << 9)
+#else
 	if (lseek64 (_tivo_partition_fd (file), (off64_t)sector << 9, SEEK_SET) != (off64_t)sector << 9)
+#endif
 #endif
 	{
 		return -1;
@@ -199,7 +207,11 @@ tivo_partition_write (tpFILE * file, void *buf, unsigned int sector, int count)
 #ifdef USE_LLSEEK
 	if (_llseek (_tivo_partition_fd (file), sector >> 23, sector << 9, &result, SEEK_SET) < 0)
 #else
+#if TARGET_OS_MAC
+	if (lseek (_tivo_partition_fd (file), (off_t)sector << 9, SEEK_SET) != (off_t)sector << 9)
+#else
 	if (lseek64 (_tivo_partition_fd (file), (off64_t)sector << 9, SEEK_SET) != (off64_t)sector << 9)
+#endif
 #endif
 	{
 		return -1;

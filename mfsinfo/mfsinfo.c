@@ -5,7 +5,11 @@
 void
 mfsinfo_usage (char *progname)
 {
+#if TARGET_OS_MAC
+	fprintf (stderr, "Usage:\n%s /dev/diskX [/dev/diskY]\n", progname);
+#else
 	fprintf (stderr, "Usage:\n%s /dev/hdX [/dev/hdY]\n", progname);
+#endif
 }
 
 int
@@ -58,7 +62,11 @@ partition_info (struct mfs_handle *mfs, char *drives[])
 			p = atoi (names[loop] + p);
 
 			if (d == 0 || d == 1)
+#if TARGET_OS_MAC
+				fprintf (stderr, "  %ss%d\n", drives[d], p);
+#else
 				fprintf (stderr, "  %s%d\n", drives[d], p);
+#endif
 			else
 				fprintf (stderr, "  %.*s\n", namelens[loop], names[loop]);
 		}

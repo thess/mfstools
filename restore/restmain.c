@@ -100,7 +100,11 @@ expand_drive (struct mfs_handle *mfshnd, char *tivodev, char *realdev, unsigned 
 	sprintf (app, "%s%d", tivodev, part1);
 	sprintf (media, "%s%d", tivodev, part2);
 
+#if TARGET_OS_MAC
+	fprintf (stderr, "Adding pair %ss%d-%ss%d\n", realdev, part1, realdev, part2);
+#else
 	fprintf (stderr, "Adding pair %s%d-%s%d\n", realdev, part1, realdev, part2);
+#endif
 
 	if (mfs_can_add_volume_pair (mfshnd, app, media, blocksize) < 0)
 		return -1;

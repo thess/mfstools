@@ -69,7 +69,11 @@ mfsvol_device_translate (char *dev)
 /* device name passed in. */
 		if (dev_sub)
 		{
+#if TARGET_OS_MAC
+			sprintf (devname, "%ss%.*s", dev_sub, dev_len - (loop + 5), dev + loop + 5);
+#else
 			sprintf (devname, "%s%.*s", dev_sub, dev_len - (loop + 5), dev + loop + 5);
+#endif
 
 			return devname;
 		}

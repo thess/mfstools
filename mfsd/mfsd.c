@@ -7,7 +7,7 @@
 #include <unistd.h>
 #include "mfs.h"
 
-char *progname;
+static char *progname;
 
 static struct mfs_handle *mfs;
 
@@ -75,15 +75,13 @@ hexdump (unsigned char *buf, unsigned int sector, unsigned int size)
 int
 mfsd_main (int argc, char **argv)
 {
-	int args[2];
 	int curarg;
-	int curargv;
-	unsigned char *buf;
+	unsigned char *buf = NULL;
 
 	unsigned int sector = 0xdeadbeef, count = 1;
 	unsigned int fsid = 0;
 	unsigned int inode = 0xdeadbeef;
-	unsigned int bufsize;
+	unsigned int bufsize = 0;
 
 	mfs_inode *inode_buf = NULL;
 
