@@ -1,16 +1,16 @@
-MFS Tools version 1.1
-by Steven Lang (Tiger on www.avsforum.com)
+MFS Tools version 2.0
+by Steven Lang (Tiger on TiVo Community Forum www.tivocommunity.com)
 
-This is the initial release of the MFS Tools.  Currently, MFS Tools is a
-backup and a restore program.  (Well, actually it is the same program,
-busybox style, so it fits on boot disks better)  There are several options
-so be sure to read the full documentation before proceeding.  (If you are
-really impatient, the defaults work most the time)
+This is the second major release of the MFS Tools.  MFS Tools is a set of
+utilities for TiVo drive upgrades.  This includes MFS specific backup and
+restore, as well as MFS volume expansion and shrinking.  However, there is
+only one executable.  All the commands are embedded inside this executable.
 
 To setup the command, either create link (Symbolic or hard) to the main
-binary (mfstool) named after one of the tools.  (Currently backup or restore)
-If the binary name is not a recognized utility, the first argument is assumed
-to be the name of the utility, and the second argument forward the parameters.
+binary (mfstool) named after one of the tools.  (Currently backup, restore
+or mfsadd.)  If the binary name is not a recognized utility, the first
+argument is assumed to be the name of the utility, and the second argument
+forward the parameters.
 
 
 
@@ -47,6 +47,14 @@ as secondary master, put the drive you are going to restore to as secondary
 master.  Again mount with the above commands.  Then start the restore with:
 
 /mnt/floppy/mfstool restore -i /mnt/dos/tivo.bak /dev/hdc
+
+Now that is great, but lets say you have a brand new pair of 120 gig drives
+you would like to shove into your TiVo so you can record a couple weeks worth
+of Home Shopping Network.  However, after restoring you still only had
+20 hours.  So instead, to restore you do the following with your 120 gig
+drives connected to secondary master and slave:
+
+/mnt/floppy/mfstool restore -x -i /mnt/dos/tivo.bak /dev/hdc /dev/hdd
 
 Now read the rest of this document so you know what you are doing.
 
@@ -209,6 +217,31 @@ Other options available:
 	Read backup from file.  If - is specified, backup will be read from
 	stdin.
 
+-x
+	Extend the MFS volume to fill all the drives given for restore.  This
+	will create extra partitions on the drive to fill the remaining space
+	and add them to the usable space for the TiVo, even if the drive was
+	not needed for the restore.  Note, however, that doing this could
+	cause a backup to fail because it will leave room for the extra
+	partitions, pausibly making the backup not fit.
+
+-X scale
+	This is like -x, but it allows you to specify the block size for the
+	media storage.  The acceptable values are 0 to 4, corresponding to
+	1, 2, 4, 8 and 16 megabytes.  The larger the value, the less RAM
+	will be used (and the faster menus will respond) but a (small) amount
+	of storage will be wasted by some recordings.  At the extreme small
+	end (-X 0) some PVRs with a large amount of storage may not be able
+	to perform some tasks, such as self repair. (A.K.A. Green Screen)
+
+-p
+	Attempt to optimize the partition layout for TiVo's access patterns.
+	This will immitate the partition layout of DirecTV TiVo recievers
+	and newer standalone recievers.  The partition layout of the first
+	drive will be such that the application data will be in the middle
+	of the drive and the video on the outside, causing the head to have
+	to seek less.
+
 -v size
 	Create the /var partition this size, in megabytes.  This is useful
 	if you have a big drive, and want to create a little sand-box space
@@ -224,7 +257,8 @@ Other options available:
 -b
 	Disables auto-detection of byte swapping, and forces the restore to
 	occur without byte-swapping.  This is required for the new AT&T and
-	series 2 TiVo.
+	series 2 TiVo when restoring a backup made with an older version of
+	MFS Tools.
 
 -B
 	Disables auto-detection of byte swapping, and forces the restore to
@@ -254,17 +288,109 @@ CPU bound.
 
 
 
+MFSADD
+
+The mfsadd utility is a standalone utility for expanding the MFS volume set.
+Unlike other methods involving blessing the drive, there is not a limit
+on the number of times this can be run.  However, there is a limit on
+the number of partitions that MFS can utilize.  (12, or 6 pairs)  The mfsadd
+utility can be used both to add existing partitions to the volume set, or
+similar to the -x functionality of restore, creating partitions to fill a
+drive.
+
+The simplest and most useful method of running mfsadd, assuming the TiVo
+A drive is the secondary master and there is no B drive, is:
+
+mfstool mfsadd /dev/hdc -x /dev/hdc
+
+Or if there is a new B drive connected to the secondary slave as well:
+
+mfstool mfsadd /dev/hdc -x /dev/hdc /dev/hdd
+
+The first command will fill the extra space on the A drive, creating new
+partitions as needed.  It will be able to do this even if the partition
+table does not reflect the true size of the drive, as would be the case
+after a drive to drive copy with "dd".  The second command will do the same,
+and will also create partitions on the B drive.  If the B drive is also a
+copy of an existing TiVo drive, it will add new partitions.  If the drive
+is not currently used by MFS, it will be initialized first.
+WARNING: IF A B DRIVE IS BEING ADDED WITH MFSADD -x OPTION, ALL EXISTING
+PARTITIONS WILL BE WIPED.  If you have data you want to save, create new
+partitions by hand with pdisk.  Both partitions should be type MFS.  The
+first should be about 1 meg, the second should be as big as you want it,
+usually the rest of the drive.
+
+Options for mfsadd:
+
+-x dev
+	Extend the MFS volume to fill all the drives given for restore.  This
+	will create extra partitions on the drive to fill the remaining space
+	and add them to the usable space for the TiVo.  If a new B drive
+	is being added this way, the partition table will be created and
+	all existing partitions and data will be lost.
+
+-s scale
+	This option allows you to specify the block size for the media
+	storage.  The acceptable values are 0 to 4, corresponding to 1,
+	2, 4, 8 and 16 megabytes.  The larger the value, the less RAM will
+	be used (and the faster menus will respond) but a (small) amount of
+	storage will be wasted by some recordings.  At the extreme small end
+	(-X 0) some PVRs with a large amount of storage may not be able to
+	perform some tasks, such as self repair. (A.K.A. Green Screen)  The
+	default is 2 (or 4 megabytes).  Any TiVo created partitions are
+	created with a scale of 0 (or 1 megabyte).  It is best to leave
+	this option alone.
+
+NewApp NewMedia
+	By giving a pair of partitions on the command line, the partitions
+	are added to the MFS volume set directly.  The partitions must both
+	exist and must be of type "MFS".
+
+
+
 FAQ
 
 Q. Will this work with the series 2 or AT&T TiVo?
 
 Absoolutely.  However, you may need to specify -b on the restore command
-line.
+line when restoring a backup made with MFS Tools 1.0.  However, any backup
+made with MFS Tools 2.0 will be restored properly by MFS Tools 2.0 such
+that no extra flags are required.
 
 Q. Will I still need ZapTiVo/ZapStream/dd/gzip with this?
 
 No, MFS Tools replaces the functionality of all other Linux based backup
 utilities.
+
+Q. Will I need TiVoMad or BlessTiVo to get the most out of my drives?
+
+You can certainly use them, but MFS Tools 2.0 is able to add space
+to the TiVo directly instead of making TiVo do it.
+
+Q. Does mfsadd work with UK TiVo, DirecTV TiVo, Series 2 TiVo, or 13
+partition standalone TiVo?
+
+Yes, yes, yes and yes.  The TiVo media storage is pretty much identical
+for all existing configurations.  Since MFS Tools mfsadd does not rely on any
+particular OS version, hardware or drive layout to work, it can work with
+any existing TiVo, any drive configuration.
+
+Q. I have already upgraded with a B drive or a larger A drive.  Now I want
+to upgrade my other drive.  Do I have to start over?
+
+Not any more.  You just have to copy your drive to the new larger drive
+and use mfsadd -x on the drive.  To copy the drive you can use either a
+backup/restore with the -a backup option, or a dd drive to drive copy.
+
+Q. So is there any limit on how many times I can add a larger drive?
+
+Yes and no.  There is not any arbitrary limit saying that you can only
+upgrade once.  However, TiVo only supports 12 partitions in MFS, which
+means realistically you can only upgrade 5 times at the most, with each
+drive being expanded counting as an upgrade.  DirecTV TiVos and other 13
+partition systems can only be upgraded 4 times.  Old DirecTV TiVos that had
+2 drives can only be upgraded 3 times.  If you are unsure, MFS Tools will
+tell you if you have reached the limit.
 
 Q. Does this require a serial or network connection to my TiVo?
 
@@ -291,12 +417,7 @@ fit as much as it can on the A drive.
 Q. Will this work with a dual drive TiVo, such as the 312, original UK TiVo,
 60 hour standalone, or original DirecTV with TiVo recievers?
 
-Absolutely.  In fact, with the right set of options, MFS Tools can restore
-these systems to single drives, in such a way as a second drive can then
-be added by "Blessing" it and adding it, as covered in the normal TiVo hack
-FAQ.  For the 312, or 60 hour standalone, all that is needed is a large
-enough drive to restore to.  For the dual drive UK TiVo and idual drive
-combo, the -s option is needed.
+Absolutely.
 
 Q. I have a drive with errors on it.  Both dd and Dolly fail to produce a good
 backup image.
@@ -313,12 +434,12 @@ No.  MFS Tools uses a special format that condenses the information needed
 for the backup, so no unnecessary data, even easily compressible, is backed
 up.  This results in small and FAST backups.
 
-Q. Can I restore my backups made with dd or Dolly with MFS Tools?
+Q. Can I restore my backups made with dd, Dolly or ghost with MFS Tools?
 
-No.  You can use dd or Dolly to restore those.  However, if you have a raw
-drive image as a file (And you have large file support) MFS Tools can turn
-your existing drive image into an MFS Tools backup.  Just give MFS Tools
-the filename instead of a device.
+No.  You can use dd, Dolly or ghost to restore those.  However, if you have
+a raw drive image as a file (And you have large file support) MFS Tools can
+turn your existing drive image into an MFS Tools backup.  Just give MFS
+Tools the filename instead of a device.
 
 Q. When I use -s, can I restore to a smaller drive than my TiVo came with?
 
@@ -372,11 +493,6 @@ uses.  To simplify access, TiVo rounds off all partitions to even values of
 a power of two.  Any space beyond that is wasted.  That is where the free
 space came from.  The wasted space was merely collected.
 
-Q. Why do you call it MFS Tools if all it does is backup and restore?
-
-Because some day I may add more utilities.  Some trivial stuff like mls
-(That runs on x86) and some less trivial stuff.
-
 Q. Okay, so what is this mls thing and how do I use it?
 
 It is just a simply clone of the mls in tivosh.  It doesn't have any options
@@ -387,9 +503,9 @@ to use MFS_HDA and MFS_HDB.
 
 Q. What versions of the	TiVo software does MFS tools work with?
 
-So far, it has worked 100% with versions up to 2.01.  It SHOULD continue to
+So far, it has worked 100% with versions up to 3.0.  It SHOULD continue to
 work in the future.  However, I can not speak for that which has not been
-created yet.  Version 2.5 seems to work but has not been thoroughly tested.
+created yet.
 
 Q. Will data restored from these backups work for all future TiVo software
 versions when the software is upgraded through the normal process?
@@ -451,10 +567,8 @@ source.
 
 Q. Why does this FAQ seem kind of contrived?
 
-Because it is.  Duh, I haven't released this yet when the FAQ was written.
-I had barely even announced it.  So these questions were as frequently
-asked me as any other questions.  So I just picked some that I thought
-would be useful.
+Because it is.  I haven't had a chance to see what sort of questions really
+need answering.  Got any suggestions?
 
 
 
@@ -472,7 +586,7 @@ http://www.cdrom.com/pub/infozip/zlib/.
 
 LEGAL
 
-MFS Tools are Copyrighted (C) 2000-2001 by Steven Lang, all rights reserved.
+MFS Tools are Copyrighted (C) 2000-2002 by Steven Lang, all rights reserved.
 
 TiVo is a registered trademark of TiVo, Inc.
 

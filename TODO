@@ -9,9 +9,9 @@ Macpart
     - Move partition (Number only, not data)
     X Write table
 Mfsadd
-  Function to move MFS partition from one drive to another
-  Ability to add existing partitions into MFS set
-  Ability to expand MFS set to fill a drive, creating partitions as needed
+  - Function to move MFS partition from one drive to another
+  X Ability to add existing partitions into MFS set
+  X Ability to expand MFS set to fill a drive, creating partitions as needed
   Rename to expand?
 Restore
   X Ability to save extra partitions at end of drive

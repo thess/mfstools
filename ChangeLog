@@ -1,3 +1,8 @@
+Version 2.0
+	Added -x and -X to allow restore to expand to fill a drive.
+	Added flag in backup if drive was not byte swapped.
+	Added new mfsadd utility to add partitions to MFS volume set.
+
 Version 1.1
 	Added -b and -B to control byte-swapping on restore.
 	Added code to fix up MFS transaction log after divorce.

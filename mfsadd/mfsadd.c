@@ -6,9 +6,21 @@
 #include <fcntl.h>
 #include <string.h>
 #include <sys/param.h>
+#include <linux/types.h>
 #include "mfs.h"
+#include "macpart.h"
 
-#define mfsadd_usage()
+void
+mfsadd_usage (char *progname)
+{
+	fprintf (stderr, "Usage: %s [options] Adrive [Bdrive] [NewApp NewMedia]\n", progname);
+	fprintf (stderr, "Options:\n");
+	fprintf (stderr, " -s scale  Set scale factor of media block size\n");
+	fprintf (stderr, " -x dev    Create partitions to fill dev and add it\n");
+	fprintf (stderr, "NewApp / NewMedia\n");
+	fprintf (stderr, "  Existing partitions (Such as /dev/hda13 /dev/hda14) to add to\n");
+	fprintf (stderr, "  the MFS volume set\n");
+}
 
 int
 mfsadd_scan_partitions (struct mfs_handle *mfs, int *used)
@@ -192,7 +204,7 @@ mfsadd_main (int argc, char **argv)
 			}
 			break;
 		default:
-			mfsadd_usage ();
+			mfsadd_usage (argv[0]);
 			return 1;
 		}
 	}
@@ -221,7 +233,7 @@ mfsadd_main (int argc, char **argv)
 				drives[1] = argv[optind];
 			else
 			{
-				mfsadd_usage ();
+				mfsadd_usage (argv[0]);
 				return 1;
 			}
 		}
@@ -231,7 +243,7 @@ mfsadd_main (int argc, char **argv)
 /* Can't do anything without an A or B drive. */
 	if (!drives[0])
 	{
-		mfsadd_usage ();
+		mfsadd_usage (argv[0]);
 		return 1;
 	}
 
@@ -360,6 +372,8 @@ mfsadd_main (int argc, char **argv)
 		partitioncount[1] = tivo_partition_count (drives[1]);
 	for (loop = 0; loop < npairs; loop++)
 	{
+		char *ptype;
+
 		if (partitioncount[pairnums[loop] >> 6] < (pairnums[loop] & 31))
 		{
 			fprintf (stderr, "Partition %s doesn't exist!\n", pairs[loop]);
@@ -369,6 +383,13 @@ mfsadd_main (int argc, char **argv)
 		if ((pairnums[loop] >> 6) == 0 && (pairnums[loop] & 31) < 10)
 		{
 			fprintf (stderr, "Partition %s would trash system partition!\n", pairs[loop]);
+			return 1;
+		}
+
+		ptype = tivo_partition_type (drives[pairnums[loop] >> 6], pairnums[loop] & 31);
+		if (!ptype || strcmp (ptype, "MFS"))
+		{
+			fprintf (stderr, "Partition %s is of type %s, should be MFS\n", pairs[loop], ptype? ptype: "(NULL)");
 			return 1;
 		}
 	}

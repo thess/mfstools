@@ -91,6 +91,9 @@ void tivo_partition_direct ();
 void tivo_partition_file ();
 void tivo_partition_auto ();
 
+char *
+tivo_partition_type (const char *device, int partnum);
+
 int tivo_partition_swabbed (const char *device);
 int tivo_partition_devswabbed (const char *device);
 
