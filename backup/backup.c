@@ -1334,7 +1334,7 @@ backup_next_sectors (struct backup_info *info, char *buf, int sectors)
 	{
 		consumed = 0;
 
-		ret = (*info->state_machine[info->state]) (info, buf, sectors, &consumed);
+		ret = ((*info->state_machine)[info->state]) (info, buf, sectors, &consumed);
 
 		if (consumed > sectors)
 		{
@@ -1357,7 +1357,7 @@ backup_next_sectors (struct backup_info *info, char *buf, int sectors)
 
 /* Find the next valid state */
 		case bsNextState:
-			while (info->state < bsMax && info->state_machine[++info->state] == NULL) ;
+			while (info->state < bsMax && (*info->state_machine)[++info->state] == NULL) ;
 /* Initialize per-state values */
 			info->state_val1 = 0;
 			info->state_val2 = 0;

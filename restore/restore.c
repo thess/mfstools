@@ -296,7 +296,7 @@ restore_state_begin_v3 (struct backup_info *info, void *data, unsigned size, uns
 enum backup_state_ret
 restore_state_partition_info (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
 {
-	return restore_read_header (info, data, size, consumed, &info->parts, info->nparts, sizeof (struct backup_partition));
+	return restore_read_header (info, data, size, consumed, info->parts, info->nparts, sizeof (struct backup_partition));
 }
 
 /**********************************/
@@ -308,7 +308,7 @@ restore_state_partition_info (struct backup_info *info, void *data, unsigned siz
 enum backup_state_ret
 restore_state_block_info_v1 (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
 {
-	return restore_read_header (info, data, size, consumed, &info->blocks, info->nblocks, sizeof (struct backup_block));
+	return restore_read_header (info, data, size, consumed, info->blocks, info->nblocks, sizeof (struct backup_block));
 }
 
 /**********************************/
@@ -320,7 +320,7 @@ restore_state_block_info_v1 (struct backup_info *info, void *data, unsigned size
 enum backup_state_ret
 restore_state_inode_info_v3 (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
 {
-	return restore_read_header (info, data, size, consumed, &info->inodes, info->ninodes, sizeof (u_int32_t));
+	return restore_read_header (info, data, size, consumed, info->inodes, info->ninodes, sizeof (u_int32_t));
 }
 
 /************************/
@@ -332,7 +332,7 @@ restore_state_inode_info_v3 (struct backup_info *info, void *data, unsigned size
 enum backup_state_ret
 restore_state_mfs_partition_info (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
 {
-	return restore_read_header (info, data, size, consumed, &info->mfsparts, info->nmfs, sizeof (struct backup_partition));
+	return restore_read_header (info, data, size, consumed, info->mfsparts, info->nmfs, sizeof (struct backup_partition));
 }
 
 /********************************/
@@ -1175,9 +1175,14 @@ restore_next_sectors (struct backup_info *info, char *buf, int sectors)
 
 	while (sectors > 0 && info->state < bsMax && info->state >= bsBegin)
 	{
+		if (info->state > bsInfoEnd && !(info->back_flags & RF_INITIALIZED))
+		{
+			break;
+		}
+
 		consumed = 0;
 
-		ret = (*info->state_machine[info->state]) (info, buf, sectors, &consumed);
+		ret = ((*info->state_machine)[info->state]) (info, buf, sectors, &consumed);
 
 		if (consumed > sectors)
 		{
@@ -1200,7 +1205,7 @@ restore_next_sectors (struct backup_info *info, char *buf, int sectors)
 
 /* Find the next valid state */
 		case bsNextState:
-			while (info->state < bsMax && info->state_machine[info->state] == NULL) ;
+			while (info->state < bsMax && (*info->state_machine)[++info->state] == NULL) ;
 /* Initialize per-state values */
 			info->state_val1 = 0;
 			info->state_val2 = 0;
@@ -1224,11 +1229,6 @@ restore_next_sectors (struct backup_info *info, char *buf, int sectors)
 			restore_blocks += consumed;
 			sectors -= consumed;
 			buf += consumed * 512;
-		}
-
-		if (info->state > bsInfoEnd && !(info->back_flags & RF_INITIALIZED))
-		{
-			break;
 		}
 	}
 
@@ -1773,9 +1773,9 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 		if (info->nparts < 6 && info->parts[loop].partno < 8)
 		{
 			if (info->parts[loop].partno < 5)
-				info->newparts[info->parts[loop].partno + 1] = info->parts[loop];
+				info->newparts[info->parts[loop].partno + 3 - 2].sectors = info->parts[loop].sectors;
 			else
-				info->newparts[info->parts[loop].partno - 5] = info->parts[loop];
+				info->newparts[info->parts[loop].partno - 3 - 2].sectors = info->parts[loop].sectors;
 		}
 	}
 /* First MFS pair. */
@@ -2560,7 +2560,7 @@ restore_finish(struct backup_info *info)
 	{
 		enum backup_state_ret ret;
 
-		ret = (*info->state_machine[info->state]) (info, 0, 0, 0);
+		ret = ((*info->state_machine)[info->state]) (info, 0, 0, 0);
 
 		switch (ret)
 		{
