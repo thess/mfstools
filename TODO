@@ -31,6 +31,13 @@ Restore
 Misc bug fixes
   Swap size (Fixed)
   Mfsadd to drives larger than ? (Need to investigate)
+  Better handling and reporting of error cases
+
+Plan V3.0
+1. Clean up error reporting/return (All)
+2. Handling of truncated volumes (Lib/Backup)
+3. V3 backup handling (Backup/Restore)
+4. MFS rebuild (Restore/Lib)
 
 Macpart
   API for modifying/creating partition table
