@@ -1202,11 +1202,13 @@ restore_fixup_vol_list (struct backup_info *info)
 
 	MFS_update_crc (&vol.hdr, sizeof (vol.hdr), vol.hdr.checksum);
 
-	if (mfs_write_data ((void *)&vol, 0, 1) != 512)
+	if (mfs_write_data ((void *)&vol, 0, 1) != 512 || mfs_write_data ((void *)&vol, mfs_volume_size (0) - 1, 1) != 512)
 	{
 		info->lasterr = "Error writing changes to volume header.";
 		return -1;
 	}
+
+	return 0;
 }
 
 int

@@ -19,7 +19,6 @@ struct blocklist
 	int backup;
 	unsigned int sector;
 	struct blocklist *next;
-	//struct blocklist *prev;
 };
 
 /***************************************************************************/
@@ -36,7 +35,6 @@ alloc_block (struct blocklist **pool)
 		newblock->sector = 0;
 		newblock->backup = 0;
 		newblock->next = 0;
-		//newblock->prev = 0;
 	}
 	else
 	{
@@ -155,12 +153,10 @@ backup_add_block (struct blocklist **blocks, unsigned int *partstart, struct blo
 			return -1;
 		}
 
-		//newblock->prev = prev;
 		newblock->backup = 1;
 		newblock->sector = sector;
 
 		newblock->next->next = *loop;
-		//newblock->next->prev = newblock;
 		newblock->next->sector = sector + count;
 
 /* Insert the block at the position found. */
@@ -197,12 +193,10 @@ backup_add_block (struct blocklist **blocks, unsigned int *partstart, struct blo
 				return -1;
 			}
 
-			//newblock->prev = prev;
 			newblock->backup = 1;
 			newblock->sector = sector;
 
 			newblock->next->next = *loop;
-			//newblock->next->prev = newblock;
 			newblock->next->sector = sector + count;
 
 /* Insert it into the current location. */
@@ -239,11 +233,9 @@ backup_add_block (struct blocklist **blocks, unsigned int *partstart, struct blo
 				return -1;
 			}
 
-			//newblock->prev = *loop;
 			newblock->backup = 1;
 			newblock->sector = sector;
 
-			//newblock->next->prev = newblock;
 			newblock->next->sector = sector + count;
 			newblock->next->next = (*loop)->next;;
 
@@ -415,7 +407,11 @@ scan_inodes (struct backup_info *info)
 	{
 		zone_header *hdr = 0;
 
-		while ((hdr = mfs_next_zone (hdr)) > 0)
+		while ((hdr = mfs_next_zone (hdr)) != 0)
+		{
+#if DEBUG
+			fprintf (stderr, "Checking zone at %d of type %d\n", htonl (hdr->sector), htonl (hdr->type));
+#endif
 			if (htonl (hdr->type) != ztMedia)
 			{
 				if (htonl (hdr->sector) + htonl (hdr->length) > highest)
@@ -423,6 +419,7 @@ scan_inodes (struct backup_info *info)
 				if (htonl (hdr->last) > highest)
 					highest = htonl (hdr->last);
 			}
+		}
 	}
 
 /* Put in the whole volumes. */

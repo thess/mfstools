@@ -1,3 +1,13 @@
+Version 0.8c
+	Fixed bug with using -s flag on combo and dual drive standalone.
+
+Version 0.8b
+	Now mfstool will give usage including all known commands.
+	Added mls to tool set.
+	Symbolic and hard links (As well as renaming) will not work for
+		individual tools.
+	Fixed attempt to read across volume boundry.
+
 Version 0.8a
 	Restore now accepts filenames instead of always usin standard input.
 	When mfstool is run without arguments, it will give usage now.

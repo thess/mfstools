@@ -34,9 +34,9 @@ mfs_next_zone (zone_header *cur)
 		return loop->map;
 
 	while (loop && loop->map != cur)
-		loop = loop->next;
+		loop = loop->next_loaded;
 
-	loop = loop->next;
+	loop = loop->next_loaded;
 	if (loop)
 		return loop->map;
 
