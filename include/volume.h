@@ -49,5 +49,6 @@ struct volume_handle *mfsvol_init (const char *hda, const char *hdb);
 void mfsvol_perror (struct volume_handle *hnd, char *str);
 int mfsvol_strerror (struct volume_handle *hnd, char *str);
 int mfsvol_has_error (struct volume_handle *hnd);
+void mfsvol_clearerror (struct volume_handle *hnd);
 
 #endif /*VOLUME_H */

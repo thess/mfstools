@@ -307,19 +307,19 @@ hexdump (unsigned char *buf, unsigned int sector)
 		unsigned char line[20];
 		int myo;
 
-		printf ("%05x:%03x ", sector, ofs);
+		fprintf (stderr, "%05x:%03x ", sector, ofs);
 
 		for (myo = 0; myo < 16; myo++)
 		{
-			printf ("%02x%c", buf[myo + ofs], myo < 15 && (myo & 3) == 3 ? '-' : ' ');
+			fprintf (stderr, "%02x%c", buf[myo + ofs], myo < 15 && (myo & 3) == 3 ? '-' : ' ');
 			line[myo] = (isprint (buf[myo + ofs]) ? buf[myo + ofs] : '.');
 		}
 
-		printf ("|");
+		fprintf (stderr, "|");
 		line[16] = ':';
 		line[17] = '\n';
 		line[18] = 0;
-		printf ("%s", line);
+		fprintf (stderr, "%s", line);
 	}
 }
 
@@ -445,4 +445,15 @@ mfsvol_has_error (struct volume_handle *hnd)
 		return 1;
 
 	return 0;
+}
+
+/********************/
+/* Clear any errors */
+void
+mfsvol_clearerror (struct volume_handle *hnd)
+{
+	hnd->err_msg = 0;
+	hnd->err_arg1 = 0;
+	hnd->err_arg2 = 0;
+	hnd->err_arg3 = 0;
 }

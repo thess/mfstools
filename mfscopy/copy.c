@@ -194,6 +194,8 @@ get_drives (char *drives, char *adrive, char *bdrive)
 
 	if (drives[devlen] != 0)
 		strcpy (bdrive, drives + devlen + 1);
+
+	fprintf (stderr, "Drives: %s and %s\n", adrive, bdrive);
 }
 
 int
@@ -213,7 +215,7 @@ copy_main (int argc, char **argv)
 
 	tivo_partition_direct ();
 
-	while ((opt = getopt (argc, argv, "hqf:L:tTaspxr:v:S:lbBz")) > 0)
+	while ((opt = getopt (argc, argv, "hqf:L:tTaspxr:v:S:lbBzE")) > 0)
 	{
 		switch (opt)
 		{
@@ -222,6 +224,9 @@ copy_main (int argc, char **argv)
 			break;
 		case 's':
 			bflags |= BF_SHRINK;
+			break;
+		case 'E':
+			bflags |= BF_TRUNCATED;
 			break;
 		case 'f':
 			if (threshopt)
@@ -371,7 +376,35 @@ copy_main (int argc, char **argv)
 		rflags |= RF_NOFILL;
 
 	info_b = init_backup (source_a, source_b, bflags);
+
+	// Try to continue anyway despite error.
+	if (bflags & BF_TRUNCATED && backup_has_error (info_b))
+	{
+		backup_perror (info_b, "WARNING");
+		fprintf (stderr, "Attempting copy anyway\n");
+		backup_check_truncated_volume (info_b);
+		if (info_b && backup_has_error (info_b))
+		{
+			backup_perror (info_b, "Copy source");
+			return 1;
+		}
+	}
+
+	if (info_b && backup_has_error (info_b))
+	{
+		backup_perror (info_b, "Copy source");
+
+		fprintf (stderr, "To attempt copy anyway, try again with -E.  -s is implied by -E.\n");
+		return 1;
+	}
+
 	info_r = init_restore (rflags);
+	if (info_r && restore_has_error (info_r))
+	{
+		restore_perror (info_r, "Copy target");
+		return 1;
+	}
+
 	if (!info_b || !info_r)
 	{
 		fprintf (stderr, "%s: Copy failed to start.  Make sure you specified the right\ndevices, and that the drives are not locked.\n", argv[0]);
@@ -482,7 +515,7 @@ copy_main (int argc, char **argv)
 			{
 				unsigned timedelta = time(NULL) - starttime;
 
-				fprintf (stderr, "\rRestoring %d of %d mb (%d.%02d%%)", info_r->cursector / 2048, info_r->nsectors / 2048, prcnt / 100, prcnt % 100);
+				fprintf (stderr, "\rCopying %d of %d mb (%d.%02d%%)", info_r->cursector / 2048, info_r->nsectors / 2048, prcnt / 100, prcnt % 100);
 
 				if (prcnt > 100 && timedelta > 15)
 				{
@@ -517,6 +550,11 @@ copy_main (int argc, char **argv)
 		return 1;
 	}
 
+	if (info_b->back_flags & BF_TRUNCATED)
+	{
+		fprintf (stderr, "***WARNING***\nCopy was made of an incomplete volume.  While the copy succeeded,\nit is possible there was some required data missing.  Verify your copy.\n");
+	}
+
 	if (quiet < 2)
 		fprintf (stderr, "Cleaning up target.  Please wait a moment.\n");
 
@@ -542,8 +580,14 @@ copy_main (int argc, char **argv)
 		mfshnd = mfs_init (dest_a, dest_b, O_RDWR);
 		if (!mfshnd)
 		{
-				printf ("Drive expansion failed.\n");
-				return 1;
+			fprintf (stderr, "Drive expansion failed.\n");
+			return 1;
+		}
+
+		if (mfs_has_error (mfshnd))
+		{
+			mfs_perror (mfshnd, "Target expand");
+			return 1;
 		}
 
 		while (expandscale-- > 0)

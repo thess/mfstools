@@ -235,6 +235,12 @@ restore_main (int argc, char **argv)
 		flags |= RF_NOFILL;
 
 	info = init_restore (flags);
+	if (restore_has_error (info))
+	{
+		restore_perror (info, "Restore");
+		return 1;
+	}
+
 	if (info)
 	{
 		unsigned starttime;
@@ -275,6 +281,11 @@ restore_main (int argc, char **argv)
 			else
 				fprintf (stderr, "Restore failed.\n");
 			return 1;
+		}
+
+		if (info->back_flags & BF_TRUNCATED)
+		{
+			fprintf (stderr, "***WARNING***\nRestoring from a backup of an incomplete volume.  While the backup is while,\nit is possible there was some required data missing.  Verify the restore.\n");
 		}
 
 		if (restore_trydev (info, drive, drive2) < 0)
@@ -380,8 +391,14 @@ restore_main (int argc, char **argv)
 		mfshnd = mfs_init (drive, drive2, O_RDWR);
 		if (!mfshnd)
 		{
-				printf ("Drive expansion failed.\n");
-				return 1;
+			fprintf (stderr, "Drive expansion failed.\n");
+			return 1;
+		}
+
+		if (mfs_has_error (mfshnd))
+		{
+			mfs_perror (mfshnd, "Drive expansion");
+			return 1;
 		}
 
 		while (expandscale-- > 0)

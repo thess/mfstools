@@ -110,6 +110,12 @@ mfsinfo_main (int argc, char **argv)
 		return 1;
 	}
 
+	if (mfs_has_error (mfs))
+	{
+		mfs_perror (mfs, argv[0]);
+		return 1;
+	}
+
 	fprintf (stderr, "MFS volume set for %s%s%s\n", drives[0], ndrives > 1? " and ": "", ndrives > 1? drives[1]: "");
 
 	nparts = partition_info (mfs, drives);

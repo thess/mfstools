@@ -64,6 +64,9 @@ struct mfs_handle
 
 #define SABLOCKSEC 1630000
 
+// Flags to pass to mfs_init along with the accmode
+#define MFS_ERROROK		0x04000000	// Open despite errors
+
 int mfs_compute_crc (unsigned char *data, unsigned int size, unsigned int off);
 int mfs_check_crc (unsigned char *data, unsigned int size, unsigned int off);
 void mfs_update_crc (unsigned char *data, unsigned int size, unsigned int off);
@@ -88,6 +91,7 @@ char *mfs_partition_list (struct mfs_handle *mfshnd);
 void mfs_perror (struct mfs_handle *mfshnd, char *str);
 int mfs_strerror (struct mfs_handle *mfshnd, char *str);
 int mfs_has_error (struct mfs_handle *mfshnd);
+void mfs_clearerror (struct mfs_handle *mfshnd);
 
 #define MFS_check_crc(data, size, crc) (mfs_check_crc ((unsigned char *)(data), (size), (unsigned int *)&(crc) - (unsigned int *)(data)))
 #define MFS_update_crc(data, size, crc) (mfs_update_crc ((unsigned char *)(data), (size), (unsigned int *)&(crc) - (unsigned int *)(data)))

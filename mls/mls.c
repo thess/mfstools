@@ -245,6 +245,12 @@ mls_main (int argc, char **argv)
 		return 1;
 	}
 
+	if (mfs_has_error (mfs))
+	{
+		mfs_perror (mfs, argv[0]);
+		return 1;
+	}
+
 	list_file (arg);
 
 	return 0;

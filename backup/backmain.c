@@ -131,7 +131,7 @@ backup_main (int argc, char **argv)
 
 	tivo_partition_direct ();
 
-	while ((loop = getopt (argc, argv, "ho:123456789vsf:l:tTaq")) > 0)
+	while ((loop = getopt (argc, argv, "ho:123456789vsf:l:tTaqE")) > 0)
 	{
 		switch (loop)
 		{
@@ -204,6 +204,9 @@ backup_main (int argc, char **argv)
 		case 'q':
 			quiet++;
 			break;
+		case 'E':
+			flags |= BF_TRUNCATED;
+			break;
 		default:
 			backup_usage (argv[0]);
 			return 1;
@@ -232,6 +235,28 @@ backup_main (int argc, char **argv)
 	if (!info)
 	{
 		fprintf (stderr, "%s: Backup failed to startup.  Make sure you specified the right\ndevices, and that the drives are not locked.\n", argv[0]);
+		return 1;
+	}
+
+	// Try to continue anyway despite error.
+	if (flags & BF_TRUNCATED && backup_has_error (info))
+	{
+		backup_perror (info, "WARNING");
+		fprintf (stderr, "Attempting backup anyway\n");
+		backup_check_truncated_volume (info);
+
+		if (backup_has_error (info))
+		{
+			backup_perror (info, "Backup");
+			return 1;
+		}
+	}
+
+	if (backup_has_error (info))
+	{
+		backup_perror (info, "Backup");
+
+		fprintf (stderr, "To attempt backup anyway, try again with -E.  -s is implied by -E.\n");
 		return 1;
 	}
 	else
@@ -280,7 +305,7 @@ backup_main (int argc, char **argv)
 			unsigned int prcnt, compr;
 			if (write (fd, buf, curcount) != curcount)
 			{
-				printf ("Backup failed: %s: %s\n", filename, strerror(errno));
+				fprintf (stderr, "Backup failed: %s: %s\n", filename, strerror(errno));
 				return 1;
 			}
 			cursec += curcount / 512;
@@ -324,7 +349,9 @@ backup_main (int argc, char **argv)
 		return 1;
 	}
 
-	if (quiet < 2)
+	if (info->back_flags & BF_TRUNCATED)
+		fprintf (stderr, "***WARNING***\nBackup was made of an incomplete volume.  While the backup succeeded,\nit is possible there was some required data missing.  Verify your backup.\n");
+	else if (quiet < 2)
 		fprintf (stderr, "Backup done!\n");
 
 	return 0;

@@ -1799,7 +1799,7 @@ restore_finish(struct backup_info *info)
 	mfsvol_cleanup (info->vols);
 	info->vols = 0;
 	info->mfs = mfs_init (info->devs[0].devname, info->ndevs > 1? info->devs[1].devname: NULL, O_RDWR);
-	if (!info->mfs)
+	if (!info->mfs || mfs_has_error (info->mfs))
 		return -1;
 	if (restore_fudge_inodes (info) < 0)
 		return -1;
@@ -1879,3 +1879,19 @@ restore_has_error (struct backup_info *info)
 	return 0;
 }
 
+/********************/
+/* Clear any errors */
+void
+restore_clearerror (struct backup_info *info)
+{
+	info->err_msg = 0;
+	info->err_arg1 = 0;
+	info->err_arg2 = 0;
+	info->err_arg3 = 0;
+
+	if (info->mfs)
+		mfs_clearerror (info->mfs);
+
+	if (info->vols)
+		mfsvol_clearerror (info->vols);
+}

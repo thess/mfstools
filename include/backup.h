@@ -84,6 +84,7 @@ struct backup_head
 #define BF_THRESHTOT	0x00000020
 #define BF_STREAMTOT	0x00000040
 #define BF_NOBSWAP	0x00000080	/* Source isn't byte swapped. */
+#define BF_TRUNCATED	0x00000100	/* Backup from incomplete volume. */
 #define BF_COMPLVL(f)	(((f) >> 12) & 0xf)
 #define BF_SETCOMP(l)	((((l) & 0xf) << 12) | BF_COMPRESSED)
 #define BF_FLAGS	0x0000ffff
@@ -105,12 +106,14 @@ struct backup_head
 
 struct backup_info *init_backup (char *device, char *device2, int flags);
 void backup_set_thresh (struct backup_info *info, unsigned int thresh);
+void backup_check_truncated (struct backup_info *info);
 int backup_start (struct backup_info *info);
 unsigned int backup_read (struct backup_info *info, char *buf, unsigned int size);
 int backup_finish (struct backup_info *info);
 void backup_perror (struct backup_info *info, char *str);
 int backup_strerror (struct backup_info *info, char *str);
 int backup_has_error (struct backup_info *info);
+void backup_clearerror (struct backup_info *info);
 
 struct backup_info *init_restore (unsigned int flags);
 void restore_set_varsize (struct backup_info *info, int size);
@@ -122,3 +125,4 @@ int restore_finish(struct backup_info *info);
 void restore_perror (struct backup_info *info, char *str);
 int restore_strerror (struct backup_info *info, char *str);
 int restore_has_error (struct backup_info *info);
+void restore_clearerror (struct backup_info *info);

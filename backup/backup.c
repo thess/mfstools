@@ -416,7 +416,37 @@ scan_inodes (struct backup_info *info)
 
 				}
 			}
+			else
+			{
+				for (loop2 = 0; loop2 < htonl (inode->numblocks); loop2++)
+				{
+					unsigned int thiscount = htonl (inode->datablocks[loop2].count);
+					unsigned int thissector = htonl (inode->datablocks[loop2].sector);
+
+					if (highest < thiscount + thissector)
+					{
+						highest = thiscount + thissector;
+					}
+				}
+			}
 			free (inode);
+		}
+	}
+
+// Make sure all needed data is present.
+	if (info->back_flags & BF_TRUNCATED)
+	{
+		unsigned set_size = mfs_volume_set_size (info->mfs);
+		if (highest > set_size)
+		{
+			info->err_msg = "Required data at %ld beyond end of the device (%ld)";
+			info->err_arg1 = (void *)highest;
+			info->err_arg2 = (void *)set_size;
+
+			free_block_list_array (blocks);
+			free_block_list (&pool);
+
+			return 0;
 		}
 	}
 
@@ -762,11 +792,6 @@ init_backup (char *device, char *device2, int flags)
  	}
 
 	info->mfs = mfs_init (device, device2, O_RDONLY);
- 	if (!info->mfs)
- 	{
-		free (info);
- 		return 0;
-	}
  
  	info->back_flags = flags;
 
@@ -778,8 +803,12 @@ init_backup (char *device, char *device2, int flags)
 	info->hda = strdup (device);
 	if (!info->hda)
 	{
-		mfs_cleanup (info->mfs);
-		free (info);
+		info->err_msg = "Memory exhausted";
+	}
+
+	if (!mfs_has_error (info->mfs))
+	{
+		info->back_flags &= ~BF_TRUNCATED;
 	}
  
 	return info;
@@ -789,6 +818,81 @@ void
 backup_set_thresh (struct backup_info *info, unsigned int thresh)
 {
 	info->thresh = thresh;
+}
+
+/*************************************************************/
+/* Check that the non stream zone maps are within the volume */
+int
+backup_verify_zone_maps (struct backup_info *info)
+{
+	unsigned volume_size = mfs_volume_set_size (info->mfs);
+	zone_header *zone;
+
+#if DEBUG
+	fprintf (stderr, "Volume set size %ld\n", volume_size);
+#endif
+
+	for (zone = mfs_next_zone (info->mfs, NULL); zone; zone = mfs_next_zone (info->mfs, zone))
+	{
+		// Media zones will be accounted for later.
+		if (zone->type == ztMedia)
+			continue;
+
+#if DEBUG
+		fprintf (stderr, "Zone type %d at %ld\n", zone->type, zone->first);
+#endif
+
+		if (htonl (zone->first) >= volume_size)
+		{
+			info->err_msg = "%s zone outside available volume";
+			switch (zone->type)
+			{
+			case ztInode:
+				info->err_arg1 = "Inode";
+				break;
+			case ztApplication:
+				info->err_arg1 = "Application";
+				break;
+			default:
+				info->err_arg1 = "Unknown";
+				break;
+			}
+
+			return -1;
+		}
+	}
+
+// All loaded non-media zones within volume.
+	return 0;
+}
+
+/*********************************************/
+/* Attempt to recover from a failed mfs_init */
+void
+backup_check_truncated_volume (struct backup_info *info)
+{
+	if (!(info->back_flags & BF_TRUNCATED))
+	{
+		info->err_msg = "Backup cannot proceed on failed init";
+		return;
+	}
+
+	// Shrinking a truncated volume implied.
+	info->back_flags |= BF_SHRINK;;
+
+	// Clear any errors.
+	backup_clearerror (info);
+
+	mfs_load_zone_maps (info->mfs);
+
+	// More likely more errors generated.  Clear them too.
+	backup_clearerror (info);
+
+	// Make sure all loaded app zone maps are within volume;
+	backup_verify_zone_maps (info);
+
+	// The rest of the checks occur later.
+	//   Check that inodes referencing application data fall below volume end.
 }
 
 /*********************/
@@ -1292,7 +1396,27 @@ backup_strerror (struct backup_info *info, char *str)
 {
 	if (info->err_msg)
 		sprintf (str, info->err_msg, info->err_arg1, info->err_arg2, info->err_arg3);
-	else return (mfs_strerror (info->mfs, str));
+	else if (info->mfs)
+		return (mfs_strerror (info->mfs, str));
+	else
+	{
+		sprintf (str, "No error");
+		return 0;
+	}
 
 	return 1;
+}
+
+/********************/
+/* Clear any errors */
+void
+backup_clearerror (struct backup_info *info)
+{
+	info->err_msg = 0;
+	info->err_arg1 = 0;
+	info->err_arg2 = 0;
+	info->err_arg3 = 0;
+
+	if (info->mfs)
+		mfs_clearerror (info->mfs);
 }

@@ -139,6 +139,12 @@ mfsd_main (int argc, char **argv)
 
 	mfs = mfs_init (argv[optind], optind + 1 < argc? argv[optind + 1] : NULL, O_RDONLY);
 
+	if (mfs_has_error (mfs))
+	{
+		mfs_perror (mfs, argv[0]);
+		return 1;
+	}
+
 	if (fsid)
 	{
 		inode_buf = mfs_read_inode_by_fsid (mfs, fsid);

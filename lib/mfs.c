@@ -152,28 +152,18 @@ mfs_init_internal (struct mfs_handle *mfshnd, char *hda, char *hdb, int flags)
 /* Load the first volume by hand. */
 	if (mfsvol_add_volume (mfshnd->vols, cur_volume, flags) < 0)
 	{
-		mfs_perror (mfshnd, "mfs_init");
-		mfsvol_cleanup (mfshnd->vols);
-		free (mfshnd);
 		return -1;
 	}
 
 /* Take care of loading the rest. */
 	if (mfs_load_volume_header (mfshnd, flags) <= 0)
 	{
-		mfs_perror (mfshnd, "mfs_init");
-		mfsvol_cleanup (mfshnd->vols);
-		free (mfshnd);
 		return -1;
 	}
 
 /* Load the zone maps. */
 	if (mfs_load_zone_maps (mfshnd) < 0)
 	{
-		mfs_perror (mfshnd, "mfs_init");
-		mfs_cleanup_zone_maps (mfshnd);
-		mfsvol_cleanup (mfshnd->vols);
-		free (mfshnd);
 		return -1;
 	}
 
@@ -182,6 +172,7 @@ mfs_init_internal (struct mfs_handle *mfshnd, char *hda, char *hdb, int flags)
 
 /********************************/
 /* Wrapper for first init case. */
+/* The caller is responsible for checking for error cases. */
 struct mfs_handle *
 mfs_init (char *hda, char *hdb, int flags)
 {
@@ -189,11 +180,7 @@ mfs_init (char *hda, char *hdb, int flags)
 	if (!mfshnd)
 		return 0;
 
-	if (mfs_init_internal (mfshnd, hda, hdb, flags))
-	{
-		free (mfshnd);
-		return 0;
-	}
+	mfs_init_internal (mfshnd, hda, hdb, flags);
 
 	return mfshnd;
 }
@@ -248,18 +235,34 @@ mfs_has_error (struct mfs_handle *mfshnd)
 	return mfsvol_has_error (mfshnd->vols);
 }
 
+/********************/
+/* Clear any errors */
+void
+mfs_clearerror (struct mfs_handle *mfshnd)
+{
+	mfshnd->err_msg = 0;
+	mfshnd->err_arg1 = 0;
+	mfshnd->err_arg2 = 0;
+	mfshnd->err_arg3 = 0;
+
+	if (mfshnd->vols)
+		mfsvol_clearerror (mfshnd->vols);
+}
+
 /************************************************/
 /* Free all used memory and close opened files. */
 void
 mfs_cleanup (struct mfs_handle *mfshnd)
 {
 	mfs_cleanup_zone_maps (mfshnd);
-	mfsvol_cleanup (mfshnd->vols);
+	if (mfshnd->vols)
+		mfsvol_cleanup (mfshnd->vols);
 	free (mfshnd);
 }
 
 /********************************/
 /* Do a cleanup and init fresh. */
+/* The caller is responsible for checking for error cases. */
 int
 mfs_reinit (struct mfs_handle *mfshnd, int flags)
 {
@@ -268,11 +271,7 @@ mfs_reinit (struct mfs_handle *mfshnd, int flags)
 
 	mfs_cleanup_zone_maps (mfshnd);
 
-	if (mfs_init_internal (mfshnd, vols->hda, vols->hdb, flags))
-	{
-		bzero (mfshnd, sizeof (mfshnd));
-		ret = -1;
-	}
+	mfs_init_internal (mfshnd, vols->hda, vols->hdb, flags);
 
 	mfsvol_cleanup (vols);
 

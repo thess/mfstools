@@ -389,6 +389,12 @@ mfsadd_main (int argc, char **argv)
 		return 1;
 	}
 
+	if (mfs_has_error (mfs))
+	{
+		mfs_perror (mfs, argv[0]);
+		return 1;
+	}
+
 	if (mfsadd_scan_partitions (mfs, used) < 0)
 		return 1;
 
