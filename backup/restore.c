@@ -705,11 +705,11 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 			count++;
 			min1 += info->parts[loop].sectors;
 		}
-	}
 
-	if (count == 3)
-	{
-		min1 *= 2;
+		if (count == 3)
+		{
+			min1 *= 2;
+		}
 	}
 
 	if (info->swapsize == 0)
@@ -1082,7 +1082,8 @@ restore_fudge_inodes (struct backup_info *info)
 						changed = 1;
 						inode->numblocks = htonl (htonl (inode->numblocks) - 1);
 						if (loop2 < htonl (inode->numblocks))
-							memmove (&inode->datablocks[loop2], &inode->datablocks[loop2 + 1], htonl (inode->numblocks) - loop2);
+							memmove (&inode->datablocks[loop2], &inode->datablocks[loop2 + 1], sizeof (*inode->datablocks) * (htonl (inode->numblocks) - loop2));
+						loop2--;
 					}
 				}
 
@@ -1090,8 +1091,8 @@ restore_fudge_inodes (struct backup_info *info)
 					if (mfs_write_inode (inode) < 0)
 						return -1;
 
-				free (inode);
 			}
+			free (inode);
 		}
 	}
 
@@ -1120,7 +1121,7 @@ restore_fixup_vol_list (struct backup_info *info)
 	if (strlen (vol.hdr.partitionlist) + 1 > sizeof (vol.hdr.partitionlist))
 		return -1;
 
-	vol.hdr.total_sectors = mfs_volume_set_size ();
+	vol.hdr.total_sectors = htonl (mfs_volume_set_size ());
 
 	MFS_update_crc (&vol.hdr, sizeof (vol.hdr), vol.hdr.checksum);
 
@@ -1146,7 +1147,7 @@ restore_fixup_zone_maps(struct backup_info *info)
 	if (mfs_read_data ((void *)&vol, 0, 1) < 0)
 		return -1;
 
-	cur = malloc (htonl (vol.hdr.zonemap.length));
+	cur = malloc (htonl (vol.hdr.zonemap.length) * 512);
 	if (!cur)
 		return -1;
 
@@ -1182,7 +1183,7 @@ restore_fixup_zone_maps(struct backup_info *info)
 
 		MFS_update_crc (cur, htonl (cur->length) * 512, cur->checksum);
 
-		if (mfs_write_data ((void *)cur, htonl (cur->sector), htonl (cur->length) * 512) != htonl (cur->length) * 512 || mfs_write_data ((void *)cur, htonl (cur->sbackup), htonl (cur->length) * 512) != htonl (cur->length) * 512)
+		if (mfs_write_data ((void *)cur, htonl (cur->sector), htonl (cur->length)) != htonl (cur->length) * 512 || mfs_write_data ((void *)cur, htonl (cur->sbackup), htonl (cur->length)) != htonl (cur->length) * 512)
 		{
 			free (cur);
 			return -1;
@@ -1209,7 +1210,7 @@ restore_finish(struct backup_info *info)
 		return -1;
 
 	setenv ("MFS_HDA", info->devs[0].devname, 1);
-	if (info->ndevs > 0)
+	if (info->ndevs > 1)
 		setenv ("MFS_HDB", info->devs[1].devname, 1);
 
 	mfs_cleanup_volumes ();

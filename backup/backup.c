@@ -278,12 +278,11 @@ add_blocks_to_backup_info (struct backup_info *info, struct blocklist *blocks)
 static struct blocklist *
 scan_inodes (struct backup_info *info, unsigned int thresh)
 {
-	int loop, loop2, loop3;
+	unsigned int loop, loop2, loop3;
 	int ninodes = mfs_inode_count ();
 	struct blocklist *blocks = NULL;
 	struct blocklist *pool = NULL;
 	unsigned int highest = 0;
-	unsigned int thissector;
 
 	blocks = calloc (sizeof (*blocks), 1);
 	if (!blocks)
@@ -303,20 +302,21 @@ scan_inodes (struct backup_info *info, unsigned int thresh)
 			{
 				unsigned int streamsize = htonl (inode->blocksize) / 512 * htonl (inode->blockused);
 /* Only backup streams that are smaller than the threshhold. */
-				if (streamsize > 0 && streamsize < thresh)
-//				if (streamsize > 0 && htonl (inode->fsid) < 2000)
+//				if (streamsize > 0 && streamsize < thresh)
+				if (streamsize > 0 && htonl (inode->fsid) < 2000)
 				{
-#ifdef DEBUG
-						fprintf (stderr, "Will back up fsid %d\n", htonl (inode->fsid));
-#endif
 /* Add all blocks. */
 					for (loop2 = 0; loop2 < htonl (inode->numblocks); loop2++)
 					{
 						unsigned int thiscount = htonl (inode->datablocks[loop2].count);
-						thissector = htonl (inode->datablocks[loop2].sector);
+						unsigned int thissector = htonl (inode->datablocks[loop2].sector);
 
 						if (thiscount > streamsize)
 							thiscount = streamsize;
+
+#ifdef DEBUG
+						fprintf (stderr, "Inode %d: ", htonl (inode->fsid));
+#endif
 
 						if (backup_add_block (&blocks, &pool, thissector, thiscount) != 0)
 						{
@@ -345,16 +345,15 @@ scan_inodes (struct backup_info *info, unsigned int thresh)
 	{
 		if (loop3)
 		{
+			if (info->back_flags & BF_SHRINK && loop >= highest)
+			{
+				break;
+			}
 			if (backup_add_block (&blocks, &pool, loop, loop2) != 0)
 			{
 				free_block_list (&blocks);
 				free_block_list (&pool);
 				return 0;
-			}
-		} else {
-			if (info->back_flags & BF_SHRINK && thissector >= highest)
-			{
-				break;
 			}
 		}
 		if (info->back_flags & BF_SHRINK)
@@ -601,6 +600,22 @@ init_backup (char *device, char *device2, unsigned int thresh, int flags)
 {
 	struct backup_info *info;
 	struct blocklist *blocks;
+
+	if (!device)
+		return 0;
+
+	setenv ("MFS_HDA", device, 1);
+
+	if (device2)
+		setenv ("MFS_HDB", device2, 1);
+	else
+		setenv ("MFS_HDB", "Second MFS drive", 1);
+
+	if (mfs_init (O_RDONLY) < 0)
+	{
+		fprintf (stderr, "mfsinit: Failed!  Bailing.\n");
+		return 0;
+        }
 
 	info = calloc (sizeof (*info), 1);
 

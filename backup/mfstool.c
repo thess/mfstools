@@ -30,18 +30,13 @@ get_percent (unsigned int current, unsigned int max)
 int
 backup_main (int argc, char **argv)
 {
-	char *drive = argc >= 1? "/dev/hda": argv[1];
-	char *drive2 = argc >= 2? "": argv[1];
 	struct backup_info *info;
 	int loop;
+	char *drive = argc < 2? "/dev/hda": argv[1];
+	char *drive2 = argc < 3? 0: argv[2];
 
-	if (mfs_init (O_RDONLY) < 0)
-	{
-		fprintf (stderr, "mfsinit: Failed!  Bailing.\n");
-		exit (1);
-	}
-
-	info = init_backup (drive, drive2, 48 * 1024 * 2, BF_COMPRESSED);
+	fprintf (stderr, "Backing up %s and %s\n", drive, drive2);
+	info = init_backup (drive, drive2, 48 * 1024 * 2, BF_COMPRESSED | BF_SHRINK | BF_BACKUPVAR);
 	//info = init_backup (-1);
 
 	if (info)
@@ -76,7 +71,8 @@ backup_main (int argc, char **argv)
 int
 restore_main (int argc, char **argv)
 {
-	char *drive = argc == 1? "/dev/hda": argv[1];
+	char *drive = argc < 2? "/dev/hda": argv[1];
+	char *drive2 = argc < 3? 0: argv[2];
 	struct backup_info *info;
 	int loop;
 
@@ -97,7 +93,7 @@ restore_main (int argc, char **argv)
 		if (nwrit < 0)
 			return 1;
 
-		if (restore_trydev (info, drive, 0) < 0)
+		if (restore_trydev (info, drive, drive2) < 0)
 			return 1;
 
 		if (restore_start (info) < 0)
