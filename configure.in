@@ -8,4 +8,11 @@ AC_ARG_PROGRAM
 AC_PROG_INSTALL
 AC_PROG_RANLIB
 
-AC_OUTPUT(Makefile lib/Makefile mfsadd/Makefile mls/Makefile mfsd/Makefile)
+AC_OUTPUT(
+Makefile
+lib/Makefile
+mfsadd/Makefile
+mls/Makefile
+mfsd/Makefile
+backup/Makefile
+)
