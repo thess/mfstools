@@ -2,6 +2,7 @@ Version 3.0
 MFS Lib
   Ability to open a truncated MFS volume (Bad 2nd drive case)
   Function to manipulate MFS allocation bitmap (Allocate new space)
+  Remove dependency on environment variables
 Backup format
   Addition of list of inodes (Not fsids)
     Inodes replace block list for the listed streams
@@ -28,9 +29,11 @@ Restore
       Build new MFS volume pairs
       Walk list of backed up inodes and allocate storage
       Finish V3 backup as normal (Allocating space from inodes)
+Direct drive copy
+  New tool to combine backup/restore in one process for direct copy
 Misc bug fixes
   Swap size (Fixed)
-  Mfsadd to drives larger than ? (Need to investigate)
+  Mfsadd to drives larger than 256mb (Need to investigate)
   Better handling and reporting of error cases
 
 Plan V3.0
@@ -38,7 +41,7 @@ Plan V3.0
 2. Handling of truncated volumes (Lib/Backup)
 3. V3 backup handling (Backup/Restore)
 4. MFS rebuild (Restore/Lib)
-5. Clean up platform independence (Merge of MacOs branch)
+*DONE* 5. Clean up platform independence (Merge of MacOs branch)
 
 Macpart
   API for modifying/creating partition table
