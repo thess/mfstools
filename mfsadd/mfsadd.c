@@ -15,8 +15,10 @@ mfsadd_usage (char *progname)
 {
 	fprintf (stderr, "Usage: %s [options] Adrive [Bdrive] [NewApp NewMedia]\n", progname);
 	fprintf (stderr, "Options:\n");
-	fprintf (stderr, " -s scale  Set scale factor of media block size\n");
-	fprintf (stderr, " -x dev    Create partitions to fill dev and add it\n");
+	fprintf (stderr, " -h        Display this help message\n");
+	fprintf (stderr, " -r scale  Set scale factor of media block size\n");
+	fprintf (stderr, " -x        Create partitions to fill all drives\n");
+	fprintf (stderr, " -X drive  Create partitions to fill specific drive\n");
 	fprintf (stderr, "NewApp / NewMedia\n");
 	fprintf (stderr, "  Existing partitions (Such as /dev/hda13 /dev/hda14) to add to\n");
 	fprintf (stderr, "  the MFS volume set\n");
@@ -28,7 +30,8 @@ mfsadd_scan_partitions (struct mfs_handle *mfs, int *used)
 	char partitions[128];
 	char *loop = partitions;
 
-	strcpy (partitions, mfs_partition_list (mfs));
+	strncpy (partitions, mfs_partition_list (mfs), 127);
+	partitions[127] = 0;
 
 	while (*loop)
 	{
@@ -165,22 +168,27 @@ mfsadd_main (int argc, char **argv)
 	unsigned int minalloc = 0x800 << 2;
 	int opt;
 	int extendall = 0;
+	int extendmfs = 0;
 	char *xdevs[2];
 	int npairs = 0;
 	char *pairs[32];
 	char pairnums[32];
 	int loop, loop2;
+	int hours;
 	char *drives[2] = {0, 0};
 	char partitioncount[2] = {0, 0};
 	char *tmp;
 	int used[2] = {0, 0};
 	struct mfs_handle *mfs;
+	int changed[2] = {0, 0};
 
-	while ((opt = getopt (argc, argv, "x:s:")) > 0)
+	tivo_partition_direct ();
+
+	while ((opt = getopt (argc, argv, "xX:r:h")) > 0)
 	{
 		switch (opt)
 		{
-		case 'x':
+		case 'X':
 			if (extendall < 2)
 			{
 				xdevs[extendall] = optarg;
@@ -190,7 +198,10 @@ mfsadd_main (int argc, char **argv)
 
 			fprintf (stderr, "%s: Can only extend MFS to 2 devices.\n", argv[0]);
 			return 1;
-		case 's':
+		case 'x':
+			extendmfs = 1;
+			break;
+		case 'r':
 			minalloc = 0x800 << strtoul (optarg, &tmp, 10);
 			if (tmp && *tmp)
 			{
@@ -358,6 +369,26 @@ mfsadd_main (int argc, char **argv)
 	if (mfsadd_scan_partitions (mfs, used) < 0)
 		return 1;
 
+	if (extendmfs)
+	{
+		for (loop = 0; loop < sizeof (drives) / sizeof (*drives); loop++)
+		{
+			if (!drives[loop])
+				break;
+
+			for (loop2 = 0; loop2 < extendall; loop2++)
+			{
+				if (xdevs[loop2] == drives[loop])
+					break;
+			}
+
+			if (loop2 >= extendall)
+			{
+				xdevs[extendall++] = drives[loop];
+			}
+		}
+	}
+
 	for (loop = 0; loop < npairs; loop++)
 	{
 		if (used[pairnums[loop] >> 6] & (1 << (pairnums[loop] & 31)))
@@ -416,15 +447,26 @@ mfsadd_main (int argc, char **argv)
 	if (check_partition_count (mfs, pairnums, npairs) < 0)
 		return 1;
 
-	if (xdevs[0])
-		tivo_partition_table_write (xdevs[0]);
-	if (xdevs[1])
-		tivo_partition_table_write (xdevs[1]);
+	for (loop = 0; loop < npairs; loop++)
+	{
+		changed[pairnums[loop] >> 6] = 1;
+	}
+
+	if (changed[0] && drives[0])
+		tivo_partition_table_write (drives[0]);
+	if (changed[1] && drives[1])
+		tivo_partition_table_write (drives[1]);
+
+	hours = mfs_sa_hours_estimate (mfs);
+	loop2 = hours;
+
+	fprintf (stderr, "Current estimated standalone size: %d hours\n", loop2);
 
 	for (loop = 0; loop < npairs; loop += 2)
 	{
 		char app[MAXPATHLEN];
 		char media[MAXPATHLEN];
+		int newsize;
 
 		fprintf (stderr, "Adding pair %s-%s...\n", pairs[loop], pairs[loop + 1]);
 		sprintf (app, "/dev/hd%c%d", 'a' + (pairnums[loop] >> 6), pairnums[loop] & 31);
@@ -434,9 +476,16 @@ mfsadd_main (int argc, char **argv)
 			fprintf (stderr, "Error adding %s-%s!\n", pairs[loop], pairs[loop + 1]);
 			return 1;
 		}
+
+		newsize = mfs_sa_hours_estimate (mfs);
+		fprintf (stderr, "New estimated standalone size: %d hours (%d more)\n", newsize, newsize - loop2);
+		loop2 = newsize;
 	}
 
-	fprintf (stderr, "Done!\n");
+	if (npairs < 1)
+		fprintf (stderr, "Nothing to add!\n");
+	else
+		fprintf (stderr, "Done!  Estimated standalone gain: %d hours\n", loop2 - hours);
 
 	return 0;
 }
