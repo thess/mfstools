@@ -628,7 +628,7 @@ int mfs_read_inode_data_part (mfs_inode *inode, unsigned char *data, unsigned in
 
 /* If the start offset has not been reached, skip to it. */
 			if (start) {
-				if (blkcount >= start) {
+				if (blkcount <= start) {
 /* If the start offset is not within this block, decrement the start and keep */
 /* going. */
 					start -= blkcount;
@@ -665,6 +665,9 @@ int mfs_read_inode_data_part (mfs_inode *inode, unsigned char *data, unsigned in
 			}
 		}
 	} else if (htonl (inode->size) < 512 - 0x3c && inode->type != tyStream) {
+		if (start) {
+			return 0;
+		}
 		memset (data, 0, 512);
 		memcpy (data, (unsigned char *)inode + 0x3c, htonl (inode->size));
 		return 512;
