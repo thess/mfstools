@@ -1,3 +1,4 @@
+#include <unistd.h>
 #include <stdio.h>
 #include <fcntl.h>
 #include "mfs.h"
@@ -27,8 +28,10 @@ get_percent (unsigned int current, unsigned int max)
 }
 
 int
-main (int argc, char **argv)
+backup_main (int argc, char **argv)
 {
+	char *drive = argc >= 1? "/dev/hda": argv[1];
+	char *drive2 = argc >= 2? "": argv[1];
 	struct backup_info *info;
 	int loop;
 
@@ -38,7 +41,7 @@ main (int argc, char **argv)
 		exit (1);
 	}
 
-	info = init_backup ("/dev/hda", NULL, 48 * 1024 * 2, BF_COMPRESSED);
+	info = init_backup (drive, drive2, 48 * 1024 * 2, BF_COMPRESSED);
 	//info = init_backup (-1);
 
 	if (info)
@@ -60,5 +63,88 @@ main (int argc, char **argv)
 
 	}
 
+	fprintf (stderr, "\n");
+	if (backup_finish (info) < 0)
+	{
+		fprintf (stderr, "Backup failed!\n");
+		exit (1);
+	}
+
 	exit (0);
+}
+
+int
+restore_main (int argc, char **argv)
+{
+	char *drive = argc == 1? "/dev/hda": argv[1];
+	struct backup_info *info;
+	int loop;
+
+	info = init_restore ();
+	if (info)
+	{
+		int secleft = 0;
+		char buf[BUFSIZE];
+		unsigned int cursec = 0, curcount;
+		int nread;
+		int nwrit;
+
+		nread = read (0, buf, BUFSIZE);
+		if (nread <= 0)
+			return 1;
+
+		nwrit = restore_write (info, buf, nread);
+		if (nwrit < 0)
+			return 1;
+
+		if (restore_trydev (info, drive, 0) < 0)
+			return 1;
+
+		if (restore_start (info) < 0)
+			return 1;
+
+		if (restore_write (info, buf + nwrit, nread - nwrit) != nread - nwrit)
+		{
+			return 1;
+		}
+
+		fprintf (stderr, "Restore of %d megs\n", info->nsectors / 2048);
+		while ((curcount = read (0, buf, BUFSIZE)) > 0)
+		{
+			unsigned int prcnt, compr;
+			restore_write (info, buf, curcount);
+			cursec += curcount / 512;
+			prcnt = get_percent (info->cursector, info->nsectors);
+			compr = get_percent (info->cursector - cursec, info->cursector);
+			fprintf (stderr, "Restoring %d of %d megs (%d.%02d%%) (%d.%02d%% compression)    \r", info->cursector / 2048, info->nsectors / 2048, prcnt / 100, prcnt % 100, compr / 100, compr % 100);
+		}
+
+	}
+
+	fprintf (stderr, "\n");
+	if (restore_finish (info) < 0)
+	{
+		fprintf (stderr, "Restore failed!\n");
+		exit (1);
+	}
+
+	exit (0);
+}
+
+int
+main (int argc, char **argv)
+{
+	int c;
+
+	tivo_partition_direct ();
+
+	switch (argv[1][0])
+	{
+	case 'b':
+	case 'B':
+		return backup_main (argc - 1, argv + 1);
+	case 'r':
+	case 'R':
+		return restore_main (argc - 1, argv + 1);
+	}
 }

@@ -17,6 +17,11 @@ struct device_info
 	struct tivo_partition_file **files;
 	int nparts;
 	char *devname;
+#ifdef RESTORE
+	int fd;
+	int swab;
+	unsigned int sectors;
+#endif
 };
 
 struct backup_info
@@ -35,6 +40,12 @@ struct backup_info
 	int back_flags;
 	struct z_stream_s *comp;
 	char *comp_buf;
+#ifdef RESTORE
+	int nnewparts;
+	struct backup_partition *newparts;
+	int varsize;
+	int swapsize;
+#endif
 };
 
 struct block_info
@@ -55,6 +66,11 @@ struct backup_head
 };
 
 #define TB_MAGIC (('T' << 24) + ('B' << 16) + ('A' << 8) + ('K' << 0))
-#define BF_COMPRESSED	1
-#define BF_MFSONLY	2
-#define BF_BACKUPVAR	4
+#define TB_ENDIAN (('T' << 0) + ('B' << 8) + ('A' << 16) + ('K' << 24))
+#define BF_COMPRESSED	0x00000001
+#define BF_MFSONLY	0x00000002
+#define BF_BACKUPVAR	0x00000004
+#define BF_SHRINK	0x00000008
+#define RF_INITIALIZED	0x00010000
+#define RF_ENDIAN	0x00020000
+#define RF_NOMORECOMP	0x00040000

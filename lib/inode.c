@@ -68,6 +68,33 @@ mfs_read_inode (unsigned int inode)
 	return NULL;
 }
 
+/*************************************/
+/* Read an inode data and return it. */
+int
+mfs_write_inode (mfs_inode *inode)
+{
+	char buf[1024];
+	int sector;
+
+/* Find the sector number for this inode. */
+	sector = mfs_inode_to_sector (htonl (inode->inode));
+	if (sector == 0)
+	{
+		return -1;
+	}
+
+	MFS_update_crc (inode, 512, inode->checksum);
+	memcpy (buf, inode, 512);
+	memcpy (buf + 512, inode, 512);
+
+	if (mfs_write_data (buf, sector, 2) != 1024)
+	{
+		return -1;
+	}
+
+	return 0;
+}
+
 /******************************************************************/
 /* Read an inode data based on an fsid, scanning ahead as needed. */
 mfs_inode *

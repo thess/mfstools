@@ -173,7 +173,7 @@ mfs_get_volume (unsigned int sector)
 
 /*************************************************/
 /* Return the size of volume starting at sector. */
-int
+unsigned int
 mfs_volume_size (unsigned int sector)
 {
 	struct volume_info *vol;
@@ -197,7 +197,7 @@ mfs_volume_size (unsigned int sector)
 
 /**********************************************/
 /* Return the size of all loaded volume sets. */
-int
+unsigned int
 mfs_volume_set_size ()
 {
 	struct volume_info *vol;

@@ -37,11 +37,13 @@ lfopen (char *device, int flags)
 {
 	int fd = open (device, flags);
 
+#ifdef O_LARGEFILE
 	if (fd < 0 && errno == EFBIG)
 	{
 		errno = 0;
 		fd = open (device, flags | O_LARGEFILE);
 	}
+#endif
 
 	return fd;
 }
@@ -238,9 +240,15 @@ tivo_partition_open (char *path, int flags)
 		{
 /* The file exists, time to see what it is.  Use the 64 version just incase */
 /* the filesystem has big file support, and it is in a really big file. */
+#ifdef O_LARGEFILE
 			struct stat64 st;
 
 			if (fstat64 (newfile.fd, &st) == 0)
+#else
+			struct stat st;
+
+			if (fstat (newfile.fd, &st) == 0)
+#endif
 			{
 				if (S_ISBLK (st.st_mode))
 				{

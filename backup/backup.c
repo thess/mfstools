@@ -73,7 +73,9 @@ backup_add_block (struct blocklist **blocks, struct blocklist **pool, int sector
 	struct blocklist *prev = 0;
 
 /* A little debug here and there never hurt anything. */
+#ifdef DEBUG
 	fprintf (stderr, "Adding block %d of %d\n", sector, count);
+#endif
 
 /* Find where in the list this block fits.  This will return with &loop */
 /* pointing to the first block with a sector number greater than the new */
@@ -274,30 +276,19 @@ add_blocks_to_backup_info (struct backup_info *info, struct blocklist *blocks)
 /*****************************************************************/
 /* Scan the inode table and generate a list of blocks to backup. */
 static struct blocklist *
-scan_inodes (unsigned int thresh)
+scan_inodes (struct backup_info *info, unsigned int thresh)
 {
 	int loop, loop2, loop3;
 	int ninodes = mfs_inode_count ();
 	struct blocklist *blocks = NULL;
 	struct blocklist *pool = NULL;
+	unsigned int highest = 0;
+	unsigned int thissector;
 
 	blocks = calloc (sizeof (*blocks), 1);
 	if (!blocks)
 	{
 		return 0;
-	}
-
-/* Put in the whole volumes. */
-	for (loop = 0, loop3 = 1; loop2 = mfs_volume_size (loop); loop += loop2, loop3 ^= 1)
-	{
-		if (loop3)
-		{
-			if (backup_add_block (&blocks, &pool, loop, loop2) != 0)
-			{
-				free_block_list (&blocks);
-				free_block_list (&pool);
-			}
-		}
 	}
 
 /* Add inodes. */
@@ -313,34 +304,61 @@ scan_inodes (unsigned int thresh)
 				unsigned int streamsize = htonl (inode->blocksize) / 512 * htonl (inode->blockused);
 /* Only backup streams that are smaller than the threshhold. */
 				if (streamsize > 0 && streamsize < thresh)
+//				if (streamsize > 0 && htonl (inode->fsid) < 2000)
 				{
+#ifdef DEBUG
+						fprintf (stderr, "Will back up fsid %d\n", htonl (inode->fsid));
+#endif
 /* Add all blocks. */
 					for (loop2 = 0; loop2 < htonl (inode->numblocks); loop2++)
 					{
-						unsigned int thissector = htonl (inode->datablocks[loop2].sector);
 						unsigned int thiscount = htonl (inode->datablocks[loop2].count);
+						thissector = htonl (inode->datablocks[loop2].sector);
 
 						if (thiscount > streamsize)
-						{
 							thiscount = streamsize;
-						}
+
 						if (backup_add_block (&blocks, &pool, thissector, thiscount) != 0)
 						{
 							free_block_list (&blocks);
 							free_block_list (&pool);
+							free (inode);
+							return 0;
 						}
 						streamsize -= thiscount;
 
 						if (streamsize == 0)
-						{
 							break;
-						}
+
+						if (highest < thiscount + thissector)
+							highest = thissector + thiscount;
 					}
 
 				}
 			}
 			free (inode);
 		}
+	}
+
+/* Put in the whole volumes. */
+	for (loop = 0, loop3 = 1; loop2 = mfs_volume_size (loop); loop += loop2, loop3 ^= 1)
+	{
+		if (loop3)
+		{
+			if (backup_add_block (&blocks, &pool, loop, loop2) != 0)
+			{
+				free_block_list (&blocks);
+				free_block_list (&pool);
+				return 0;
+			}
+		} else {
+			if (info->back_flags & BF_SHRINK && thissector >= highest)
+			{
+				break;
+			}
+		}
+		if (info->back_flags & BF_SHRINK)
+			info->nmfs++;
 	}
 
 /* Free the data. */
@@ -360,20 +378,21 @@ add_mfs_partitions_to_backup_info (struct backup_info *info)
 
 	mfs_partitions = mfs_partition_list ();
 
-	info->nmfs = 0;
-
-/* First count the number of partitions. */
-	loop = 0;
-	while (mfs_partitions[loop])
+	if (info->nmfs == 0)
 	{
-		info->nmfs++;
-		while (mfs_partitions[loop] && !isspace (mfs_partitions[loop]))
+/* First count the number of partitions. */
+		loop = 0;
+		while (mfs_partitions[loop])
 		{
-			loop++;
-		}
-		while (mfs_partitions[loop] && isspace (mfs_partitions[loop]))
-		{
-			loop++;
+			info->nmfs++;
+			while (mfs_partitions[loop] && !isspace (mfs_partitions[loop]))
+			{
+				loop++;
+			}
+			while (mfs_partitions[loop] && isspace (mfs_partitions[loop]))
+			{
+				loop++;
+			}
 		}
 	}
 
@@ -463,14 +482,14 @@ add_partitions_to_backup_info (struct backup_info *info, char *device)
 	int loop;
 	char bootsector[512];
 
-/* Five.  Always five.  Or four. */
+/* Four.  Always Four.  Or three. */
 	if (info->back_flags & BF_BACKUPVAR)
 	{
-		info->nparts = 5;
+		info->nparts = 4;
 	}
 	else
 	{
-		info->nparts = 4;
+		info->nparts = 3;
 	}
 /* One.  No more, no less. */
 	info->ndevs = 1;
@@ -536,18 +555,16 @@ add_partitions_to_backup_info (struct backup_info *info, char *device)
 		return -1;
 	}
 
-	info->parts[0].partno = 1;
+	info->parts[0].partno = bootsector[2] - 1;
 	info->parts[0].devno = 0;
-	info->parts[1].partno = bootsector[2] - 1;
+	info->parts[1].partno = bootsector[2];
 	info->parts[1].devno = 0;
-	info->parts[2].partno = bootsector[2];
+	info->parts[2].partno = bootsector[2] + 1;
 	info->parts[2].devno = 0;
-	info->parts[3].partno = bootsector[2] + 1;
-	info->parts[3].devno = 0;
-	if (info->nparts > 4)
+	if (info->nparts > 3)
 	{
-		info->parts[4].partno = 9;
-		info->parts[4].devno = 0;
+		info->parts[3].partno = 9;
+		info->parts[3].devno = 0;
 	}
 
 	for (loop = 0; loop < info->nparts; loop++)
@@ -599,7 +616,7 @@ init_backup (char *device, char *device2, unsigned int thresh, int flags)
 		return 0;
 	}
 
-	blocks = scan_inodes (thresh);
+	blocks = scan_inodes (info, thresh);
 	if (add_blocks_to_backup_info (info, blocks) != 0) {
 		free_block_list (&blocks);
 		free (info->parts);
@@ -616,6 +633,9 @@ init_backup (char *device, char *device2, unsigned int thresh, int flags)
 	}
 
 	info->presector = (info->nblocks * sizeof (struct backup_block) + info->nparts * sizeof (struct backup_partition) + info->nmfs * sizeof (struct backup_partition) + 511) / 512 + 1;
+
+	info->nsectors += info->presector + 1;
+
 	return info;
 }
 
@@ -645,6 +665,18 @@ backup_next_sectors (struct backup_info *info, char *buf, int sectors)
 		{
 			int cursector = info->cursector - info->presector;
 			int loop = 0;
+
+			if (cursector == 0)
+			{
+/* Backup the boot sector. */
+				tivo_partition_read_bootsector (info->devs[0].devname, buf);
+				sectors -= 1;
+				retval += 1;
+				info->cursector += 1;
+				buf += 512;
+			}
+			else
+				cursector--;
 
 /* Step through the partitions. */
 			for (loop = 0; loop < info->nparts && sectors > 0; loop++)
@@ -771,7 +803,7 @@ backup_next_sectors (struct backup_info *info, char *buf, int sectors)
 					curoff += needed_space;
 					needed_space = curoff;
 
-					while (needed_space > 512)
+					while (presector < curoff / 512)
 					{
 						sectors--;
 						retval++;
@@ -800,7 +832,7 @@ backup_next_sectors (struct backup_info *info, char *buf, int sectors)
 					curoff += needed_space;
 					needed_space = curoff;
 
-					while (needed_space > 512)
+					while (presector < curoff / 512)
 					{
 						sectors--;
 						retval++;
@@ -829,7 +861,7 @@ backup_next_sectors (struct backup_info *info, char *buf, int sectors)
 					curoff += needed_space;
 					needed_space = curoff;
 
-					while (needed_space > 512)
+					while (presector < curoff / 512)
 					{
 						sectors--;
 						retval++;
@@ -868,6 +900,7 @@ backup_next_sectors (struct backup_info *info, char *buf, int sectors)
 				head->nsectors = info->nsectors;
 				head->nparts = info->nparts;
 				head->nblocks = info->nblocks;
+				head->mfspairs = info->nmfs;
 				retval += 1;
 				sectors -= 1;
 				info->cursector += 1;
@@ -988,4 +1021,13 @@ backup_read (struct backup_info *info, char *buf, unsigned int size)
 	}
 
 	return retval;
+}
+
+int
+backup_finish(struct backup_info *info)
+{
+	if (info->cursector != info->nsectors)
+		return -1;
+
+	return 0;
 }
