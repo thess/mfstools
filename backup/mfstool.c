@@ -1,8 +1,30 @@
 #include <stdio.h>
 #include <fcntl.h>
-#include <zlib.h>
 #include "mfs.h"
 #include "backup.h"
+
+#define BUFSIZE 512 * 2048
+//#define BUFSIZE 512
+
+unsigned int
+get_percent (unsigned int current, unsigned int max)
+{
+	unsigned int prcnt;
+	if (max <= 0x7fffffff / 10000)
+	{
+		prcnt = current * 10000 / max;
+	}
+	else if (max <= 0x7fffffff / 100)
+	{
+		prcnt = current * 100 / (max / 100);
+	}
+	else
+	{
+		prcnt = current / (max / 10000);
+	}
+
+	return prcnt;
+}
 
 int
 main (int argc, char **argv)
@@ -16,72 +38,26 @@ main (int argc, char **argv)
 		exit (1);
 	}
 
-	info = init_backup (48 * 1024 * 2);
+	info = init_backup ("/dev/hda", NULL, 48 * 1024 * 2, BF_COMPRESSED);
 	//info = init_backup (-1);
 
 	if (info)
 	{
-		char inbuf[1024 * 1024];
-		char outbuf[1024 * 1024];
-		z_stream strm;
-		unsigned int cursec, curcount;
+		int secleft = 0;
+		char buf[BUFSIZE];
+		unsigned int cursec = 0, curcount;
 
-		strm.zalloc = Z_NULL;
-		strm.zfree = Z_NULL;
-		strm.opaque = Z_NULL;
-		if (deflateInit (&strm, 6) != Z_OK)
+		fprintf (stderr, "Backup of %d megs\n", info->nsectors / 2048);
+		while ((curcount = backup_read (info, buf, BUFSIZE)) > 0)
 		{
-			fprintf (stderr, "Could not initialize compression\n");
-			return 1;
+			unsigned int prcnt, compr;
+			write (1, buf, curcount);
+			cursec += curcount / 512;
+			prcnt = get_percent (info->cursector, info->nsectors);
+			compr = get_percent (info->cursector - cursec, info->cursector);
+			fprintf (stderr, "Backing up %d of %d megs (%d.%02d%%) (%d.%02d%% compression)    \r", info->cursector / 2048, info->nsectors / 2048, prcnt / 100, prcnt % 100, compr / 100, compr % 100);
 		}
 
-		fprintf (stderr, "Backup of %d blocks\n", info->nblocks);
-		for (loop = 0; loop < info->nblocks; loop++)
-		{
-			fprintf (stderr, "Backup block %d for %d blocks\n", info->blocks[loop].firstsector, info->blocks[loop].sectors);
-
-			cursec = info->blocks[loop].firstsector;
-			curcount = info->blocks[loop].sectors;
-
-			while (curcount > 0)
-			{
-				int toread = curcount > 2048 ? 2048 : curcount;
-
-				if (mfs_read_data (inbuf, cursec, toread) != 512 * toread)
-				{
-					fprintf (stderr, "MFS read error!\n");
-				}
-				write (3, inbuf, 512 * toread);
-				strm.next_in = inbuf;
-				strm.avail_in = 512 * toread;
-
-				while (strm.avail_in > 0)
-				{
-					strm.next_out = outbuf;
-					strm.avail_out = 512 * 2048;
-					deflate (&strm, Z_NO_FLUSH);
-					write (1, outbuf, 512 * 2048 - strm.avail_out);
-				}
-
-				curcount -= toread;
-				cursec += toread;
-			}
-		}
-
-		strm.next_out = outbuf;
-		strm.avail_out = 512 * 2048;
-		while (deflate (&strm, Z_FINISH) == Z_OK)
-		{
-			write (1, outbuf, 512 * 2048 - strm.avail_out);
-			strm.next_out = outbuf;
-			strm.avail_out = 512 * 2048;
-		}
-		if (strm.avail_out != 512 * 2048)
-		{
-			write (1, outbuf, 512 * 2048 - strm.avail_out);
-		}
-
-		deflateEnd (&strm);
 	}
 
 	exit (0);
