@@ -18,6 +18,7 @@
 
 #include "mfs.h"
 #include "macpart.h"
+#include "log.h"
 
 #define RESTORE
 #include "backup.h"
@@ -64,6 +65,12 @@ void
 restore_set_swapsize (struct backup_info *info, int size)
 {
 	info->swapsize = size;
+}
+
+void
+restore_set_bswap (struct backup_info *info, int bswap)
+{
+	info->bswap = bswap;
 }
 
 /*****************************************************************************/
@@ -1075,7 +1082,14 @@ restore_start (struct backup_info *info)
 	}
 
 	for (loop = 0; loop < info->ndevs; loop++) {
-		info->devs[loop].swab = scan_swab (info->devs[loop].devname);
+		if (info->bswap)
+		{
+			info->devs[loop].swab = info->bswap > 0;
+		}
+		else
+		{
+			info->devs[loop].swab = scan_swab (info->devs[loop].devname);
+		}
 		if (build_partition_table (info, loop) < 0)
 			return -1;
 
@@ -1189,6 +1203,222 @@ restore_fudge_inodes (struct backup_info *info)
 			}
 			free (inode);
 		}
+	}
+
+	return 0;
+}
+
+int
+restore_fudge_log (char *trans, unsigned int volsize)
+{
+	log_entry_all *cur = (log_entry_all *)trans;
+	if (htons (cur->log.length) < sizeof (log_entry) - 2)
+	{
+		return 0;
+	}
+
+	switch (htonl (cur->log.transtype))
+	{
+	case ltMapUpdate:
+		if (htons (cur->log.length) < sizeof (log_map_update) - 2)
+		{
+			return 0;
+		}
+
+		if (htonl (cur->zonemap.sector) >= volsize)
+		{
+			return htons (cur->log.length) + 2;
+		}
+		break;
+	case ltInodeUpdate:
+		if (htons (cur->log.length) < sizeof (log_inode_update) - 2)
+		{
+			return 0;
+		}
+
+		if (cur->inode.type != tyStream)
+		{
+			return 0;
+		}
+
+		if (htons (cur->log.length) >= htonl (cur->inode.dbsize) + sizeof (log_inode_update) - 2)
+		{
+			int loc, spot;
+			unsigned int shrunk = 0;
+			unsigned int bsize, dsize, dused, curblks;
+
+			bsize = htonl (cur->inode.blocksize) / 512;
+			dsize = htonl (cur->inode.size) * bsize;
+			dused = htonl (cur->inode.blockused) * bsize;
+			curblks = 0;
+
+			for (loc = 0, spot = 0; loc < htonl (cur->inode.dbsize) / sizeof (cur->inode.datablocks[0]); loc++)
+			{
+				if (htonl (cur->inode.datablocks[loc].sector) < volsize)
+				{
+					if (shrunk)
+					{
+						cur->inode.datablocks[spot] = cur->inode.datablocks[loc];
+					}
+					spot++;
+				} else {
+					unsigned int count = htonl (cur->inode.datablocks[loc].count);
+					shrunk += sizeof (cur->inode.datablocks[0]);
+					if (dused > curblks)
+					{
+						if (dused > curblks + count)
+						{
+							dused -= count;
+						}
+						else
+						{
+							dused = curblks;
+						}
+					}
+					dsize -= count;
+				}
+
+				curblks = htonl (cur->inode.datablocks[loc].count);
+			}
+
+			if (shrunk)
+			{
+				cur->log.length = htons (htons (cur->log.length) - shrunk);
+				cur->inode.size = htonl (dsize / bsize);
+				cur->inode.blockused = htonl (dused / bsize);
+				cur->inode.dbsize = htonl (htonl (cur->inode.dbsize) - shrunk);
+			}
+			return shrunk;
+		}
+		break;
+	}
+
+	return 0;
+}
+
+int
+restore_fudge_transactions (struct backup_info *info)
+{
+	unsigned int curlog, volsize;
+
+	int result;
+
+	char bufs[2][512];
+	log_hdr *hdrs[2] = {(log_hdr *)bufs[0], (log_hdr *)bufs[1]};
+	int bufno = 1;
+
+	if (!(info->back_flags & BF_SHRINK))
+		return 0;
+
+	volsize = mfs_volume_set_size ();
+
+	curlog = mfs_log_last_sync ();
+
+	hdrs[0]->logstamp = hdrs[1]->logstamp = htonl (curlog - 2);
+
+	while ((result = mfs_log_read (bufs[bufno], curlog)) > 0)
+	{
+		unsigned int size = htonl (hdrs[bufno]->size);
+		unsigned int start;
+		log_entry *cur;
+
+		if (result != 512)
+		{
+			curlog++;
+			continue;
+		}
+
+		if (size > 0x1f0)
+		{
+			fprintf (stderr, "MFS transaction logstamp %ud has invalid size, skipping\n", curlog);
+			curlog++;
+			continue;
+		}
+
+		if (htonl (hdrs[bufno]->first) > 0 &&
+		  htonl (hdrs[bufno ^ 1]->logstamp) == curlog - 1)
+		{
+			unsigned int size2 = htonl (hdrs[bufno ^ 1]->size);
+
+			start = htonl (hdrs[bufno ^ 1]->first);
+			cur = (log_entry *)(bufs[bufno ^ 1] + start + 16);
+
+			while (htons (cur->length) + 2 < size2 - start) {
+				start += htons (cur->length) + 2;
+				cur = (log_entry *)(bufs[bufno ^ 1] + start + 16);
+			}
+
+			if (size2 - start + htonl (hdrs[bufno]->first) == htons (cur->length) + 2)
+			{
+				char tmp[1024];
+				int shrunk;
+
+				memcpy (tmp, cur, size2 - start);
+				memcpy (tmp + size2 - start, bufs[bufno] + 16, htonl (hdrs[bufno]->first));
+
+				shrunk = restore_fudge_log (tmp, volsize);
+				if (shrunk)
+				{
+					unsigned short newsize = htons (cur->length) - shrunk + 2;
+					if (newsize > size2 - start)
+					{
+						memcpy (cur, tmp, size2 - start);
+						memcpy (bufs[bufno] + 16, tmp + size2 - start, newsize - (size2 - start));
+					}
+					else
+					{
+						size2 = start + newsize;
+						hdrs[bufno ^ 1]->size = htonl (size2);
+						if (newsize > 0)
+							memcpy (cur, tmp, newsize);
+						bzero ((char *)cur + newsize, 0x1f0 - size2);
+						if (mfs_log_write (bufs[bufno ^ 1]) != 512)
+						{
+							perror ("mfs_log_write");
+							return -1;
+						}
+						shrunk = htonl (hdrs[bufno]->first);
+					}
+					memmove (bufs[bufno] + htonl (hdrs[bufno]->first) - shrunk + 16, bufs[bufno] + htonl (hdrs[bufno]->first) + 16, size - htonl (hdrs[bufno]->first));
+					hdrs[bufno]->first = htonl (htonl (hdrs[bufno]->first) - shrunk);
+					size -= shrunk;
+				}
+			}
+		}
+
+		start = htonl (hdrs[bufno]->first);
+		cur = (log_entry *)(bufs[bufno] + start + 16);
+		while (htons (cur->length) + 2 + start <= size)
+		{
+			int oldsize = htons (cur->length) + 2;
+			int shrunk;
+
+			shrunk = restore_fudge_log ((char *)cur, volsize);
+
+			if (shrunk)
+			{
+				memmove ((char *)cur + oldsize - shrunk, (char *)cur + oldsize, size - start - oldsize);
+				size -= shrunk;
+				oldsize -= shrunk;
+			}
+
+			start += oldsize;
+			cur = (log_entry *)(bufs[bufno] + start + 16);
+		}
+
+		if (htonl (hdrs[bufno]->size) != size)
+		{
+			bzero (bufs[bufno] + size + 16, htonl (hdrs[bufno]->size) - size);
+			hdrs[bufno]->size = htonl (size);
+			if (mfs_log_write (bufs[bufno]) != 512)
+			{
+				perror ("mfs_log_write");
+				return -1;
+			}
+		}
+
+		curlog++;
+		bufno ^= 1;
 	}
 
 	return 0;
@@ -1383,6 +1613,8 @@ restore_finish(struct backup_info *info)
 	if (mfs_init (O_RDWR) < 0)
 		return -1;
 	if (restore_fudge_inodes (info) < 0)
+		return -1;
+	if (restore_fudge_transactions (info) < 0)
 		return -1;
 
 	return 0;

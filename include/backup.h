@@ -46,6 +46,7 @@ struct backup_info
 	struct backup_partition *newparts;
 	int varsize;
 	int swapsize;
+	int bswap;
 #else
 	unsigned int thresh;
 #endif

@@ -27,6 +27,8 @@ restore_usage (char *progname)
 	fprintf (stderr, " -qq       Do not display anything but error messages\n");
 	fprintf (stderr, " -v size   Recreate /var as size megabytes (Only if not in backup)\n");
 	fprintf (stderr, " -s size   Recreate swap as size megabytes\n");
+	fprintf (stderr, " -b        Force no byte swapping on restore\n");
+	fprintf (stderr, " -B        Force byte swapping on restore\n");
 	fprintf (stderr, " -z        Zero out partitions not backed up\n");
 }
 
@@ -59,10 +61,11 @@ restore_main (int argc, char **argv)
 	unsigned int varsize = 0, swapsize = 0, flags = 0;
 	char *filename = 0;
 	int quiet = 0;
+	int bswap = 0;
 
 	tivo_partition_direct ();
 
-	while ((opt = getopt (argc, argv, "i:v:s:zq")) > 0)
+	while ((opt = getopt (argc, argv, "i:v:s:zqbB")) > 0)
 	{
 		switch (opt)
 		{
@@ -92,6 +95,22 @@ restore_main (int argc, char **argv)
 			break;
 		case 'z':
 			flags |= RF_ZEROPART;
+			break;
+		case 'b':
+			if (bswap == 0)
+			{
+				fprintf (stderr, "%s: Only one byte swapping option (-b/-B) allowed.\n", argv[0]);
+				return 1;
+			}
+			bswap = -1;
+			break;
+		case 'B':
+			if (bswap == 0)
+			{
+				fprintf (stderr, "%s: Only one byte swapping option (-b/-B) allowed.\n", argv[0]);
+				return 1;
+			}
+			bswap = 1;
 			break;
 		default:
 			restore_usage (argv[0]);
@@ -130,6 +149,8 @@ restore_main (int argc, char **argv)
 			restore_set_varsize (info, varsize);
 		if (swapsize)
 			restore_set_swapsize (info, swapsize);
+		if (bswap)
+			restore_set_bswap (info, bswap);
 
 		if (filename[0] == '-' && filename[1] == '\0')
 			fd = 0;

@@ -192,7 +192,7 @@ mfs_new_zone_map (unsigned int sector, unsigned int backup, unsigned int first, 
 	zone->next.size = 0;
 	zone->next.min = 0;
 	zone->type = htonl (type);
-	zone->transaction = 0;
+	zone->logstamp = 0;
 	zone->checksum = htonl (0xdeadf00d);
 	zone->first = htonl (first);
 	zone->last = htonl (first + size - 1);
