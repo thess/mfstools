@@ -322,7 +322,7 @@ restore_main (int argc, char **argv)
 			return 1;
 		}
 
-		nread = read (0, buf, BUFSIZE);
+		nread = read (fd, buf, BUFSIZE);
 		if (nread <= 0)
 		{
 			fprintf (stderr, "Restore failed: %s: %s\n", filename, sys_errlist[errno]);
@@ -367,7 +367,7 @@ restore_main (int argc, char **argv)
 		}
 
 		fprintf (stderr, "Starting restore\nUncompressed backup size: %d megabytes\n", info->nsectors / 2048);
-		while ((curcount = read (0, buf, BUFSIZE)) > 0)
+		while ((curcount = read (fd, buf, BUFSIZE)) > 0)
 		{
 			unsigned int prcnt, compr;
 			if (restore_write (info, buf, curcount) != curcount)
@@ -579,7 +579,7 @@ main (int argc, char **argv)
 
 	tivo_partition_direct ();
 
-	switch (argv[1][0])
+	switch (argc > 1? argv[1][0]: 'h')
 	{
 	case 'b':
 	case 'B':
@@ -587,8 +587,14 @@ main (int argc, char **argv)
 	case 'r':
 	case 'R':
 		return restore_main (argc - 1, argv + 1);
+/*
 	case 'm':
 	case 'M':
 		return mfsadd_main (argc - 1, argv + 1);
+*/
+	default:
+		fprintf (stderr, "%s %s\n", PACKAGE, VERSION);
+		fprintf (stderr, "Usage: %s [backup|restore] [args]\n", argv[0]);
+		return 1;
 	}
 }

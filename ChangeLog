@@ -1,2 +1,6 @@
+Version 0.8a
+	Restore now accepts filenames instead of always usin standard input.
+	When mfstool is run without arguments, it will give usage now.
+
 Version 0.8
 	Initial release.

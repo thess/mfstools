@@ -1,6 +1,6 @@
 AC_INIT(include/mfs.h)
 
-AM_INIT_AUTOMAKE(mfstools, 0.8)
+AM_INIT_AUTOMAKE(mfstools, 0.8a)
 
 AC_PROG_CC
 AC_PROG_MAKE_SET
