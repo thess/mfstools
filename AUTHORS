@@ -1,6 +1,7 @@
-MFS Tools - Copyright (C) 2000-2002 Steven Lang
+MFS Tools - Copyright (C) 2000-2005 Steven Lang
 
     Main Programmer: Steven Lang
+       MacOS X Port: Mike Wiese
 
 Compression library: Jean-loup Gailly
                      Mark Adler

@@ -1298,6 +1298,7 @@ restore_start (struct backup_info *info)
 }
 
 static const char swapspace[] = "SWAP-SPACE";
+static const char swapspacev1[] = "SWAPSPACE2";
 #define SWAP_PAGESZ 0x1000
 
 int
@@ -1309,9 +1310,6 @@ restore_make_swap (struct backup_info *info)
 	int loop = 0;
 	unsigned int loop2 = 0;
 
-	bzero (swaphdr, sizeof (swaphdr));
-	memcpy ((char *)swaphdr + sizeof (swaphdr) - strlen (swapspace), swapspace, strlen (swapspace));
-
 	file = tivo_partition_open_direct (info->devs[0].devname, 8, O_RDWR);
 
 	if (!file)
@@ -1322,18 +1320,43 @@ restore_make_swap (struct backup_info *info)
 
 	size = tivo_partition_size (file);
 
-	while (loop < 0xff0 / 4 && size >= 32 * SWAP_PAGESZ / 512)
-	{
-		swaphdr[loop++] = 0xffffffff;
-		size -= 32 * SWAP_PAGESZ / 512;
-	}
+	bzero (swaphdr, sizeof (swaphdr));
 
-	for (loop2 = 0x1; loop2 > 0 && size >= SWAP_PAGESZ / 512; size -= SWAP_PAGESZ / 512, loop2 <<= 1)
+	if (info->back_flags & RF_SWAPV1)
 	{
-		swaphdr[loop] |= htonl (loop2);
-	}
+// Version 1 swap header
+		struct {
+			char bootbits[1024];
+			unsigned int version;
+			unsigned int last_page;
+			unsigned int nr_badpages;
+			unsigned int padding[125];
+			unsigned int badpages[1];
+		} *hdr = (void *)swaphdr;
 
-	swaphdr[0] &= ~htonl (1);
+		memcpy ((char *)swaphdr + sizeof (swaphdr) - strlen (swapspacev1), swapspacev1, strlen (swapspacev1));
+		hdr->version = htonl (1);
+		hdr->last_page = htonl (size / (SWAP_PAGESZ / 512) - 1);
+		hdr->nr_badpages = 0;
+	}
+	else
+	{
+// Version 0 swap header
+		memcpy ((char *)swaphdr + sizeof (swaphdr) - strlen (swapspace), swapspace, strlen (swapspace));
+
+		while (loop < 0xff0 / 4 && size >= 32 * SWAP_PAGESZ / 512)
+		{
+			swaphdr[loop++] = 0xffffffff;
+			size -= 32 * SWAP_PAGESZ / 512;
+		}
+
+		for (loop2 = 0x1; loop2 > 0 && size >= SWAP_PAGESZ / 512; size -= SWAP_PAGESZ / 512, loop2 <<= 1)
+		{
+			swaphdr[loop] |= htonl (loop2);
+		}
+
+		swaphdr[0] &= ~htonl (1);
+	}
 
 	loop = tivo_partition_write (file, swaphdr, 0, sizeof (swaphdr) / 512);
 	tivo_partition_close (file);

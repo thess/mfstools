@@ -286,7 +286,6 @@ copy_main (int argc, char **argv)
 			break;
 		case 'S':
 			swapsize = strtoul (optarg, &tmp, 10);
-			swapsize *= 1024 * 2;
 			if (tmp && *tmp)
 			{
 				fprintf (stderr, "%s: Integer argument expected for -s.\n", argv[0]);
@@ -372,6 +371,11 @@ copy_main (int argc, char **argv)
 		return 1;
 	}
 
+	if (swapsize > 128)
+	{
+		rflags |= RF_SWAPV1;
+	}
+
 	if (expand > 0)
 		rflags |= RF_NOFILL;
 
@@ -423,7 +427,7 @@ copy_main (int argc, char **argv)
 		if (varsize)
 			restore_set_varsize (info_r, varsize);
 		if (swapsize)
-			restore_set_swapsize (info_r, swapsize);
+			restore_set_swapsize (info_r, swapsize * 1024 * 2);
 		if (bswap)
 			restore_set_bswap (info_r, bswap);
 
@@ -466,6 +470,9 @@ copy_main (int argc, char **argv)
 				fprintf (stderr, "Copy target failed.\n");
 			return 1;
 		}
+
+		if (swapsize > 128 && !(info_r->back_flags & BF_NOBSWAP))
+			fprintf (stderr, "***WARNING***\nUsing version 1 swap signature to get >128MiB swap size, but the backup looks\nlike a series 1.  Stock SERIES 1 TiVo kernels do not support the version 1\nswap signature.  If you are using a stock SERIES 1 TiVo kernel, 128MiB is the\nlargest usable swap size.\n");
 
 		if (restore_trydev (info_r, dest_a, dest_b) < 0)
 		{

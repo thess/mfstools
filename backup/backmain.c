@@ -273,7 +273,7 @@ backup_main (int argc, char **argv)
 			fd = open (filename, O_WRONLY | O_CREAT | O_TRUNC | O_LARGEFILE, 0644);
 #else
 			fd = open (filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-#endiF
+#endif
 
 		if (fd < 0)
 		{

@@ -157,7 +157,6 @@ restore_main (int argc, char **argv)
 			break;
 		case 's':
 			swapsize = strtoul (optarg, &tmp, 10);
-			swapsize *= 1024 * 2;
 			if (tmp && *tmp)
 			{
 				fprintf (stderr, "%s: Integer argument expected for -s.\n", argv[0]);
@@ -231,6 +230,11 @@ restore_main (int argc, char **argv)
 		return 1;
 	}
 
+	if (swapsize > 128)
+	{
+		flags |= RF_SWAPV1;
+	}
+
 	if (expand > 0)
 		flags |= RF_NOFILL;
 
@@ -251,7 +255,7 @@ restore_main (int argc, char **argv)
 		if (varsize)
 			restore_set_varsize (info, varsize);
 		if (swapsize)
-			restore_set_swapsize (info, swapsize);
+			restore_set_swapsize (info, swapsize * 1024 * 2);
 		if (bswap)
 			restore_set_bswap (info, bswap);
 
@@ -259,7 +263,7 @@ restore_main (int argc, char **argv)
 			fd = 0;
 		else
 		{
-#ifdef O_LARGEFILE
+#if O_LARGEFILE
 			fd = open (filename, O_RDONLY | O_LARGEFILE);
 #else
 			fd = open (filename, O_RDONLY);
@@ -289,9 +293,12 @@ restore_main (int argc, char **argv)
 			return 1;
 		}
 
+		if (swapsize > 128 && !(info->back_flags & BF_NOBSWAP))
+			fprintf (stderr, "***WARNING***\nUsing version 1 swap signature to get >128MiB swap size, but the backup looks\nlike a series 1.  Stock SERIES 1 TiVo kernels do not support the version 1\nswap signature.  If you are using a stock SERIES 1 TiVo kernel, 128MiB is the\nlargest usable swap size.\n");
+
 		if (info->back_flags & BF_TRUNCATED)
 		{
-			fprintf (stderr, "***WARNING***\nRestoring from a backup of an incomplete volume.  While the backup is while,\nit is possible there was some required data missing.  Verify the restore.\n");
+			fprintf (stderr, "***WARNING***\nRestoring from a backup of an incomplete volume.  While the backup is whole,\nit is possible there was some required data missing.  Verify the restore.\n");
 		}
 
 		if (restore_trydev (info, drive, drive2) < 0)

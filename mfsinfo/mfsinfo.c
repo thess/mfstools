@@ -103,7 +103,7 @@ mfsinfo_main (int argc, char **argv)
 		return 1;
 	}
 
-	mfs = mfs_init (drives[0], drives[1], O_RDONLY);
+	mfs = mfs_init (drives[0], ndrives == 2? drives[1]: NULL, O_RDONLY);
 	if (!mfs)
 	{
 		fprintf (stderr, "Could not open MFS volume set.\n");

@@ -1,6 +1,7 @@
 	Added new mfscopy utility to copy MFS volumes with one command.
 	Added ability to handle backup of an A drive with missing B drive.
 	Fixed bug in creating swap space of 128mb.
+	Changed restore to create version 1 swap signature for >128mb swap.
 	Preliminary MacOS X port.
 
 Version 2.0

@@ -94,6 +94,7 @@ struct backup_head
 #define RF_ZEROPART	0x00080000	/* Zero out non restored partitions. */
 #define RF_BALANCE	0x00100000	/* Balance partition layout. */
 #define RF_NOFILL	0x00200000	/* Leave room for more partitions. */
+#define RF_SWAPV1	0x00400000	/* Use version 1 swap signature. */
 #define RF_FLAGS	0xffff0000
 
 #ifndef EXTERNINLINE
