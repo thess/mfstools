@@ -22,7 +22,7 @@ mfsadd_main (int argc, char **argv)
 	int loop, loop2;
 	char *drives[2] = {0, 0};
 
-	while ((opt = getopt (argc, argv, "x:p:")) > 0)
+	while ((opt = getopt (argc, argv, "x:")) > 0)
 	{
 		switch (opt)
 		{
@@ -48,6 +48,7 @@ mfsadd_main (int argc, char **argv)
 
 		if (isdigit (argv[optind][len - 1]))
 		{
+/* If the device is a partition, add that partition to the list. */
 			if (npairs >= sizeof (pairs) / sizeof (*pairs))
 			{
 				fprintf (stderr, "%s: Too many new partitions!\n", argv[0]);
@@ -58,6 +59,7 @@ mfsadd_main (int argc, char **argv)
 		}
 		else
 		{
+/* If the device is a drive, set it as the A or B drive. */
 			if (!drives[0])
 				drives[0] = argv[optind];
 			else if (!drives[1])
@@ -71,18 +73,21 @@ mfsadd_main (int argc, char **argv)
 		optind++;
 	}
 
+/* Can't do anything without an A or B drive. */
 	if (!drives[0])
 	{
 		mfsadd_usage ();
 		return 1;
 	}
 
+/* The error message says it all. */
 	if (npairs & 1)
 	{
 		fprintf (stderr, "%s: Number of new partitions must be even.\n", argv[0]);
 		return 1;
 	}
 
+/* Map the drives being extended to the A and B drives. */
 	for (loop = 0; loop < extendall; loop++)
 	{
 		if (!strcmp (xdevs[loop], drives[0]))
@@ -96,6 +101,7 @@ mfsadd_main (int argc, char **argv)
 		}
 	}
 
+/* Make sure both extend drives are not the same device. */
 	if (extendall == 2 && xdevs[0] == xdevs[1])
 	{
 		fprintf (stderr, "%s: -x argument only makes sense once for each device.\n", argv[0]);

@@ -19,6 +19,7 @@
 #include <netinet/in.h>
 
 #include "mfs.h"
+#include "macpart.h"
 
 zone_header *
 mfs_next_zone (struct mfs_handle *mfshnd, zone_header *cur)
@@ -272,6 +273,62 @@ mfs_new_zone_map (struct mfs_handle *mfshnd, unsigned int sector, unsigned int b
 	return 0;
 }
 
+unsigned int
+mfs_volume_pair_app_size (unsigned int blocks, unsigned int minalloc)
+{
+	if (minalloc == 0)
+		minalloc = 0x800;
+
+	return (2 + 2 * ((mfs_new_zone_map_size (blocks / minalloc) + 511) / 512) + MFS_PARTITION_ROUND - 1) & ~(MFS_PARTITION_ROUND - 1);
+}
+
+int
+mfs_can_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsigned int minalloc)
+{
+	struct zone_map *cur;
+
+/* If no minalloc, make it default. */
+	if (minalloc == 0)
+	{
+		minalloc = 0x800;
+	}
+
+/* Make sure the volumes being added don't overflow the 128 bytes. */
+	if (strlen (mfshnd->vol_hdr.partitionlist) + strlen (app) + strlen (media) + 3 >= 128)
+	{
+		fprintf (stderr, "No space in volume list for new volumes.\n");
+		return -1;
+	}
+
+/* Make sure block 0 is writable.  It wouldn't do to get all the way to */
+/* the end and not be able to update the volume header. */
+	if (!mfsvol_is_writable (mfshnd->vols, 0))
+	{
+		fprintf (stderr, "mfs_add_volume_pair: Readonly volume set.\n");
+		return -1;
+	}
+
+/* Walk the list of zone maps to find the last loaded zone map. */
+	for (cur = mfshnd->loaded_zones; cur && cur->next_loaded; cur = cur->next_loaded);
+
+/* For cur to be null, it must have never been set. */
+	if (!cur)
+	{
+		fprintf (stderr, "mfs_add_volume_pair: Zone maps not loaded?\n");
+		return -1;
+	}
+
+/* Check that the last zone map is writable.  This is needed for adding the */
+/* new pointer. */
+	if (!mfsvol_is_writable (mfshnd->vols, htonl (cur->map->sector)))
+	{
+		fprintf (stderr, "mfs_add_volume_pair: Readonly volume set.\n");
+		return -1;
+	}
+
+	return 0;
+}
+
 /***********************************************************************/
 /* Add a new set of partitions to the MFS volume set.  In other words, */
 /* mfsadd. */
@@ -279,7 +336,7 @@ int
 mfs_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsigned int minalloc)
 {
 	struct zone_map *cur;
-	int fdApp, fdMedia;
+	tpFILE *tpApp, *tpMedia;
 	int appstart, mediastart;
 	int appsize, mediasize, mapsize;
 	char *tmp;
@@ -325,23 +382,23 @@ mfs_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsigned
 	}
 
 	tmp = mfsvol_device_translate (app);
-	fdApp = open (tmp, O_RDWR);
-	if (fdApp < 0)
+	tpApp = tivo_partition_open (tmp, O_RDWR);
+	if (!tpApp)
 	{
 		perror (tmp);
 		return -1;
 	}
 
 	tmp = mfsvol_device_translate (tmp);
-	fdMedia = open (tmp, O_RDWR);
-	if (fdMedia < 0)
+	tpMedia = tivo_partition_open (tmp, O_RDWR);
+	if (!tpMedia)
 	{
 		perror (tmp);
 		return -1;
 	}
 
-	close (fdApp);
-	close (fdMedia);
+	tivo_partition_close (tpApp);
+	tivo_partition_close (tpMedia);
 
 	appstart = mfsvol_add_volume (mfshnd->vols, app, O_RDWR);
 	mediastart = mfsvol_add_volume (mfshnd->vols, media, O_RDWR);
@@ -389,7 +446,7 @@ mfs_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsigned
 	mfsvol_write_data (mfshnd->vols, foo, 0, 1);
 	mfsvol_write_data (mfshnd->vols, foo, mfsvol_volume_size (mfshnd->vols, 0) - 1, 1);
 
-	return 0;
+	return mfs_load_zone_maps (mfshnd);
 }
 
 /******************************************/

@@ -10,6 +10,7 @@
 #include <asm/types.h>
 /* For htonl() */
 #include <netinet/in.h>
+#include <sys/param.h>
 
 #include "mfs.h"
 #include "backup.h"
@@ -24,6 +25,8 @@ restore_usage (char *progname)
 	fprintf (stderr, "Options:\n");
 	fprintf (stderr, " -i file   Input from file, - for stdin\n");
 	fprintf (stderr, " -p        Optimize partition layout\n");
+	fprintf (stderr, " -x        Expand the backup to fill the drive(s)\n");
+	fprintf (stderr, " -X scale  Expand the backup with block size scale\n");
 	fprintf (stderr, " -q        Do not display progress\n");
 	fprintf (stderr, " -qq       Do not display anything but error messages\n");
 	fprintf (stderr, " -v size   Recreate /var as size megabytes (Only if not in backup)\n");
@@ -54,6 +57,54 @@ get_percent (unsigned int current, unsigned int max)
 }
 
 int
+expand_drive (struct mfs_handle *mfshnd, char *tivodev, char *realdev, unsigned int blocksize)
+{
+	unsigned int maxfree = tivo_partition_largest_free (realdev);
+	unsigned int totalfree = tivo_partition_total_free (realdev);
+	unsigned int used = maxfree & ~(blocksize - 1);
+	unsigned int required = mfs_volume_pair_app_size (used, blocksize);
+	unsigned int part1, part2;
+	char app[MAXPATHLEN];
+	char media[MAXPATHLEN];
+
+	if (totalfree - maxfree < required && maxfree - used < required)
+	{
+		used = (maxfree - required) & ~(blocksize - 1);
+		required = mfs_volume_pair_app_size (used, blocksize);
+	}
+
+	if (totalfree - maxfree >= required && maxfree - used < required)
+	{
+		part2 = tivo_partition_add (realdev, used, 0, "New MFS Media", "MFS");
+		part1 = tivo_partition_add (realdev, required, part2, "New MFS Application", "MFS");
+
+		part2++;
+	}
+	else
+	{
+		part1 = tivo_partition_add (realdev, required, 0, "New MFS Application", "MFS");
+		part2 = tivo_partition_add (realdev, used, 0, "New MFS Media", "MFS");
+	}
+
+	if (part1 < 2 || part2 < 2 || part1 > 16 || part2 > 16)
+		return -1;
+
+	sprintf (app, "%s%d", tivodev, part1);
+	sprintf (media, "%s%d", tivodev, part2);
+
+	if (mfs_can_add_volume_pair (mfshnd, app, media, blocksize) < 0)
+		return -1;
+
+	if (tivo_partition_table_write (realdev) < 0)
+		return -1;
+
+	if (mfs_add_volume_pair (mfshnd, app, media, blocksize) < 0)
+		return -1;
+
+	return 0;
+}
+
+int
 restore_main (int argc, char **argv)
 {
 	char *drive, *drive2, *tmp;
@@ -63,10 +114,11 @@ restore_main (int argc, char **argv)
 	char *filename = 0;
 	int quiet = 0;
 	int bswap = 0;
+	int expand = 0;
 
 	tivo_partition_direct ();
 
-	while ((opt = getopt (argc, argv, "i:v:s:zqbBp")) > 0)
+	while ((opt = getopt (argc, argv, "i:v:s:zqbBpxX:")) > 0)
 	{
 		switch (opt)
 		{
@@ -116,6 +168,22 @@ restore_main (int argc, char **argv)
 		case 'p':
 			flags |= RF_BALANCE;
 			break;
+		case 'x':
+			expand = 3;
+			break;
+		case 'X':
+			expand = 1 + strtoul (optarg, &tmp, 10);
+			if (tmp && *tmp)
+			{
+				fprintf (stderr, "%s: Integer argument expected for -X.\n", argv[0]);
+				return 1;
+			}
+			if (expand < 1 || expand > 5)
+			{
+				fprintf (stderr, "%s: Scale value for -X must be between 0 and 4.\n", argv[0]);
+				return 1;
+			}
+			break;
 		default:
 			restore_usage (argv[0]);
 			return 1;
@@ -141,6 +209,9 @@ restore_main (int argc, char **argv)
 		restore_usage (argv[0]);
 		return 1;
 	}
+
+	if (expand > 0)
+		flags |= RF_NOFILL;
 
 	info = init_restore (flags);
 	if (info)
@@ -264,6 +335,43 @@ restore_main (int argc, char **argv)
 
 	if (quiet < 2)
 		fprintf (stderr, "Restore done!\n");
+
+	if (expand > 0)
+	{
+		int blocksize = 0x800;
+		struct mfs_handle *mfshnd;
+
+		mfshnd = mfs_init (O_RDWR);
+		if (!mfshnd)
+		{
+				printf ("Drive expansion failed.\n");
+				return 1;
+		}
+
+		while (--expand > 0)
+			blocksize *= 2;
+
+		setenv ("MFS_HDA", drive, 1);
+		setenv ("MFS_HDB", drive2, 1);
+
+		if (tivo_partition_largest_free (drive) > 1024 * 1024 * 2)
+		{
+			if (expand_drive (mfshnd, "/dev/hda", drive, blocksize) < 0)
+			{
+				printf ("Drive A expansion failed.\n");
+				return 1;
+			}
+		}
+
+		if (drive2 && tivo_partition_largest_free (drive2) > 1024 * 1024 * 2)
+		{
+			if (expand_drive (mfshnd, "/dev/hdb", drive2, blocksize) < 0)
+			{
+				printf ("Drive B expansion failed.\n");
+				return 1;
+			}
+		}
+	}
 
 	return 0;
 }

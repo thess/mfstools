@@ -42,14 +42,18 @@ typedef struct tivo_partition_file
 }
 tpFILE;
 
-#define VOL_FILE 1
-#define VOL_SWAB 4
+#define VOL_FILE	0x00000001
+#define VOL_SWAB	0x00000004
+#define VOL_DIRTY	0x00000008
+#define VOL_NONINIT	0x00000010
+#define VOL_VALID	0x00000020
 
 /* TiVo partition map partition */
 struct tivo_partition
 {
 	unsigned int sectors;
 	unsigned int start;
+	unsigned int refs;
 	char *name;
 	char *type;
 	struct tivo_partition_table *table;
@@ -63,32 +67,39 @@ struct tivo_partition_table
 	int rw_fd;
 	int vol_flags;
 	int count;
+	int allocated;
 	int refs;
+	unsigned int devsize;
 	struct tivo_partition *partitions;
 	struct tivo_partition_table *next;
+	struct tivo_partition_table *parent;
 };
 
 /* From macpart.c */
-tpFILE *tivo_partition_open (char *path, int flags);
-tpFILE *tivo_partition_open_direct (char *path, int partnum, int flags);
-int tivo_partition_count (char *path);
+tpFILE *tivo_partition_open (char *device, int flags);
+tpFILE *tivo_partition_open_direct (char *device, int partnum, int flags);
+int tivo_partition_count (const char *device);
 void tivo_partition_close (tpFILE * file);
 unsigned int tivo_partition_size (tpFILE * file);
-unsigned int tivo_partition_sizeof (char *device, int partnum);
-char *tivo_partition_name (char *device, int partnum);
-char *tivo_partition_type (char *device, int partnum);
+unsigned int tivo_partition_sizeof (const char *device, int partnum);
+char *tivo_partition_name (const char *device, int partnum);
+char *tivo_partition_type (const char *device, int partnum);
 unsigned int tivo_partition_offset (tpFILE * file);
 const char *tivo_partition_device_name (tpFILE * file);
-int tivo_partition_rrpart (char *device);
+int tivo_partition_rrpart (const char *device);
 void tivo_partition_direct ();
 void tivo_partition_file ();
 void tivo_partition_auto ();
 
-int tivo_partition_swabbed (char *path);
-int tivo_partition_devswabbed (char *path);
+int tivo_partition_swabbed (const char *device);
+int tivo_partition_devswabbed (const char *device);
 
-/* There is no write bootsector on purpose. */
-int tivo_partition_read_bootsector (char *device, void *buf);
+int tivo_partition_read_bootsector (const char *device, void *buf);
+int tivo_partition_write_bootsector (const char *device, void *buf);
+
+int tivo_partition_table_init (const char *device, int swab);
+int tivo_partition_add (const char *device, unsigned int size, int before, const char *name, const char *type);
+int tivo_partition_table_write (const char *device);
 
 /* From readwrite.c */
 int tivo_partition_read (tpFILE * file, void *buf, unsigned int sector, int count);
