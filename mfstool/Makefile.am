@@ -1,6 +1,45 @@
 INCLUDES += -I${top_srcdir}/include
-LDADD += -L${top_builddir}/lib -L${top_builddir}/backup -L${top_builddir}/restore -L${top_builddir}/mls -L${top_builddir}/mfsd -L${top_builddir}/mfsadd -lbackup -lrestore -lmls -lmfsadd -lmfsd -lz -lmfs
 
-bin_PROGRAMS = mfstool
+if BUILD_MFSTOOL
+MFSAPPS = mfstool
+if BUILD_BACKUP
+MFSTOOLS_BACKUP = -L${top_builddir}/backup -lbackup -Wl,-u,backup_main
+ZLIB = -lz
+else
+MFSTOOLS_BACKUP =
+endif
+if BUILD_RESTORE
+MFSTOOLS_RESTORE = -L${top_builddir}/restore -lrestore -Wl,-u,restore_main
+ZLIB = -lz
+else
+MFSTOOLS_RESTORE =
+endif
+if BUILD_MLS
+MFSTOOLS_MLS = -L${top_builddir}/mls -lmls -Wl,-u,mls_main
+else
+MFSTOOLS_RESTORE =
+endif
+if BUILD_MFSD
+MFSTOOLS_MFSD = -L${top_builddir}/mfsd -lmfsd -Wl,-u,mfsd_main
+else
+MFSTOOLS_MFSD =
+endif
+if BUILD_MFSADD
+MFSTOOLS_MFSADD = -L${top_builddir}/mfsadd -lmfsadd -Wl,-u,mfsadd_main
+else
+MFSTOOLS_MFSADD =
+endif
+else
+MFSAPPS =
+MFSTOOLS_BACKUP =
+MFSTOOLS_RESTORE =
+MFSTOOLS_MLS =
+MFSTOOLS_MFSD =
+MFSTOOLS_MFSADD =
+endif
+
+bin_PROGRAMS = $(MFSAPPS)
 
 mfstool_SOURCES = mfstool.c
+mfstool_LDFLAGS += -L${top_builddir}/lib $(MFSTOOLS_BACKUP) $(MFSTOOLS_RESTORE) $(MFSTOOLS_MLS) $(MFSTOOLS_MFSD) $(MFSTOOLS_MFSADD) $(ZLIB) -lmfs
+

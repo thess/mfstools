@@ -1,3 +1,6 @@
+#ifdef HAVE_CONFIG_H
+#include <config.h>
+#endif
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdio.h>
@@ -117,7 +120,7 @@ backup_add_block (struct blocklist **blocks, unsigned int *partstart, struct blo
 	}
 
 /* A little debug here and there never hurt anything. */
-#ifdef DEBUG
+#if DEBUG
 	fprintf (stderr, "Adding block %d of %d\n", sector, count);
 #endif
 
@@ -381,7 +384,7 @@ scan_inodes (struct backup_info *info)
 						if (thiscount > streamsize)
 							thiscount = streamsize;
 
-#ifdef DEBUG
+#if DEBUG
 						fprintf (stderr, "Inode %d: ", htonl (inode->fsid));
 #endif
 

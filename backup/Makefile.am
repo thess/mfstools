@@ -1,8 +1,24 @@
 INCLUDES += -I${top_srcdir}/include
 LDADD += -L${top_builddir}/lib -lmfs -lz
 
-bin_PROGRAMS = backup
-noinst_LIBRARIES = libbackup.a
+if BUILD_BACKUP
+if BUILD_MFSTOOL
+MFSTOOLS = libbackup.a
+else
+MFSTOOLS =
+endif
+if BUILD_MFSAPPS
+MFSAPPS = backup
+else
+MFSAPPS =
+endif
+else
+MFSAPPS =
+MFSTOOLS =
+endif
+
+bin_PROGRAMS = $(MFSAPPS)
+noinst_LIBRARIES = $(MFSTOOLS)
 
 backup_SOURCES = backmain.c backup.c
 backup_LDFLAGS = -Wl,--defsym,main=backup_main

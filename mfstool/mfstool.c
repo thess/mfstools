@@ -1,3 +1,6 @@
+#ifdef HAVE_CONFIG_H
+#include <config.h>
+#endif
 #include <unistd.h>
 #include <stdio.h>
 #include <fcntl.h>
@@ -8,22 +11,42 @@
 
 typedef int (*mainfunc) (int, char **);
 
+#if BUILD_BACKUP
 extern int backup_main (int, char **);
+#endif
+#if BUILD_RESTORE
 extern int restore_main (int, char **);
+#endif
+#if BUILD_MFSADD
 extern int mfsadd_main (int, char **);
+#endif
+#if BUILD_MLS
 extern int mls_main (int, char **);
+#endif
+#if BUILD_MFSD
 extern int mfsd_main (int, char **);
+#endif
 
 struct {
 	char *name;
 	mainfunc main;
 	char *desc;
 } funcs[] = {
+#if BUILD_BACKUP
 	{"backup", backup_main, "Backup TiVo drive fast and small."},
+#endif
+#if BUILD_RESTORE
 	{"restore", restore_main, "Restore mfstool backups to TiVo drive."},
+#endif
+#if BUILD_MFSADD
 	{"mfsadd", mfsadd_main, "Add partitions to your TiVo MFS volume."},
+#endif
+#if BUILD_MLS
 	{"mls", mls_main, "List files in the MFS volume."},
+#endif
+#if BUILD_MFSD
 	{"mfsd", mfsd_main, "Dump raw data from MFS volume."},
+#endif
 	{0, 0, 0}
 };
 

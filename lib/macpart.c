@@ -1,3 +1,6 @@
+#ifdef HAVE_CONFIG_H
+#include <config.h>
+#endif
 /* For stat64 */
 #define _LARGEFILE64_SOURCE
 

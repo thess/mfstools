@@ -1,8 +1,24 @@
 INCLUDES += -I${top_srcdir}/include
 LDADD += -L${top_builddir}/lib -lmfs
 
-bin_PROGRAMS = mfsd
-noinst_LIBRARIES = libmfsd.a
+if BUILD_MFSD
+if BUILD_MFSTOOL
+MFSTOOLS = libmfsd.a
+else
+MFSTOOLS =
+endif
+if BUILD_MFSAPPS
+MFSAPPS = mfsd
+else
+MFSAPPS =
+endif
+else
+MFSTOOLS =
+MFSAPPS =
+endif
+ 
+bin_PROGRAMS = $(MFSAPPS)
+noinst_LIBRARIES = $(MFSTOOLS)
 
 mfsd_SOURCES = mfsd.c
 mfsd_LDFLAGS = -Wl,--defsym,main=mfsd_main

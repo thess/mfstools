@@ -1,8 +1,24 @@
 INCLUDES += -I${top_srcdir}/include
 LDADD += -L${top_builddir}/lib -lmfs -lz
 
-bin_PROGRAMS = restore
-noinst_LIBRARIES = librestore.a
+if BUILD_RESTORE
+if BUILD_MFSTOOL
+MFSTOOLS = librestore.a
+else
+MFSTOOLS =
+endif
+if BUILD_MFSAPPS
+MFSAPPS = restore
+else
+MFSAPPS =
+endif
+else
+MFSTOOLS =
+MFSAPPS =
+endif
+ 
+bin_PROGRAMS = $(MFSAPPS)
+noinst_LIBRARIES = $(MFSTOOLS)
 
 restore_SOURCES = restmain.c restore.c
 restore_LDFLAGS = -Wl,--defsym,main=restore_main

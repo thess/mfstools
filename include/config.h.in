@@ -1,0 +1,36 @@
+/* Various header files.  I suppose I should #if on these. */
+#define HAVE_ASM_PAGE_H 0
+#define HAVE_ASM_TYPES_H 0
+#define HAVE_CTYPE_H 0
+#define HAVE_ERRNO_H 0
+#define HAVE_FCNTL_H 0
+#define HAVE_LINUX_FS_H 0
+#define HAVE_LINUX_IDE_TIVO_H 0
+#define HAVE_LINUX_UNISTD_H 0
+#define HAVE_MALLOC_H 0
+#define HAVE_NETINET_IN_H 0
+#define HAVE_STDIO_H 0
+#define HAVE_STDLIB_H 0
+#define HAVE_STRING_H 0
+#define HAVE_SYS_ERRNO_H 0
+#define HAVE_SYS_IOCTL_H 0
+#define HAVE_SYS_PARAM_H 0
+#define HAVE_SYS_STAT_H 0
+#define HAVE_SYS_TYPES_H 0
+#define HAVE_TIME_H 0
+#define HAVE_UNISTD_H 0
+#define HAVE_ZLIB_H 0
+
+/* What mfs tools to build. */
+#define BUILD_MFSADD 0
+#define BUILD_MLS 0
+#define BUILD_MFSD 0
+#define BUILD_BACKUP 0
+#define BUILD_RESTORE 0
+
+/* Debug message.  Enabled with --enable-debug. */
+#define DEBUG 0
+
+/* Package name and version.  Set from the values in configure.in */
+#define PACKAGE ""
+#define VERSION ""
