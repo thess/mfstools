@@ -38,6 +38,7 @@ Plan V3.0
 2. Handling of truncated volumes (Lib/Backup)
 3. V3 backup handling (Backup/Restore)
 4. MFS rebuild (Restore/Lib)
+5. Clean up platform independence (Merge of MacOs branch)
 
 Macpart
   API for modifying/creating partition table
