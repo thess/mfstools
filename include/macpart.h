@@ -5,16 +5,16 @@
 /* Format of mac partition table. */
 struct mac_partition
 {
-	__u16 signature;
-	__u16 res1;
-	__u32 map_count;
-	__u32 start_block;
-	__u32 block_count;
+	uint16_t signature;
+	uint16_t res1;
+	uint32_t map_count;
+	uint32_t start_block;
+	uint32_t block_count;
 	char name[32];
 	char type[32];
-	__u32 data_start;
-	__u32 data_count;
-	__u32 status;
+	uint32_t data_start;
+	uint32_t data_count;
+	uint32_t status;
 };
 
 typedef struct tivo_partition_file

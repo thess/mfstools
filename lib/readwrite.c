@@ -10,10 +10,16 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
-#include <sys/errno.h>
+#ifdef HAVE_ERRNO_H
+#include <errno.h>
+#endif
 #include <sys/param.h>
+#ifdef HAVE_LINUX_FS_H
 #include <linux/fs.h>
+#endif
+#ifdef HAVE_LINUX_UNISTD_H
 #include <linux/unistd.h>
+#endif
 
 /* For htonl() */
 #include <netinet/in.h>
@@ -36,7 +42,10 @@
 
 _syscall4 (static long, readsectors, unsigned int, fd, struct FsIovec *, buf, int, buf_len, struct FsIoRequest *, request) _syscall4 (static long, writesectors, unsigned int, fd, struct FsIovec *, buf, int, buf_len, struct FsIoRequest *, request)
 #endif
+#ifdef __NR__llseek
 static _syscall5 (int, _llseek, uint, fd, ulong, hi, ulong, lo, loff_t *, res, uint, wh);
+#define USE_LLSEEK
+#endif
 
 /*********************************************/
 /* Preform byte-swapping in a block of data. */
@@ -73,7 +82,9 @@ data_swab (void *data, int size)
 int
 tivo_partition_read (tpFILE * file, void *buf, unsigned int sector, int count)
 {
+#ifdef USE_LLSEEK
 	loff_t result;
+#endif
 	int retval;
 
 	if (sector + count > tivo_partition_size (file))
@@ -114,7 +125,11 @@ tivo_partition_read (tpFILE * file, void *buf, unsigned int sector, int count)
 #endif
 
 /* A file, or not TiVo, use llseek and read. */
+#ifdef USE_LLSEEK
 	if (_llseek (_tivo_partition_fd (file), sector >> 23, sector << 9, &result, SEEK_SET) < 0)
+#else
+	if (lseek64 (_tivo_partition_fd (file), (off64_t)sector << 9, SEEK_SET) != (off64_t)sector << 9)
+#endif
 	{
 		return -1;
 	}
@@ -133,7 +148,9 @@ tivo_partition_read (tpFILE * file, void *buf, unsigned int sector, int count)
 int
 tivo_partition_write (tpFILE * file, void *buf, unsigned int sector, int count)
 {
+#ifdef USE_LLSEEK
 	loff_t result;
+#endif
 	int retval;
 
 	if (sector + count > tivo_partition_size (file))
@@ -179,7 +196,11 @@ tivo_partition_write (tpFILE * file, void *buf, unsigned int sector, int count)
 #endif
 
 /* A file, or not TiVo, use llseek and write. */
+#ifdef USE_LLSEEK
 	if (_llseek (_tivo_partition_fd (file), sector >> 23, sector << 9, &result, SEEK_SET) < 0)
+#else
+	if (lseek64 (_tivo_partition_fd (file), (off64_t)sector << 9, SEEK_SET) != (off64_t)sector << 9)
+#endif
 	{
 		return -1;
 	}

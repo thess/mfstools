@@ -6,11 +6,15 @@
 #include <stdio.h>
 #include <malloc.h>
 #include <sys/types.h>
+#ifdef HAVE_ASM_TYPES_H
 #include <asm/types.h>
+#endif
 #include <fcntl.h>
 #include <zlib.h>
 #include <string.h>
+#ifdef HAVE_LINUX_FS_H
 #include <linux/fs.h>
+#endif
 #include <ctype.h>
 /* For htonl() */
 #include <netinet/in.h>

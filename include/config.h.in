@@ -46,9 +46,6 @@
 /* Define if you have the <string.h> header file.  */
 #undef HAVE_STRING_H
 
-/* Define if you have the <sys/errno.h> header file.  */
-#undef HAVE_SYS_ERRNO_H
-
 /* Define if you have the <sys/ioctl.h> header file.  */
 #undef HAVE_SYS_IOCTL_H
 

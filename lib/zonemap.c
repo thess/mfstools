@@ -10,10 +10,14 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
-#include <sys/errno.h>
+#include <errno.h>
 #include <sys/param.h>
+#ifdef HAVE_LINUX_FS_H
 #include <linux/fs.h>
+#endif
+#ifdef HAVE_LINUX_UNISTD_H
 #include <linux/unistd.h>
+#endif
 
 /* For htonl() */
 #include <netinet/in.h>

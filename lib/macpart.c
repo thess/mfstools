@@ -2,7 +2,7 @@
 #include <config.h>
 #endif
 /* For stat64 */
-#define _LARGEFILE64_SOURCE
+#define _LARGEFILE64_SOURCE 1
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -13,10 +13,16 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
-#include <sys/errno.h>
+#ifdef HAVE_ERRNO_H
+#include <errno.h>
+#endif
 #include <sys/param.h>
+#ifdef HAVE_LINUX_FS_H
 #include <linux/fs.h>
+#endif
+#ifdef HAVE_LINUX_UNISTD_H
 #include <linux/unistd.h>
+#endif
 
 /* For htonl() */
 #include <netinet/in.h>
@@ -97,8 +103,11 @@ tivo_read_partition_table (char *device, int flags)
 			return 0;
 		}
 
+/* If there is no BLKGETSIZE, treat everything like a file */
+#ifdef BLKGETSIZE
 /* Don't actually care about the size, just if it's a file or device. */
 		if (ioctl (*fd, BLKGETSIZE, &cursec) < 0)
+#endif
 		{
 			table->vol_flags |= VOL_FILE;
 		}
@@ -307,17 +316,23 @@ tivo_partition_open (char *path, int flags)
 			{
 				if (S_ISBLK (st.st_mode))
 				{
+#ifdef BLKGETSIZE
 /* The file is really a block device.  Get it's size with BLKGETSIZE. */
 					if (ioctl (newfile.fd, BLKGETSIZE, &newfile.extra.kernel.sectors) >= 0)
 					{
 						newfile.tptype = pDEVICE;
 					}
+#else
+/* If no BLKGETSIZE, treat it like a file. */
+					newfile.tptype = pFILE;
+					newfile.extra.kernel.sectors = st.st_blocks;
+#endif
 				}
 				else if (S_ISREG (st.st_mode))
 				{
 /* The file is a regular file.  It's size was returned by the fstat call. */
 					newfile.tptype = pFILE;
-					newfile.extra.kernel.sectors = st.st_size / 512;
+					newfile.extra.kernel.sectors = st.st_blocks;
 				}
 				else
 				{

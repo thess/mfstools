@@ -7,7 +7,9 @@
 #include <fcntl.h>
 #include <string.h>
 #include <errno.h>
+#ifdef HAVE_ASM_TYPES_H
 #include <asm/types.h>
+#endif
 /* For htonl() */
 #include <netinet/in.h>
 
@@ -15,7 +17,7 @@
 #include "backup.h"
 #include "macpart.h"
 
-#define BUFSIZE 512 * 2048
+#define BUFSIZE 512 * 256
 
 void
 restore_usage (char *progname)

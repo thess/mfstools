@@ -6,10 +6,14 @@
 #include <stdlib.h>
 #include <malloc.h>
 #include <sys/types.h>
+#ifdef HAVE_ASM_TYPES_H
 #include <asm/types.h>
+#endif
 #include <fcntl.h>
 #include <zlib.h>
+#ifdef HAVE_LINUX_FS_H
 #include <linux/fs.h>
+#endif
 #include <sys/param.h>
 #include <string.h>
 #include <sys/ioctl.h>
@@ -724,6 +728,9 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 	unsigned int min1 = 0;
 	unsigned int count;
 	int loop;
+#ifndef BLKGETSIZE
+	struct stat64 devstat;
+#endif
 
 /* Make sure this is a first potentially sucessful run. */
 	if (info->back_flags & RF_INITIALIZED || info->cursector < info->presector)
@@ -755,12 +762,23 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 
 /* Get the size, so fittingness will be known, and any non device will be */
 /* detected. */
+#ifdef BLKGETSIZE
 	if (ioctl (fd1, BLKGETSIZE, &secs1) != 0)
 	{
 		info->lasterr = "Destination is not a device.";
 		close (fd1);
 		return -1;
 	}
+#else
+/* This will not detect non devices, but it will at least get the size. */
+	if (fstat64 (fd1, &devstat) != 0)
+	{
+		info->lasterr = "Could not stat device.";
+		close (fd1);
+		return -1;
+	}
+	secs1 = devstat.st_blocks;
+#endif
 
 #if DEBUG
 	fprintf (stderr, "Drive 1 size: %d\n", secs1);
@@ -777,6 +795,7 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 			return -1;
 		}
 
+#ifdef BLKGETSIZE
 		if (ioctl (fd2, BLKGETSIZE, &secs2) != 0)
 		{
 			info->lasterr = "Second restore target is not a device.";
@@ -784,6 +803,16 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 			close (fd2);
 			return -1;
 		}
+#else
+		if (fstat64 (fd2, &devstat) != 0)
+		{
+			info->lasterr = "Could not stat second device.";
+			close (fd1);
+			close (fd2);
+			return -1;
+		}
+		secs2 = devstat.st_blocks;
+#endif
 
 #if DEBUG
 		fprintf (stderr, "Drive 2 size: %d\n", secs2);
@@ -1686,11 +1715,12 @@ restore_fixup_zone_maps(struct backup_info *info)
 	return 0;
 }
 
+
 int
 restore_cleanup_parts(struct backup_info *info)
 {
 	unsigned int loop, loop2;
-	char buf[1024 * 1024];
+	char buf[32 * 1024];
 
 	bzero (buf, sizeof (buf));
 
