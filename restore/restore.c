@@ -3,6 +3,7 @@
 #endif
 #include <unistd.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <malloc.h>
 #include <sys/types.h>
 #include <asm/types.h>
@@ -11,6 +12,9 @@
 #include <linux/fs.h>
 #include <sys/param.h>
 #include <string.h>
+#include <sys/ioctl.h>
+/* For htonl() and htons() */
+#include <netinet/in.h>
 
 #include "mfs.h"
 #include "macpart.h"
@@ -102,7 +106,7 @@ restore_next_sectors (struct backup_info *info, char *buf, int sectors)
 
 				for (loop = 0; loop < info->ndevs; loop++)
 				{
-					if (loop > 0 && info->devs[loop].swab != info->devs[loop - 1].swab || loop == 0 && info->devs[loop].swab)
+					if ((loop > 0 && info->devs[loop].swab != info->devs[loop - 1].swab) || (loop == 0 && info->devs[loop].swab))
 						data_swab (buf, 512);
 					lseek (info->devs[loop].fd, 0, SEEK_SET);
 					write (info->devs[loop].fd, buf, 512);
@@ -138,14 +142,14 @@ restore_next_sectors (struct backup_info *info, char *buf, int sectors)
 					}
 
 /* Get the file for this partition from the info structure. */
-					file = info->devs[info->parts[loop].devno].files[info->parts[loop].partno - 1];
+					file = info->devs[(int)info->parts[loop].devno].files[info->parts[loop].partno - 1];
 
 /* If the file isn't opened, open it. */
 					if (!file)
 					{
-						file = tivo_partition_open_direct (info->devs[info->parts[loop].devno].devname, info->parts[loop].partno, O_RDWR);
+						file = tivo_partition_open_direct (info->devs[(int)info->parts[loop].devno].devname, info->parts[loop].partno, O_RDWR);
 /* The sick part, is most of this line is an lvalue. */
-						info->devs[info->parts[loop].devno].files[info->parts[loop].partno - 1] = file;
+						info->devs[(int)info->parts[loop].devno].files[info->parts[loop].partno - 1] = file;
 
 /* If the file still isn't open, there is an error. */
 						if (!file)
@@ -453,7 +457,7 @@ restore_write (struct backup_info *info, char *buf, unsigned int size)
 
 		info->comp->avail_in = size;
 		info->comp->next_in = buf;
-		while (info->comp && info->comp->avail_in > 0 || (info->back_flags & RF_NOMORECOMP) && (unsigned int)info->comp->next_out - (unsigned int)info->comp_buf > 512)
+		while ((info->comp && info->comp->avail_in > 0) || ((info->back_flags & RF_NOMORECOMP) && (unsigned int)info->comp->next_out - (unsigned int)info->comp_buf > 512))
 		{
 			if ((unsigned int)info->comp->next_out - (unsigned int)info->comp_buf > 512)
 			{
@@ -686,7 +690,7 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 		info->lasterr = "No backup device.";
 		return -1;
 	}
-	if (info->nmfs & 1 == 1)
+	if ((info->nmfs & 1) == 1)
 	{
 		info->lasterr = "Internal error 5.";
 		return -1;
@@ -1160,7 +1164,7 @@ restore_fudge_inodes (struct backup_info *info)
 			if (inode->type == tyStream)
 			{
 				int loop2;
-				int changed;
+				int changed = 0;
 
 				for (loop2 = 0; loop2 < htonl (inode->numblocks); loop2++)
 				{

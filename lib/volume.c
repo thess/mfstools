@@ -47,7 +47,7 @@ mfs_device_translate (char *dev)
 	if (!strncmp (dev, "/dev/", 5))
 	{
 		char dev_sub_var[128];
-		char *dev_sub;
+		char *dev_sub = NULL;
 		int loop;
 
 		strcpy (dev_sub_var, "MFS_");

@@ -64,6 +64,9 @@ print_file_details (fs_entry * file)
 	case tyDb:
 		type = "tyDb";
 		break;
+	default:
+		type = "ty???";
+		break;
 	}
 
 	if (file->type == tyStream)

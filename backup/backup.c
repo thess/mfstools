@@ -11,6 +11,9 @@
 #include <zlib.h>
 #include <string.h>
 #include <linux/fs.h>
+#include <ctype.h>
+/* For htonl() */
+#include <netinet/in.h>
 
 #include "mfs.h"
 #include "macpart.h"
@@ -209,7 +212,7 @@ backup_add_block (struct blocklist **blocks, unsigned int *partstart, struct blo
 	{
 /* The next block the new one is not after is not set to be backed up. */
 /* The only way this could happen is either because no blocks exist yet, */
-/* or the new block is at the beginning of an unbacked up section, or no
+/* or the new block is at the beginning of an unbacked up section, or no */
 /* blocks before it are backed up. */
 		if (prev && (*loop)->sector < sector + count)
 		{
@@ -327,7 +330,7 @@ scan_inodes (struct backup_info *info)
 
 	bzero (blocks, sizeof (blocks));
 
-	for (loop = 0, loop3 = 0; loop2 = mfs_volume_size (loop); loop += loop2, loop3++)
+	for (loop = 0, loop3 = 0; (loop2 = mfs_volume_size (loop)); loop += loop2, loop3++)
 	{
 		partstart[loop3] = loop;
 		blocks[loop3] = calloc (sizeof (**blocks), 1);
@@ -363,7 +366,7 @@ scan_inodes (struct backup_info *info)
 					streamsize = htonl (inode->blocksize) / 512 * htonl (inode->blockused);
 
 /* Only backup streams that are smaller than the threshhold. */
-				if (streamsize > 0 && ((info->back_flags & BF_THRESHSIZE) && streamsize < info->thresh || !(info->back_flags & BF_THRESHSIZE) && htonl (inode->fsid) <= info->thresh))
+				if (streamsize > 0 && (((info->back_flags & BF_THRESHSIZE) && streamsize < info->thresh) || (!(info->back_flags & BF_THRESHSIZE) && htonl (inode->fsid) <= info->thresh)))
 				{
 /* Add all blocks. */
 
@@ -425,7 +428,7 @@ scan_inodes (struct backup_info *info)
 	}
 
 /* Put in the whole volumes. */
-	for (loop = 0, loop3 = 1; loop2 = mfs_volume_size (loop); loop += loop2, loop3 ^= 1)
+	for (loop = 0, loop3 = 1; (loop2 = mfs_volume_size (loop)); loop += loop2, loop3 ^= 1)
 	{
 		if (loop3)
 		{
@@ -668,7 +671,7 @@ add_partitions_to_backup_info (struct backup_info *info, char *device)
 
 	if (*tmpc)
 	{
-		if ((tmpc[13] == '4' || tmpc[13] == '7') && tmpc[14] == 0 || isspace (tmpc[14]))
+		if (((tmpc[13] == '4' || tmpc[13] == '7') && tmpc[14] == 0) || isspace (tmpc[14]))
 		{
 			rootdev = tmpc[13] - '0';
 #if DEBUG
@@ -698,7 +701,7 @@ add_partitions_to_backup_info (struct backup_info *info, char *device)
 		if (!file) {
 			while (loop-- > 0)
 			{
-				tivo_partition_close (info->devs[0].files[info->parts[loop].partno]);
+				tivo_partition_close (info->devs[0].files[(int)info->parts[loop].partno]);
 			}
 			free (info->devs[0].files);
 			free (info->devs);
@@ -709,7 +712,7 @@ add_partitions_to_backup_info (struct backup_info *info, char *device)
 			return -1;
 		}
 
-		info->devs[0].files[info->parts[loop].partno] = file;
+		info->devs[0].files[(int)info->parts[loop].partno] = file;
 		info->parts[loop].sectors = tivo_partition_size (file);
 		info->nsectors += info->parts[loop].sectors;
 	}
@@ -853,14 +856,14 @@ backup_next_sectors (struct backup_info *info, char *buf, int sectors)
 					}
 
 /* Get the file for this partition from the info structure. */
-					file = info->devs[info->parts[loop].devno].files[info->parts[loop].partno];
+					file = info->devs[(int)info->parts[loop].devno].files[(int)info->parts[loop].partno];
 
 /* If the file isn't opened, open it. */
 					if (!file)
 					{
-						file = tivo_partition_open_direct (info->devs[info->parts[loop].devno].devname, info->parts[loop].partno, O_RDONLY);
+						file = tivo_partition_open_direct (info->devs[(int)info->parts[loop].devno].devname, info->parts[loop].partno, O_RDONLY);
 /* The sick part, is most of this line is an lvalue. */
-						info->devs[info->parts[loop].devno].files[info->parts[loop].partno] = file;
+						info->devs[(int)info->parts[loop].devno].files[(int)info->parts[loop].partno] = file;
 
 /* If the file still isn't open, there is an error. */
 						if (!file)

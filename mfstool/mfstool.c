@@ -65,21 +65,21 @@ find_function (char *name)
 int
 main (int argc, char **argv)
 {
-	mainfunc main;
+	mainfunc toolmain;
 	char *tmp;
 	int loop;
 
 	tmp = strchr(argv[0], '/');
 	tmp = tmp? tmp + 1: argv[0];
 
-	if (main = find_function (tmp))
+	if ((toolmain = find_function (tmp)))
 	{
-		return main (argc, argv);
+		return toolmain (argc, argv);
 	}
 
-	if (argc > 1 && (main = find_function (argv[1])))
+	if (argc > 1 && (toolmain = find_function (argv[1])))
 	{
-		return main (argc - 1, argv + 1);
+		return toolmain (argc - 1, argv + 1);
 	}
 
 	fprintf (stderr, "%s %s\n", PACKAGE, VERSION);

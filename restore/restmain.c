@@ -3,11 +3,17 @@
 #endif
 #include <unistd.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <fcntl.h>
 #include <string.h>
 #include <errno.h>
+#include <asm/types.h>
+/* For htonl() */
+#include <netinet/in.h>
+
 #include "mfs.h"
 #include "backup.h"
+#include "macpart.h"
 
 #define BUFSIZE 512 * 2048
 
@@ -49,7 +55,6 @@ restore_main (int argc, char **argv)
 {
 	char *drive, *drive2, *tmp;
 	struct backup_info *info;
-	int loop;
 	int opt;
 	unsigned int varsize = 0, swapsize = 0, flags = 0;
 	char *filename = 0;
@@ -117,7 +122,7 @@ restore_main (int argc, char **argv)
 	info = init_restore (flags);
 	if (info)
 	{
-		int fd, nread, nwrit, secleft = 0;
+		int fd, nread, nwrit;
 		char buf[BUFSIZE];
 		unsigned int cursec = 0, curcount;
 
@@ -150,7 +155,7 @@ restore_main (int argc, char **argv)
 			if (last_err (info))
 				fprintf (stderr, "Restore failed: %s\n", last_err (info));
 			else
-				fprintf (stderr, "Restore failed.\n", last_err (info));
+				fprintf (stderr, "Restore failed.\n");
 			return 1;
 		}
 
@@ -159,7 +164,7 @@ restore_main (int argc, char **argv)
 			if (last_err (info))
 				fprintf (stderr, "Restore failed: %s\n", last_err (info));
 			else
-				fprintf (stderr, "Restore failed.\n", last_err (info));
+				fprintf (stderr, "Restore failed.\n");
 			return 1;
 		}
 
@@ -168,7 +173,7 @@ restore_main (int argc, char **argv)
 			if (last_err (info))
 				fprintf (stderr, "Restore failed: %s\n", last_err (info));
 			else
-				fprintf (stderr, "Restore failed.\n", last_err (info));
+				fprintf (stderr, "Restore failed.\n");
 			return 1;
 		}
 
@@ -177,7 +182,7 @@ restore_main (int argc, char **argv)
 			if (last_err (info))
 				fprintf (stderr, "Restore failed: %s\n", last_err (info));
 			else
-				fprintf (stderr, "Restore failed.\n", last_err (info));
+				fprintf (stderr, "Restore failed.\n");
 			return 1;
 		}
 

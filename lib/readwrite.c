@@ -40,7 +40,8 @@ static _syscall5 (int, _llseek, uint, fd, ulong, hi, ulong, lo, loff_t *, res, u
 
 /*********************************************/
 /* Preform byte-swapping in a block of data. */
-	 void data_swab (void *data, int size)
+void
+data_swab (void *data, int size)
 {
 	unsigned int *idata = data;
 

@@ -99,3 +99,17 @@ last_err (struct backup_info *info)
 {
 	return info->lasterr;
 }
+
+struct backup_info *init_backup (char *device, char *device2, int flags);
+void backup_set_thresh (struct backup_info *info, unsigned int thresh);
+int backup_start (struct backup_info *info);
+unsigned int backup_read (struct backup_info *info, char *buf, unsigned int size);
+int backup_finish (struct backup_info *info);
+
+struct backup_info *init_restore (unsigned int flags);
+void restore_set_varsize (struct backup_info *info, int size);
+void restore_set_swapsize (struct backup_info *info, int size);
+unsigned int restore_write (struct backup_info *info, char *buf, unsigned int size);
+int restore_trydev (struct backup_info *info, char *dev1, char *dev2);
+int restore_start (struct backup_info *info);
+int restore_finish(struct backup_info *info);

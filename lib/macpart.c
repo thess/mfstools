@@ -32,6 +32,7 @@ static enum
 tivo_partition_accmode = accAUTO;
 
 static int tivo_partition_open_direct_int (tpFILE *file, char *path, int partnum, int flags);
+void data_swab (void *data, int size);
 
 /****************************************************************************/
 /* Opens a file normally.  If it fails with EFBIG open it with O_LARGEFILE. */
@@ -340,7 +341,7 @@ tivo_partition_open (char *path, int flags)
 
 /* If the type is still unknown and it is auto mode, or if the mode is direct */
 /* only, try opening the main device. */
-	if (newfile.tptype == pUNKNOWN && tivo_partition_accmode == accAUTO || tivo_partition_accmode == accDIRECT)
+	if ((newfile.tptype == pUNKNOWN && tivo_partition_accmode == accAUTO) || tivo_partition_accmode == accDIRECT)
 	{
 /* Find the device name. */
 		int tmp = 0;

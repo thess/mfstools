@@ -3,11 +3,17 @@
 #endif
 #include <unistd.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <fcntl.h>
 #include <string.h>
 #include <errno.h>
+#include <asm/types.h>
+/* For htonl */
+#include <netinet/in.h>
+
 #include "mfs.h"
 #include "backup.h"
+#include "macpart.h"
 
 #define BUFSIZE 512 * 2048
 
@@ -95,15 +101,15 @@ display_backup_info (struct backup_info *info)
 	if (sizes > 0)
 	{
 		unsigned int running = sizes[0];
-		fprintf (stderr, "Source drive size is %d hours\n", sectors_no_reserved (running) / SABLOCKSEC, 0);
+		fprintf (stderr, "Source drive size is %d hours\n", sectors_no_reserved (running) / SABLOCKSEC);
 		if (count > 1)
 			for (loop = 1; loop < count; loop++)
 			{
 				running += sizes[loop];
-				fprintf (stderr, "       - Upgraded to %d hours\n", sectors_no_reserved (running) / SABLOCKSEC, 0);
+				fprintf (stderr, "       - Upgraded to %d hours\n", sectors_no_reserved (running) / SABLOCKSEC);
 			}
 		if (info->back_flags & BF_SHRINK)
-			fprintf (stderr, "Backup image will be %d hours\n", sectors_no_reserved (backuptot) / SABLOCKSEC, 0);
+			fprintf (stderr, "Backup image will be %d hours\n", sectors_no_reserved (backuptot) / SABLOCKSEC);
 	}
 }
 
@@ -115,7 +121,7 @@ backup_main (int argc, char **argv)
 	unsigned int flags = BF_BACKUPVAR;
 	char threshopt = '\0';
 	char *drive, *drive2;
-	char *filename;
+	char *filename = 0;
 	char *tmp;
 	int quiet = 0;
 	int compressed = 0;
@@ -226,7 +232,6 @@ backup_main (int argc, char **argv)
 	}
 	else
 	{
-		int secleft = 0;
 		char buf[BUFSIZE];
 		unsigned int cursec = 0, curcount;
 		int fd;
