@@ -8,6 +8,7 @@
 #include <sys/stat.h>
 #include <sys/ioctl.h>
 #include <sys/errno.h>
+#include <sys/param.h>
 #include <linux/fs.h>
 #include <linux/unistd.h>
 
@@ -39,12 +40,14 @@ _syscall5(int,  _llseek,  uint,  fd, ulong, hi, ulong, lo,
 /* Flags for vol_flags below */
 #define VOL_FILE	1	/* This volume is really a file */
 #define VOL_RDONLY	2	/* This volume is read-only */
+#define VOL_SWAB	4	/* This volume is byte-swapped */
 
 /* Information about the list of volumes needed for reads */
 struct volume_info {
 	int fd;
 	unsigned int start;
 	unsigned int sectors;
+	unsigned int offset;
 	int vol_flags;
 	struct volume_info *next;
 };
@@ -63,8 +66,44 @@ struct zone_map_head {
 	struct zone_map *next;
 };
 
+#define TIVO_BOOT_MAGIC		0x1492
+#define TIVO_BOOT_AMIGC		0x9214
+#define MAC_PARTITION_MAGIC	0x504d
+
+/* TiVo partition map partition */
+struct tivo_partition {
+	unsigned int sectors;
+	unsigned int start;
+};
+
+/* TiVo partition map information */
+struct tivo_partition_table {
+	unsigned char *device;
+	int ro_fd;
+	int rw_fd;
+	int vol_flags;
+	int count;
+	struct tivo_partition *partitions;
+	struct tivo_partition_table *next;
+};
+
+/* Format of mac partition table. */
+struct mac_partition {
+	__u16	signature;
+	__u16	res1;
+	__u32	map_count;
+	__u32	start_block;
+	__u32	block_count;
+	char	name[32];
+	char	type[32];
+	__u32	data_start;
+	__u32	data_count;
+	__u32	status;
+};
+
 /* Some static variables..  Really this should be a class and these */
 /* private members. */
+static struct tivo_partition_table *partition_tables = NULL;
 static struct volume_info *volumes = NULL;
 static struct zone_map_head zones[ztMax] = {{0, 0, NULL}, {0, 0, NULL}, {0, 0, NULL}};
 static struct zone_map *loaded_zones = NULL;
@@ -197,6 +236,221 @@ char *mfs_device_translate(char *dev)
 	return devname;
 }
 
+/*********************************************/
+/* Preform byte-swapping in a block of data. */
+void data_swab (void *data, int size)
+{
+	unsigned int *idata = data;
+
+/* Do it 32 bits at a time if possible. */
+	while (size > 3) {
+		*idata = ((*idata << 8) & 0xff00ff00) | ((*idata & 0xff00ff00) >> 8);
+		size -= 4;
+		idata++;
+	}
+
+/* Swap the odd out bytes.  If theres a final odd out, just ignore it. */
+/* Probably not the best solution for data integrity, but thats okay, */
+/* this should never happen. */
+	if (size > 1) {
+		unsigned char *cdata = (unsigned char *)idata;
+		unsigned char tmp;
+
+		tmp = cdata[0];
+		cdata[0] = cdata[1];
+		cdata[1] = tmp;
+	}
+}
+
+/**************************************************/
+/* Read the TiVo partition table off of a device. */
+struct tivo_partition_table *tivo_read_partition_table (char *device, int flags)
+{
+	struct tivo_partition_table *table;
+
+/* See if this device has been opened yet. */
+	for (table = partition_tables; table; table = table->next) {
+		if (!strcmp (device, table->device)) {
+			break;
+		}
+	}
+
+/* If not, open it and read the partition table. */
+	if (!table) {
+		int *fd;
+		unsigned char buf[512];
+		int cursec;
+		int maxsec = 1;
+		int partitions = 0;
+		struct tivo_partition parts[256];
+
+		table = calloc (sizeof (*table), 1);
+
+		if (!table) {
+			fprintf (stderr, "Out of memory!\n");
+			return 0;
+		}
+
+/* Figure out if we are supposed to open it RO or RW, and use the right fd */
+/* variable. */
+		fd = (flags & O_ACCMODE) == O_RDONLY? &table->ro_fd: &table->rw_fd;
+		*fd = open (device, flags);
+		if (*fd < 0) {
+			perror (device);
+			free (table);
+			return 0;
+		}
+
+/* Don't actually care about the size, just if it's a file or device. */
+	        if (ioctl (*fd, BLKGETSIZE, &cursec) < 0) {
+			table->vol_flags |= VOL_FILE;
+		}
+
+/* Read the boot block. */
+		lseek (*fd, 0, SEEK_SET);
+		if (read (*fd, buf, 512) != 512) {
+			perror (device);
+			close (*fd);
+			free (table);
+			return 0;
+		}
+
+/* Find out what the magic is in the bootblock. */
+		switch (htons (*(unsigned short *)buf)) {
+		case TIVO_BOOT_MAGIC:
+/* It is the right magic.  Do nothing. */
+			break;
+		case TIVO_BOOT_AMIGC:
+/* It is the right magic, but it is byte-swapped.  Enable byte-swapping. */
+			table->vol_flags |= VOL_SWAB;
+			break;
+		default:
+/* Wrong magic.  Bail. */
+			close (*fd);
+			free (table);
+			return 0;
+		}
+
+/* At this point, the size of the partition table is not known.  However, it */
+/* is the first sector.  So the maxsec is bootstrapped to 1, and is updated */
+/* after the first sector. */
+		for (cursec = 1; cursec <= maxsec && partitions < 256; cursec++) {
+			struct mac_partition *part;
+			lseek (*fd, 512 * cursec, SEEK_SET);
+			if (read (*fd, buf, 512) != 512) {
+				perror (device);
+				close (*fd);
+				free (table);
+				return 0;
+			}
+			if (table->vol_flags & VOL_SWAB) {
+				data_swab (buf, 512);
+			}
+			part = (struct mac_partition *)buf;
+
+/* If it doesn't have the magic, it's not hip.  No more partitions. */
+			if (htons (part->signature) != MAC_PARTITION_MAGIC) {
+				break;
+			}
+
+/* If this is the first, update the max. */
+			if (cursec == 1) {
+				maxsec = htonl (part->map_count);
+			}
+
+/* Add it to the list. */
+			parts[partitions].start = htonl (part->start_block);
+			parts[partitions].sectors = htonl (part->block_count);
+			partitions++;
+		}
+
+/* No partitions.  None.  Nada. */
+		if (partitions == 0) {
+			close (*fd);
+			free (table);
+			return 0;
+		}
+
+/* Copy the partitions into place. */
+		table->partitions = calloc (partitions, sizeof (struct tivo_partition));
+		if (!table->partitions) {
+			close (*fd);
+			free (table);
+			return 0;
+		}
+		memcpy (table->partitions, parts, partitions * sizeof (struct tivo_partition));
+		table->count = partitions;
+		table->device = strdup (device);
+		table->next = partition_tables;
+		partition_tables = table;
+	} else {
+/* Okay, the table already exists.  Make sure the device is opened for the */
+/* proper access mode already, as well. */
+		if ((flags & O_ACCMODE) == O_RDONLY) {
+			if (table->ro_fd < 0) {
+				table->ro_fd = open (device, flags);
+			}
+		} else {
+			if (table->rw_fd < 0) {
+				table->rw_fd = open (device, flags);
+			}
+		}
+	}
+
+	return table;
+}
+
+/********************************************************************/
+/* Open a partition that is not byte-swapped or the kernel does not */
+/* recognize. */
+int tivo_partition_open (char *path, int flags, struct volume_info *vol)
+{
+	char devpath [MAXPATHLEN];
+	size_t partoff;
+	int partnum;
+	struct tivo_partition_table *table;
+
+/* Find the device name. */
+	partoff = strcspn (path, "0123456789");
+
+/* Check to make sure it is in /dev, and has a partition number. */
+	if (strncmp (path, "/dev/", 5) || partoff >= MAXPATHLEN ||
+	    !path[partoff]) {
+		return -1;
+	}
+
+	strncpy (devpath, path, partoff);
+	devpath[partoff] = '\0';
+
+	partnum = strtoul (path + partoff, &path, 10);
+
+	if (path && *path || partnum < 1) {
+		return -1;
+	}
+
+/* Get the partition table for that dev.  This may have to read it. */
+	table = tivo_read_partition_table (devpath, flags);
+
+/* Make sure the table and partition are valid. */
+	if (!table || table->count < partnum) {
+		return -1;
+	}
+
+/* Get the proper fd. */
+	if ((flags & O_ACCMODE) == O_RDONLY) {
+		vol->fd = table->ro_fd;
+	} else {
+		vol->fd = table->rw_fd;
+	}
+
+/* Copy the information to the vol header. */
+	vol->vol_flags |= table->vol_flags;
+	vol->sectors = table->partitions[partnum - 1].sectors;
+	vol->offset = table->partitions[partnum - 1].start;
+
+	return vol->fd;
+}
+
 /***************************************************************************/
 /* Add a volume to the internal list of open volumes.  Open it with flags. */
 int mfs_add_volume (char *path, int flags)
@@ -223,6 +477,12 @@ int mfs_add_volume (char *path, int flags)
 
 	newvol->fd = open (path, flags);
 
+/* If the open failed, perhaps the kernel doesn't understand the TiVo */
+/* partition format.  Try a raw device open. */
+	if (newvol->fd < 0) {
+		tivo_partition_open (path, flags, newvol);
+	}
+
 	if (newvol->fd < 0) {
 		perror (path);
 		return 0;
@@ -233,8 +493,10 @@ int mfs_add_volume (char *path, int flags)
 		newvol->vol_flags |= VOL_RDONLY;
 	}
 
-/* Find out the size of the device. */
-	if (ioctl (newvol->fd, BLKGETSIZE, &newvol->sectors) < 0) {
+/* Find out the size of the device.  If the sectors is already set, assume */
+/* it is correct, and the flags are correct as well. */
+	if (newvol->sectors == 0 && 
+	    ioctl (newvol->fd, BLKGETSIZE, &newvol->sectors) < 0) {
 		int tmperr = errno;
 		loff_t tmp;
 
@@ -258,12 +520,19 @@ int mfs_add_volume (char *path, int flags)
 		newvol->vol_flags |= VOL_FILE;
 	}
 
+	if (!newvol->sectors) {
+		close (newvol->fd);
+		newvol->fd = -1;
+		tivo_partition_open (path, flags, newvol);
+	}
+
 /* TiVo rounds off the size of the partition to even counts of 1024 sectors. */
 	newvol->sectors &= ~(MFS_PARTITION_ROUND - 1);
 
 /* If theres nothing there, assume the worst. */
 	if (!newvol->sectors) {
 		fprintf (stderr, "Error: Empty partition %s.\n", path);
+		close (newvol->fd);
 		free (newvol);
 		return -1;
 	}
@@ -340,6 +609,7 @@ int mfs_read_data (void *buf, unsigned int sector, int count)
 {
 	struct volume_info *vol;
 	loff_t result;
+	int retval;
 
 /* Find the volume this sector is from in the table of open volumes. */
 	for (vol = volumes; vol; vol = vol->next) {
@@ -363,6 +633,9 @@ int mfs_read_data (void *buf, unsigned int sector, int count)
 		return -1;
 	}
 
+/* Account for sector offset. */
+	sector += vol->offset;
+
 	if (count == 0) {
 		return 0;
 	}
@@ -379,7 +652,11 @@ int mfs_read_data (void *buf, unsigned int sector, int count)
 		req.num_sectors = count;
 		req.deadline = 0;
 
-		return readsectors (vol->fd, &vec, 1, &req);
+		retval = readsectors (vol->fd, &vec, 1, &req);
+		if (vol->vol_flags & VOL_SWAB) {
+			data_swab (buf, count * 512);
+		}
+		return retval;
 	}
 #endif
 
@@ -388,7 +665,11 @@ int mfs_read_data (void *buf, unsigned int sector, int count)
 		return -1;
 	}
 
-	return read (vol->fd, buf, count * 512);
+	retval = read (vol->fd, buf, count * 512);
+	if (vol->vol_flags & VOL_SWAB) {
+		data_swab (buf, count * 512);
+	}
+	return retval;
 }
 
 /****************************************************************************/
@@ -424,6 +705,7 @@ int mfs_write_data (void *buf, unsigned int sector, int count)
 {
 	struct volume_info *vol;
 	loff_t result;
+	int retval;
 
 /* Find the volume this sector is from in the table of open volumes. */
 	for (vol = volumes; vol; vol = vol->next) {
@@ -464,6 +746,9 @@ int mfs_write_data (void *buf, unsigned int sector, int count)
 		return -1;
 	}
 
+/* Account for sector offset. */
+	sector += vol->offset;
+
 	if (count == 0) {
 		return 0;
 	}
@@ -480,7 +765,15 @@ int mfs_write_data (void *buf, unsigned int sector, int count)
 		req.num_sectors = count;
 		req.deadline = 0;
 
-		return writesectors (vol->fd, &vec, 1, &req);
+		if (vol->vol_flags * VOL_SWAB) {
+			data_swab (buf, count * 512);
+		}
+		retval = writesectors (vol->fd, &vec, 1, &req);
+		if (vol->vol_flags * VOL_SWAB) {
+/* Fix the data since we don't own it. */
+			data_swab (buf, count * 512);
+		}
+		return retval;
 	}
 #endif
 
@@ -489,7 +782,15 @@ int mfs_write_data (void *buf, unsigned int sector, int count)
 		return -1;
 	}
 
-	return write (vol->fd, buf, count * 512);
+	if (vol->vol_flags * VOL_SWAB) {
+		data_swab (buf, count * 512);
+	}
+	retval = write (vol->fd, buf, count * 512);
+	if (vol->vol_flags * VOL_SWAB) {
+/* Fix the data since we don't own it. */
+		data_swab (buf, count * 512);
+	}
+	return retval;
 }
 
 /*****************************************************************************/
@@ -956,7 +1257,7 @@ int mfs_add_volume_pair (char *app, char *media)
 		return -1;
 	}
 
-	if (!mfs_is_writable (appstart) | !mfs_is_writable (mediastart)) {
+	if (!mfs_is_writable (appstart) || !mfs_is_writable (mediastart)) {
 		fprintf (stderr, "mfs_add_volume_pair: Could not add new volumes writable.\n");
 		mfs_reinit (O_RDWR);
 		return -1;
