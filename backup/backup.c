@@ -31,406 +31,136 @@
 #include "macpart.h"
 #include "backup.h"
 
-struct blocklist
-{
-	int backup;
-	unsigned int sector;
-	struct blocklist *next;
-};
-
-/***************************************************************************/
-/* Allocate a block from the given block pool.  If the pool is dry, calloc */
-/* it.  Either way, the returned block shall be zeroed out. */
-static struct blocklist *
-alloc_block (struct blocklist **pool)
-{
-	struct blocklist *newblock = *pool;
-
-	if (newblock)
-	{
-		*pool = newblock->next;
-		newblock->sector = 0;
-		newblock->backup = 0;
-		newblock->next = 0;
-	}
-	else
-	{
-		newblock = calloc (sizeof (*newblock), 1);
-	}
-
-	return newblock;
-}
-
-/*******************************/
-/* Return a block to the pool. */
-static void
-free_block (struct blocklist **pool, struct blocklist *block)
-{
-	block->next = *pool;
-	*pool = block;
-}
-
-/***********************************************************************/
-/* Free an entire list of blocks.  This can be used to cleanup a pool. */
-static void
-free_block_list (struct blocklist **blocks)
-{
-	while (*blocks)
-	{
-		struct blocklist *tmp = *blocks;
-		*blocks = tmp->next;
-		free (tmp);
-	}
-}
-
-/*********************************/
-/* Free an array of block lists. */
-static void
-free_block_list_array (struct blocklist **blocks)
-{
-	while (*blocks)
-	{
-		free_block_list (blocks);
-		blocks++;
-	}
-}
-
-/***********************************************************************/
-/* Concatenates an array of block lists into a single list.  This list */
-/* should be read or free only.  Any write to it will likely confuse the */
-/* add function. */
-static struct blocklist *
-block_list_array_concat (struct blocklist **blocks)
-{
-	struct blocklist *res = NULL;
-	struct blocklist **last = &res;
-
-	while (*blocks)
-	{
-		*last = *blocks;
-
-		while (*last)
-		{
-			last = &(*last)->next;
-		}
-		*blocks = 0;
-		blocks++;
-	}
-
-	return res;
-}
-
-/************************************************/
-/* Add a block to the list of blocks to backup. */
+/**************************************************************/
+/* Add an inode to the list, allocating more space if needed. */
 static int
-backup_add_block (struct blocklist **blocks, unsigned int *partstart, struct blocklist **pool, int sector, int count)
+backup_inode_list_add (unsigned **list, unsigned *allocated, unsigned *total, unsigned val)
 {
-	struct blocklist **loop;
-	struct blocklist *prev = 0;
-
-	while (partstart[1] <= sector)
+/* No space, (re)allocate space. */
+	if (*allocated <= *total)
 	{
-		partstart++;
-		blocks++;
+		*allocated += 32;
+		*list = realloc (*list, *allocated * sizeof (val));
 	}
 
-/* A little debug here and there never hurt anything. */
-#if DEBUG
-	fprintf (stderr, "Adding block %d of %d from volume at %d\n", sector, count, partstart[0]);
-#endif
-
-/* Find where in the list this block fits.  This will return with &loop */
-/* pointing to the first block with a sector number greater than the new */
-/* block. */
-	for (loop = blocks; *loop && (*loop)->sector < sector; loop = &((*loop)->next))
-	{
-		prev = *loop;
-	}
-
-	if (!*loop)
-	{
-/* There are no blocks prior to this one, and it doesn't butt up against */
-/* the end of the list. */
-		struct blocklist *newblock;
-		newblock = alloc_block (pool);
-
-		if (!newblock)
-		{
-			return -1;
-		}
-
-/* And one more.  Since this is the end of the list, this tail block is */
-/* to indicate the size of this block. */
-
-		newblock->next = alloc_block (pool);
-
-		if (!newblock->next)
-		{
-			free (newblock);
-			return -1;
-		}
-
-		newblock->backup = 1;
-		newblock->sector = sector;
-
-		newblock->next->next = *loop;
-		newblock->next->sector = sector + count;
-
-/* Insert the block at the position found. */
-		*loop = newblock;
-	}
-	else if ((*loop)->backup)
-	{
-/* This block fits in a space currently set not to backup. */
-		if (sector + count >= (*loop)->sector)
-		{
-/* In fact, it butts right up against the next backup block.  Merely extend */
-/* that block to include up to the new sector. */
-			(*loop)->sector = sector;
-		}
-		else
-		{
-/* This block is in the middle of a block set to not backup.  That means this */
-/* block will have to be split into 3 parts, 2 of them new. */
-			struct blocklist *newblock;
-			newblock = alloc_block (pool);
-
-			if (!newblock)
-			{
-				return -1;
-			}
-
-/* Allocate the second new block, that will take care of the unbacked up */
-/* space between this backed up space and the next. */
-			newblock->next = alloc_block (pool);
-
-			if (!newblock->next)
-			{
-				free (newblock);
-				return -1;
-			}
-
-			newblock->backup = 1;
-			newblock->sector = sector;
-
-			newblock->next->next = *loop;
-			newblock->next->sector = sector + count;
-
-/* Insert it into the current location. */
-			*loop = newblock;
-		}
-	}
-	else
-	{
-/* The next block the new one is not after is not set to be backed up. */
-/* The only way this could happen is either because no blocks exist yet, */
-/* or the new block is at the beginning of an unbacked up section, or no */
-/* blocks before it are backed up. */
-		if (prev && (*loop)->sector < sector + count)
-		{
-/* This is not the first block, and it extends the previous backed up block. */
-			(*loop)->sector = sector + count;
-		}
-		else if (!prev)
-		{
-/* This is the first block in the list.  Split the initial non-backup block. */
-			struct blocklist *newblock;
-			newblock = alloc_block (pool);
-
-			if (!newblock)
-			{
-				return -1;
-			}
-
-			newblock->next = alloc_block (pool);
-
-			if (!newblock->next)
-			{
-				free (newblock);
-				return -1;
-			}
-
-			newblock->backup = 1;
-			newblock->sector = sector;
-
-			newblock->next->sector = sector + count;
-			newblock->next->next = (*loop)->next;;
-
-/* Insert this block at the beginning of the list.  Also trick out the loop */
-/* variable, since it is expected to point to the newly adjusted block to be */
-/* backed up. */
-			*loop = newblock;
-			loop = &newblock->next;
-		}
-		else
-		{
-/* These ifs don't cover all cases...  But no other cases should occur.  If */
-/* they do, it is an error. */
-			return -1;
-		}
-	}
-
-/* At this point it is possible for a block to overlap the next block. */
-	while ((*loop)->next && ((*loop)->next->sector < (*loop)->sector || (*loop)->next->backup == (*loop)->backup))
-	{
-/* If there is overlap, or if the next block has the same backup/don't backup */
-/* status, just drop the next block. */
-		struct blocklist *oldblock = (*loop)->next;
-		(*loop)->next = oldblock->next;
-		free_block (pool, oldblock);
-	}
-
-	return 0;
-}
-
-/***********************************************************/
-/* Create the main data structure for holding backup info. */
-static int
-add_blocks_to_backup_info (struct backup_info *info, struct blocklist *blocks)
-{
-	struct blocklist *loop;
-	int count = 0;
-
-	if (!info)
-	{
+/* Allocation error. */
+	if (!*list)
 		return -1;
-	}
 
-/* Count how many blocks there are. */
-	for (loop = blocks; loop; loop = loop->next)
-	{
-		if (loop->backup)
-		{
-			info->nblocks++;
-		}
-	}
+/* Append the value to the end of the list. */
+	(*list)[(*total)++] = val;
 
-/* Allocate space for the backup blocks in the portable format. */
-	info->blocks = calloc (sizeof (struct backup_block), info->nblocks);
-
-	if (!info->blocks)
-	{
-		info->err_msg = "Memory exhausted";
-		return -1;
-	}
-
-/* Copy the temporary list to the final block list. */
-	for (loop = blocks; loop; loop = loop->next)
-	{
-		if (loop->backup)
-		{
-			info->blocks[count].firstsector = loop->sector;
-			info->blocks[count].sectors = loop->next->sector - loop->sector;
-			info->nsectors += info->blocks[count].sectors;
-			count++;
-		}
-	}
 	return 0;
 }
 
 /*****************************************************************/
-/* Scan the inode table and generate a list of blocks to backup. */
-static struct blocklist *
-scan_inodes (struct backup_info *info)
+/* Scan the inode table and generate a list of inodes to backup. */
+unsigned
+backup_scan_inodes (struct backup_info *info)
 {
 	unsigned int loop, loop2, loop3;
 	int ninodes = mfs_inode_count (info->mfs);
-	struct blocklist *blocks[32];
-	unsigned int partstart[32];
-	struct blocklist *pool = NULL;
 	unsigned int highest = 0;
 
-	bzero (blocks, sizeof (blocks));
+	unsigned int appsectors = 0, mediasectors = 0;
+#if DEBUG
+	unsigned int mediainodes = 0, appinodes = 0;
+#endif
 
-	for (loop = 0, loop3 = 0; (loop2 = mfs_volume_size (info->mfs, loop)); loop += loop2, loop3++)
-	{
-		partstart[loop3] = loop;
-		blocks[loop3] = calloc (sizeof (**blocks), 1);
-		if (!blocks[loop3])
-		{
-			while (loop3 > 0)
-			{
-				loop3--;
-				free (blocks[loop3]);
-				info->err_msg = "Memory exhausted";
-				return 0;
-			}
-		}
-	}
-	partstart[loop3] = ~0;
-	blocks[loop3] = 0;
+	unsigned allocated = 0;
 
 /* Add inodes. */
 	for (loop = 0; loop < ninodes; loop++)
 	{
 		mfs_inode *inode = mfs_read_inode (info->mfs, loop);
 
-		if (inode)
+		if (mfs_has_error (info->mfs))
 		{
+			if (info->inodes)
+				free (info->inodes);
+			info->inodes = 0;
+			return ~0;
+		}
+
+/* Don't think this should ever happen. */
+		if (!inode)
+			continue;
+
 /* If it a stream, treat it specially. */
-			if (inode->type == tyStream)
+		if (inode->type == tyStream && inode->refcount > 0)
+		{
+			unsigned int streamsize;
+
+			if (info->back_flags & (BF_THRESHTOT | BF_STREAMTOT))
+				streamsize = htonl (inode->blocksize) / 512 * htonl (inode->size);
+			else
+				streamsize = htonl (inode->blocksize) / 512 * htonl (inode->blockused);
+
+/* Ignore streams with no allocated data. */
+			if (streamsize == 0)
 			{
-				unsigned int streamsize;
+				free (inode);
+				continue;
+			}
+/* Ignore streams bigger than the threshhold. (Size) */
+			if ((info->back_flags & BF_THRESHSIZE) && streamsize > info->thresh)
+			{
+				free (inode);
+				continue;
+			}
+/* Ignore streams bigger than the threshhold. (fsID) */
+			if (!(info->back_flags & BF_THRESHSIZE) && htonl (inode->fsid) > info->thresh)
+			{
+				free (inode);
+				continue;
+			}
 
-				if (info->back_flags & (BF_THRESHTOT | BF_STREAMTOT))
-					streamsize = htonl (inode->blocksize) / 512 * htonl (inode->size);
-				else
-					streamsize = htonl (inode->blocksize) / 512 * htonl (inode->blockused);
+/* If the total size is only for comparison, get the used size now. */
+			if ((info->back_flags & (BF_THRESHTOT | BF_STREAMTOT)) == BF_THRESHTOT)
+				streamsize = htonl (inode->blocksize) / 512 * htonl (inode->blockused);
 
-/* Only backup streams that are smaller than the threshhold. */
-				if (streamsize > 0 && (((info->back_flags & BF_THRESHSIZE) && streamsize < info->thresh) || (!(info->back_flags & BF_THRESHSIZE) && htonl (inode->fsid) <= info->thresh)))
-				{
-/* Add all blocks. */
-
-					if ((info->back_flags & (BF_THRESHTOT | BF_STREAMTOT)) == BF_THRESHTOT)
-						streamsize = htonl (inode->blocksize) / 512 * htonl (inode->blockused);
-
-					for (loop2 = 0; loop2 < htonl (inode->numblocks); loop2++)
-					{
-						unsigned int thiscount = htonl (inode->datablocks[loop2].count);
-						unsigned int thissector = htonl (inode->datablocks[loop2].sector);
-
-						if (thiscount > streamsize)
-							thiscount = streamsize;
-
+/* Count the inode's sectors in the total. */
+			mediasectors += streamsize;
 #if DEBUG
-						fprintf (stderr, "Inode %d: ", htonl (inode->fsid));
+			mediainodes++;
 #endif
 
-						if (backup_add_block (blocks, partstart, &pool, thissector, thiscount) != 0)
-						{
-							free_block_list_array (blocks);
-							free_block_list (&pool);
-							free (inode);
-							info->err_msg = "Memory exhausted";
-							return 0;
-						}
-						streamsize -= thiscount;
-
-						if (streamsize == 0)
-							break;
-
-						if (highest < thiscount + thissector)
-							highest = thissector + thiscount;
-					}
-
-				}
-			}
-			else
+/* Add the inode to the list. */
+			if (backup_inode_list_add (&info->inodes, &allocated, &info->ninodes, loop) < 0)
 			{
-				for (loop2 = 0; loop2 < htonl (inode->numblocks); loop2++)
-				{
-					unsigned int thiscount = htonl (inode->datablocks[loop2].count);
-					unsigned int thissector = htonl (inode->datablocks[loop2].sector);
-
-					if (highest < thiscount + thissector)
-					{
-						highest = thiscount + thissector;
-					}
-				}
+				info->err_msg = "Memory exhausted (Inode scan %d)";
+				info->err_arg1 = (void *)loop;
+				free (inode);
+				return ~0;
 			}
-			free (inode);
+
+#if DEBUG
+			fprintf (stderr, "Inode %d (%d) added\n", htonl (inode->inode), htonl (inode->fsid));
+#endif
 		}
+		else if (inode->refcount != 0 && inode->type != tyStream && inode->size > 512 - offsetof (mfs_inode, datablocks) && inode->numblocks > 0)
+		{
+/* Count the space used by non-stream inodes */
+			appsectors += ((htonl (inode->size) + 511) & ~511) >> 9;
+#if DEBUG
+			appinodes++;
+#endif
+
+		}
+
+/* Either an application data inode or a stream inode being backed up. */
+		for (loop2 = 0; loop2 < htonl (inode->numblocks); loop2++)
+		{
+			unsigned int thiscount = htonl (inode->datablocks[loop2].count);
+			unsigned int thissector = htonl (inode->datablocks[loop2].sector);
+
+			if (highest < thiscount + thissector)
+			{
+				highest = thiscount + thissector;
+			}
+		}
+
+		free (inode);
 	}
 
 // Make sure all needed data is present.
@@ -443,60 +173,22 @@ scan_inodes (struct backup_info *info)
 			info->err_arg1 = (void *)highest;
 			info->err_arg2 = (void *)set_size;
 
-			free_block_list_array (blocks);
-			free_block_list (&pool);
-
-			return 0;
+			return ~0;
 		}
 	}
 
-	if (info->back_flags & BF_SHRINK)
-	{
-		zone_header *hdr = 0;
+	// Record highest block to backup.
+	if ((info->back_flags & BF_SHRINK) && highest > info->shrink_to)
+		info->shrink_to = highest;
 
-		while ((hdr = mfs_next_zone (info->mfs, hdr)) != 0)
-		{
 #if DEBUG
-			fprintf (stderr, "Checking zone at %ld of type %d for region %ld-%ld\n", htonl (hdr->sector), htonl (hdr->type), htonl (hdr->first), htonl (hdr->last));
+	fprintf (stderr, "Backing up %d media sectors (%d inodes), %d app sectors (%d inodes) and %d inode sectors\n", mediasectors, mediainodes, appsectors, appinodes, ninodes);
 #endif
-			if (htonl (hdr->type) != ztMedia)
-			{
-				if (htonl (hdr->sector) + htonl (hdr->length) > highest)
-					highest = htonl (hdr->sector) + htonl (hdr->length);
-				if (htonl (hdr->last) > highest)
-					highest = htonl (hdr->last);
-			}
-		}
-	}
 
-/* Put in the whole volumes. */
-	for (loop = 0, loop3 = 1; (loop2 = mfs_volume_size (info->mfs, loop)); loop += loop2, loop3 ^= 1)
-	{
-		if (loop3)
-		{
-			if ((info->back_flags & BF_SHRINK) && loop >= highest)
-			{
-#if DEBUG
-				fprintf (stderr, "Truncating MFS at %d\n", loop);
-#endif
-				break;
-			}
-			if (backup_add_block (blocks, partstart, &pool, loop, loop2) != 0)
-			{
-				free_block_list_array (blocks);
-				free_block_list (&pool);
-				info->err_msg = "Memory exhausted";
-				return 0;
-			}
-		}
-		if (info->back_flags & BF_SHRINK)
-			info->nmfs++;
-	}
+/* Count the space for the inodes themselves */
+	info->nsectors += ninodes + appsectors + mediasectors;
 
-/* Free the data. */
-	free_block_list (&pool);
-
-	return block_list_array_concat (blocks);
+	return info->ninodes;
 }
 
 /***********************************************************/
@@ -772,6 +464,33 @@ add_partitions_to_backup_info (struct backup_info *info, char *device)
 	return 0;
 }
 
+/**************************************************************/
+/* Count the sectors of various items not scanned during init */
+int
+backup_info_count_misc (struct backup_info *info)
+{
+	zone_header *zone = NULL;
+
+// Boot sector
+	info->nsectors++;
+// Volume header
+	info->nsectors++;
+// Checksum
+	info->nsectors++;
+// Transaction log
+	info->nsectors += htonl (info->mfs->vol_hdr.lognsectors);
+// ??? region
+	info->nsectors += htonl (info->mfs->vol_hdr.unksectors);
+// Zone maps
+	while ((zone = mfs_next_zone (info->mfs, zone)) != NULL)
+	{
+		if (info->shrink_to && htonl (zone->sector) > info->shrink_to)
+			break;
+
+		info->nsectors += htonl (zone->length);
+	}
+}
+
 /*************************************/
 /* Initializes the backup structure. */
 struct backup_info *
@@ -790,6 +509,9 @@ init_backup (char *device, char *device2, int flags)
  	{
  		return 0;
  	}
+
+	info->crc = ~0;
+	info->state_machine = &backup_v3;
 
 	info->mfs = mfs_init (device, device2, O_RDONLY);
  
@@ -906,26 +628,694 @@ backup_start (struct backup_info *info)
 		return -1;
 	}
 
-	blocks = scan_inodes (info);
-	if (add_blocks_to_backup_info (info, blocks) != 0) {
-		free_block_list (&blocks);
+	if (backup_scan_inodes (info) == ~0)
+	{
 		free (info->parts);
 		return -1;
 	}
-	free_block_list (&blocks);
 
 	if (add_mfs_partitions_to_backup_info (info) != 0) {
 		free (info->parts);
-		free (info->blocks);
+		free (info->inodes);
 		return -1;
 	}
 
-	info->presector = (info->nblocks * sizeof (struct backup_block) + info->nparts * sizeof (struct backup_partition) + info->nmfs * sizeof (struct backup_partition) + 511) / 512 + 1;
+	if (backup_info_count_misc (info) != 0)
+	{
+		free (info->parts);
+		free (info->inodes);
+		free (info->mfs);
+		return -1;
+	}
 
-	info->nsectors += info->presector + 1;
+	info->nsectors += (info->ninodes * sizeof (unsigned long) + info->nparts * sizeof (struct backup_partition) + info->nmfs * sizeof (struct backup_partition) + sizeof (struct backup_head_v3) + 511) / 512;
 
 	return 0;
 }
+
+/***************************************************************************/
+/* State handlers - return val -1 = error, 0 = more data needed, 1 = go to */
+/* next state. */
+
+/*******************/
+/* Begin v3 backup */
+/* state_val1 = --unused-- */
+/* state_val2 = --unused-- */
+/* state_ptr1 = --unused-- */
+/* shared_val1 = next offset to use in block */
+enum backup_state_ret
+backup_state_begin_v3 (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
+{
+	struct backup_head_v3 *head = data;
+
+	if (size == 0)
+	{
+		info->err_msg = "Internal error: Backup buffer full";
+		return bsError;
+	}
+
+	head->magic = TB3_MAGIC;
+	head->flags = info->back_flags;
+	head->nsectors = info->nsectors;
+	head->nparts = info->nparts;
+	head->ninodes = info->ninodes;
+	head->mfspairs = info->nmfs;
+
+	info->shared_val1 = (sizeof (*head) + 7) & (512 - 8);
+	*consumed = 0;
+
+	return bsNextState;
+}
+
+/*********************************/
+/* Add partition info to backup. */
+/* state_val1 = index of last copied partition */
+/* state_val2 = --unused-- */
+/* state_ptr1 = --unused-- */
+/* shared_val1 = next offset to use in block */
+enum backup_state_ret
+backup_state_info_partitions (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
+{
+	unsigned count = info->nparts - info->state_val1;
+
+	if (size == 0)
+	{
+		info->err_msg = "Internal error: Backup buffer full";
+		return bsError;
+	}
+
+/* Copy as much as possible */
+	if (count * sizeof (struct backup_partition) + info->shared_val1 > size * 512)
+	{
+		count = (size * 512 - info->shared_val1) / sizeof (struct backup_partition);
+	}
+
+	memcpy ((char *)data + info->shared_val1, (char *)&info->parts[info->state_val1], count * sizeof (struct backup_partition));
+
+	info->state_val1 += count;
+	info->shared_val1 += count * sizeof (struct backup_partition) + 7;
+	*consumed = info->shared_val1 / 512;
+	info->shared_val1 &= 512 - 8;
+
+	if (info->state_val1 < info->nparts)
+		return bsMoreData;
+
+	return bsNextState;
+}
+
+/*****************************/
+/* Add inode list to backup. */
+/* state_val1 = index of last copied inode */
+/* state_val2 = --unused-- */
+/* state_ptr1 = --unused-- */
+/* shared_val1 = next offset to use in block */
+enum backup_state_ret
+backup_state_info_inodes_v3 (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
+{
+	unsigned count = info->ninodes - info->state_val1;
+
+	if (size == 0)
+	{
+		info->err_msg = "Internal error: Backup buffer full";
+		return bsError;
+	}
+
+/* Copy as much as possible */
+	if (count * sizeof (unsigned) + info->shared_val1 > size * 512)
+	{
+		count = (size * 512 - info->shared_val1) / sizeof (unsigned);
+	}
+
+	memcpy ((char *)data + info->shared_val1, (char *)&info->inodes[info->state_val1], count * sizeof (unsigned));
+
+	info->state_val1 += count;
+	info->shared_val1 += count * sizeof (unsigned) + 7;
+	*consumed = info->shared_val1 / 512;
+	info->shared_val1 &= 512 - 8;
+
+	if (info->state_val1 < info->ninodes)
+		return bsMoreData;
+
+	return bsNextState;
+}
+
+/*************************************/
+/* Add MFS partition info to backup. */
+/* state_val1 = index of last copied MFS partition */
+/* state_val2 = --unused-- */
+/* state_ptr1 = --unused-- */
+/* shared_val1 = next offset to use in block */
+enum backup_state_ret
+backup_state_info_mfs_partitions (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
+{
+	unsigned count = info->nmfs - info->state_val1;
+
+	if (size == 0)
+	{
+		info->err_msg = "Internal error: Backup buffer full";
+		return bsError;
+	}
+
+/* Copy as much as possible */
+	if (count * sizeof (struct backup_partition) + info->shared_val1 > size * 512)
+	{
+		count = (size * 512 - info->shared_val1) / sizeof (struct backup_partition);
+	}
+
+	memcpy ((char *)data + info->shared_val1, (char *)&info->mfsparts[info->state_val1], count * sizeof (struct backup_partition));
+
+	info->state_val1 += count;
+	info->shared_val1 += count * sizeof (struct backup_partition) + 7;
+	*consumed = info->shared_val1 / 512;
+	info->shared_val1 &= 512 - 8;
+
+	if (info->state_val1 < info->nmfs)
+		return bsMoreData;
+
+	return bsNextState;
+}
+
+/********************************/
+/* Finish off the backup header */
+/* state_val1 = --unused-- */
+/* state_val2 = --unused-- */
+/* state_ptr1 = --unused-- */
+/* shared_val1 = next offset to use in block */
+enum backup_state_ret
+backup_state_info_end (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
+{
+	if (size == 0)
+	{
+		info->err_msg = "Internal error: Backup buffer full";
+		return bsError;
+	}
+
+	if (info->shared_val1 > 0)
+	{
+		memset ((char *)data + info->shared_val1, 0, 512 - info->shared_val1);
+
+		*consumed = 1;
+		info->shared_val1 = 0;
+	}
+
+	return bsNextState;
+}
+
+/*************************/
+/* Backup the boot block */
+/* state_val1 = --unused-- */
+/* state_val2 = --unused-- */
+/* state_ptr1 = --unused-- */
+/* shared_val1 = --unused-- */
+enum backup_state_ret
+backup_state_boot_block (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
+{
+	if (size == 0)
+	{
+		info->err_msg = "Internal error: Backup buffer full";
+		return bsError;
+	}
+
+	if (tivo_partition_read_bootsector (info->devs[0].devname, data) < 0)
+	{
+		info->err_msg = "Error reading boot block";
+		return bsError;
+	}
+
+	*consumed = 1;
+
+	return bsNextState;
+}
+
+/***************************************/
+/* Backup the raw (non-MFS) partitions */
+/* state_val1 = current partition index */
+/* state_val2 = offset within current partition */
+/* state_ptr1 = --unused-- */
+/* shared_val1 = --unused-- */
+enum backup_state_ret
+backup_state_partitions (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
+{
+	tpFILE *file;
+	int tocopy = info->parts[info->state_val1].sectors - info->state_val2;
+
+	if (size == 0)
+	{
+		info->err_msg = "Internal error: Backup buffer full";
+		return bsError;
+	}
+
+/* The partition is larger than the buffer, read as much as possible. */
+	if (tocopy > size)
+	{
+		tocopy = size;
+	}
+
+/* Get the file for this partition from the info structure. */
+	file = info->devs[(int)info->parts[info->state_val1].devno].files[(int)info->parts[info->state_val1].partno];
+
+/* If the file isn't opened, open it. */
+	if (!file)
+	{
+		file = tivo_partition_open_direct (info->devs[(int)info->parts[info->state_val1].devno].devname, info->parts[info->state_val1].partno, O_RDONLY);
+/* The sick part, is most of this line is an lvalue. */
+		info->devs[(int)info->parts[info->state_val1].devno].files[(int)info->parts[info->state_val1].partno] = file;
+
+		if (!file)
+		{
+			info->err_msg = "Internal error opening partition %s%d";
+			info->err_arg1 = info->devs[(int)info->parts[info->state_val1].devno].devname;
+			info->err_arg2 = (void *)(unsigned)info->parts[info->state_val1].partno;
+			return bsError;
+		}
+	}
+
+	if (tivo_partition_read (file, data, info->state_val2, tocopy) < 0)
+	{
+		info->err_msg = "%s backing up partitions";
+		if (errno)
+			info->err_arg1 = strerror (errno);
+		else
+			info->err_arg1 = "Unknown error";
+		return bsError;
+	}
+
+	*consumed = tocopy;
+	info->state_val2 += tocopy;
+
+	if (info->state_val2 >= info->parts[info->state_val1].sectors)
+	{
+		info->state_val1++;
+		info->state_val2 = 0;
+	}
+
+	if (info->state_val1 < info->nparts)
+		return bsMoreData;
+
+	return bsNextState;
+}
+
+/****************************/
+/* Backup the volume header */
+/* state_val1 = --unused-- */
+/* state_val2 = --unused-- */
+/* state_ptr1 = --unused-- */
+/* shared_val1 = --unused-- */
+enum backup_state_ret
+backup_state_volume_header_v3 (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
+{
+	if (size == 0)
+	{
+		info->err_msg = "Internal error: Backup buffer full";
+		return bsError;
+	}
+
+	memcpy (data, &info->mfs->vol_hdr, sizeof (info->mfs->vol_hdr));
+	memset ((char *)data + sizeof (info->mfs->vol_hdr), 0, 512 - sizeof (info->mfs->vol_hdr));
+
+	*consumed = 1;
+
+	return bsNextState;
+}
+
+/******************************/
+/* Backup the transaction log */
+/* state_val1 = offset within transaction log */
+/* state_val2 = --unused-- */
+/* state_ptr1 = --unused-- */
+/* shared_val1 = --unused-- */
+enum backup_state_ret
+backup_state_transaction_log_v3 (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
+{
+	unsigned tocopy = htonl (info->mfs->vol_hdr.lognsectors) - info->state_val1;
+
+	if (size == 0)
+	{
+		info->err_msg = "Internal error: Backup buffer full";
+		return bsError;
+	}
+
+	if (tocopy > size)
+	{
+		tocopy = size;
+	}
+
+	if (mfs_read_data (info->mfs, data, htonl (info->mfs->vol_hdr.logstart) + info->state_val1, tocopy) < 0)
+	{
+		info->err_msg = "Error reading MFS transaction log";
+		return bsError;
+	}
+
+	*consumed = tocopy;
+	info->state_val1 += tocopy;
+
+	if (info->state_val1 < htonl (info->mfs->vol_hdr.lognsectors))
+		return bsMoreData;
+
+	return bsNextState;
+}
+
+/***********************************************************************/
+/* Backup the unknown region referenced in the volume header after the */
+/* transaction log */
+/* state_val1 = offset within region */
+/* state_val2 = --unused-- */
+/* state_ptr1 = --unused-- */
+/* shared_val1 = --unused-- */
+enum backup_state_ret
+backup_state_unk_region_v3 (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
+{
+	unsigned tocopy = htonl (info->mfs->vol_hdr.unksectors) - info->state_val1;
+
+	if (size == 0)
+	{
+		info->err_msg = "Internal error: Backup buffer full";
+		return bsError;
+	}
+
+	if (tocopy > size)
+	{
+		tocopy = size;
+	}
+
+	if (mfs_read_data (info->mfs, data, htonl (info->mfs->vol_hdr.unkstart) + info->state_val1, tocopy) < 0)
+	{
+		info->err_msg = "Error reading MFS data";
+		return bsError;
+	}
+
+	*consumed = tocopy;
+	info->state_val1 += tocopy;
+
+	if (info->state_val1 < htonl (info->mfs->vol_hdr.unksectors))
+		return bsMoreData;
+
+	return bsNextState;
+}
+
+/********************/
+/* Backup zone maps */
+/* state_val1 = offset within zone map */
+/* state_val2 = --unused-- */
+/* state_ptr1 = current zone map */
+/* shared_val1 = --unused-- */
+enum backup_state_ret
+backup_state_zone_maps_v3 (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
+{
+	unsigned tocopy;
+	zone_header *cur_zone = info->state_ptr1;
+
+	if (size == 0)
+	{
+		info->err_msg = "Internal error: Backup buffer full";
+		return bsError;
+	}
+
+	if (info->state_val1 == 0)
+	{
+		cur_zone = mfs_next_zone (info->mfs, cur_zone);
+
+		if (!cur_zone)
+		{
+			return bsNextState;
+		}
+
+		if (info->shrink_to > 0 && info->shrink_to < htonl (cur_zone->sector))
+		{
+/* The restore will be able to figure out the next zone is beyond the end of */
+/* the shrunken volume. */
+			return bsNextState;
+		}
+
+		info->state_ptr1 = cur_zone;
+	}
+
+	tocopy = htonl (cur_zone->length) - info->state_val1;
+
+	if (tocopy > size)
+	{
+		tocopy = size;
+	}
+
+	memcpy (data, (char *)cur_zone + info->state_val1 * 512, tocopy * 512);
+
+	*consumed = tocopy;
+	info->state_val1 += tocopy;
+
+	if (info->state_val1 >= htonl (cur_zone->length))
+	{
+		info->state_val1 = 0;
+	}
+
+	return bsMoreData;
+}
+
+/*****************************/
+/* Backup application inodes */
+/* Write inode sector, followed by date for non tyStream inodes. */
+/* state_val1 = current inode number */
+/* state_val2 = offset within zone map */
+/* state_ptr1 = current inode structure */
+/* shared_val1 = --unused-- */
+enum backup_state_ret
+backup_state_app_inodes_v3 (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
+{
+	unsigned tocopy = 0, copied;
+	mfs_inode *inode;
+
+	if (size == 0)
+	{
+		info->err_msg = "Internal error: Backup buffer full";
+		return bsError;
+	}
+
+	if (info->state_val2 == 0)
+	{
+		unsigned inode_size;
+
+/* Fetch the next inode */
+		inode = mfs_read_inode (info->mfs, info->state_val1);
+
+		if (!inode)
+		{
+			return bsError;
+		}
+
+/* Hopefully this will never happen because I'm not 100% confident in the */
+/* initialization values being "good" */
+/* Trying to recover instead of aborting for the sake of drive failure */
+/* recovery. */
+		if (info->state_val1 != htonl (inode->inode))
+		{
+			fprintf (stderr, "Inode %d uninitialized\n", info->state_val1);
+			inode->inode = htonl (info->state_val1);
+			inode->refcount = 0;
+			inode->numblocks = 0;
+			inode->fsid = 0;
+			inode->size = 0;
+/* Don't bother updating the CRC, restore will do that */
+		}
+
+		inode_size = offsetof (mfs_inode, datablocks);
+		inode_size += htonl (inode->numblocks) * sizeof (inode->datablocks[0]);
+
+/* Data in inode. */
+		if (inode->type != tyStream && inode->size <= 512 - offsetof (mfs_inode, datablocks) && inode->refcount != 0 && inode->numblocks == 0)
+		{
+			inode_size += htonl (inode->size);
+		}
+
+/* Zeros compress easier, so might as well eliminate any unneeded data. */
+		memcpy (data, inode, inode_size);
+		memset ((char *)data + inode_size, 0, 512 - inode_size);
+
+		data = (char *)data + 512;
+		--size;
+		++*consumed;
+
+/* Start at offset 1 */
+		info->state_val2++;
+		info->state_ptr1 = inode;
+	}
+	else
+	{
+		inode = info->state_ptr1;
+	}
+
+	if (inode->type != tyStream && inode->refcount > 0 && inode->numblocks > 0)
+		tocopy = htonl (inode->size) - (info->state_val2 - 1) * 512;
+
+	copied = tocopy;
+
+	if (copied > size * 512)
+	{
+		copied = size * 512;
+	}
+
+/* If there was no data to copy, or only enough room for the inode itself, */
+/* tocopy could be 0. */
+	if (copied > 0)
+	{
+		if (mfs_read_inode_data_part (info->mfs, inode, data, info->state_val2 - 1, (copied + 511) / 512) < 0)
+		{
+			info->err_msg = "Error reading inode %d";
+			info->err_arg1 = (void *)info->state_val1;
+			free (inode);
+			return bsError;
+		}
+
+/* Once again, zeros compress well, so zero out any garbage data. */
+		if ((copied & 511) > 0)
+		{
+			memset ((char *)data + copied, 0, 512 - (copied & 511));
+		}
+	}
+
+	*consumed += (copied + 511) / 512;
+	info->state_val2 += (copied + 511) / 512;
+
+/* If the entire data was copied, go to the next inode */
+	if (copied == tocopy)
+	{
+		info->state_val1++;
+		info->state_val2 = 0;
+		free (inode);
+	}
+
+	if (info->state_val1 < mfs_inode_count (info->mfs))
+		return bsMoreData;
+
+	return bsNextState;
+}
+
+/***************************/
+/* Backup the media inodes */
+/* state_val1 = currend inode (index) */
+/* state_val2 = offset within current inode */
+/* state_ptr1 = pointer to current inode */
+/* shared_val1 = --unused-- */
+enum backup_state_ret
+backup_state_media_inodes_v3 (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
+{
+	mfs_inode *inode;
+	unsigned tocopy, copied;
+
+	if (size == 0)
+	{
+		info->err_msg = "Internal error: Backup buffer full";
+		return bsError;
+	}
+
+	if (info->state_val2 == 0)
+	{
+/* Fetch the next inode */
+		inode = mfs_read_inode (info->mfs, info->inodes [info->state_val1]);
+
+		if (!inode)
+		{
+			return bsError;
+		}
+
+		info->state_ptr1 = inode;
+	}
+	else
+	{
+		inode = info->state_ptr1;
+	}
+
+/* Check if total size or used size is requested for backup */
+	if (info->back_flags & BF_STREAMTOT)
+		tocopy = htonl (inode->size);
+	else
+		tocopy = htonl (inode->blockused);
+
+/* tocopy is currently in blocksize chunks, convert it to disk sectors */
+	tocopy *= htonl (inode->blocksize) / 512;
+
+	tocopy -= info->state_val2;
+
+	copied = tocopy;
+
+	if (copied > size)
+	{
+		copied = size;
+	}
+
+	if (mfs_read_inode_data_part (info->mfs, inode, data, info->state_val2, copied) < 0)
+	{
+		info->err_msg = "Error reading from tyStream id %d";
+		info->err_arg1 = (void *)htonl (inode->fsid);
+		free (inode);
+		return bsError;
+	}
+
+	*consumed = copied;
+	info->state_val2 += copied;
+
+	if (copied == tocopy)
+	{
+		free (inode);
+		info->state_val1++;
+		info->state_val2 = 0;
+	}
+
+	if (info->state_val1 < info->ninodes)
+		return bsMoreData;
+
+	return bsNextState;
+}
+
+/*****************/
+/* Finish backup */
+/* For v3 backup, store CRC32 at end of the backup. */
+/* state_val1 = --unused-- */
+/* state_val2 = --unused-- */
+/* state_ptr1 = --unused-- */
+/* shared_val1 = --unused-- */
+enum backup_state_ret
+backup_state_complete_v3 (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
+{
+	if (size == 0)
+	{
+		info->err_msg = "Internal error: Backup buffer full";
+		return bsError;
+	}
+
+	memset (data, 0, 512);
+	info->crc = compute_crc (data, 512 - sizeof (unsigned int), info->crc);
+	*(unsigned int *)((char *)data + 512 - sizeof (unsigned int)) = ~info->crc;
+
+	*consumed = 1;
+
+#ifdef DEBUG
+	if (info->nsectors != info->cursector + 1)
+	{
+		fprintf (stderr, "nsectors %d != cursector + 1 %d\n", info->nsectors, info->cursector);
+	}
+#endif
+
+	return bsNextState;
+}
+
+backup_state_handler backup_v3 = {
+	&backup_state_begin_v3,					// bsBegin
+	&backup_state_info_partitions,			// bsInfoPartition
+	NULL,									// bsInfoBlocks
+	&backup_state_info_inodes_v3,			// bsInfoInodes
+	&backup_state_info_mfs_partitions,		// bsInfoMFSPartitions
+	&backup_state_info_end,					// bsInfoEnd
+	&backup_state_boot_block,				// bsBootBlock
+	&backup_state_partitions,				// bsPartitions
+	NULL,									// bsMFSInit
+	NULL,									// bsBlocks
+	&backup_state_volume_header_v3,			// bsVolumeHeader
+	&backup_state_transaction_log_v3,		// bsTransactionLog
+	&backup_state_unk_region_v3,			// bsUnkRegion
+	&backup_state_zone_maps_v3,				// bsZoneMaps
+	&backup_state_app_inodes_v3,			// bsAppInodes
+	&backup_state_media_inodes_v3,			// bsMediaInodes
+	&backup_state_complete_v3				// bsComplete
+};
 
 /*****************************************************************************/
 /* Return the next sectors in the backup.  This is where all the data in the */
@@ -935,281 +1325,64 @@ backup_start (struct backup_info *info)
 static unsigned int
 backup_next_sectors (struct backup_info *info, char *buf, int sectors)
 {
-	unsigned int retval = 0;
+	enum backup_state_ret ret;
+	unsigned consumed;
 
-/* If there is nothing to do, do nothing.  How zen. */
-	if (sectors <= 0)
-	{
-		return 0;
-	}
+	unsigned backup_blocks = 0;
 
-/* If there is something to do, keep doing it until there is nothing.  How */
-/* materialistic. */
-	while (sectors > 0)
+	while (sectors > 0 && info->state < bsMax && info->state >= bsBegin)
 	{
-/* If the secotr number is 0 or greater, the it is the actual data.  If it */
-/* is below zero, it is the header. */
-		if (info->cursector - info->presector >= 0)
+		consumed = 0;
+
+		ret = (*info->state_machine[info->state]) (info, buf, sectors, &consumed);
+
+		if (consumed > sectors)
 		{
-			int cursector = info->cursector - info->presector;
-			int loop = 0;
-
-			if (cursector == 0)
-			{
-/* Backup the boot sector. */
-				tivo_partition_read_bootsector (info->devs[0].devname, buf);
-				sectors -= 1;
-				retval += 1;
-				info->cursector += 1;
-				buf += 512;
-			}
-			else
-				cursector--;
-
-/* Step through the partitions. */
-			for (loop = 0; loop < info->nparts && sectors > 0; loop++)
-			{
-/* If the size of this partition doesn't account for the current sector, */
-/* just track it and move on. */
-				if (info->parts[loop].sectors <= cursector)
-				{
-					cursector -= info->parts[loop].sectors;
-				}
-				else
-				{
-					tpFILE *file;
-					int tocopy = info->parts[loop].sectors - cursector;
-
-/* The partition is larger than the buffer, read as much as possible. */
-					if (tocopy > sectors)
-					{
-						tocopy = sectors;
-					}
-
-/* Get the file for this partition from the info structure. */
-					file = info->devs[(int)info->parts[loop].devno].files[(int)info->parts[loop].partno];
-
-/* If the file isn't opened, open it. */
-					if (!file)
-					{
-						file = tivo_partition_open_direct (info->devs[(int)info->parts[loop].devno].devname, info->parts[loop].partno, O_RDONLY);
-/* The sick part, is most of this line is an lvalue. */
-						info->devs[(int)info->parts[loop].devno].files[(int)info->parts[loop].partno] = file;
-
-/* If the file still isn't open, there is an error. */
-						if (!file)
-						{
-							info->err_msg = "Internal error opening partition";
-							return -1;
-						}
-					}
-
-/* Read the data. */
-					if (tivo_partition_read (file, buf, cursector, tocopy) < 0)
-					{
-						if (errno)
-							info->err_msg = "%s backing up partitions";
-						else
-							info->err_msg = "Unknown error backing up partitions";
-						info->err_arg1 = strerror (errno);
-						return -1;
-					}
-
-					buf += tocopy * 512;
-/* At this point, it is either the end of the buffer, at which point */
-/* cursector doesn't matter, or it is the end of this partition, at which */
-/* point, cursector should be 0. */
-					cursector = 0;
-					sectors -= tocopy;
-					retval += tocopy;
-					info->cursector += tocopy;
-				}
-			}
-/* There are no partitions left.  Check the block list. */
-			for (loop = 0; loop < info->nblocks && sectors > 0; loop++)
-			{
-/* If the current sector being backed up is beyond this block, just chip */
-/* away at it and keep going. */
-				if (info->blocks[loop].sectors <= cursector)
-				{
-					cursector -= info->blocks[loop].sectors;
-				}
-				else
-				{
-					int tocopy = info->blocks[loop].sectors - cursector;
-
-/* Back up as much as possible.  If that exceeds the buffer size, get to the */
-/* end of the buffer. */
-					if (tocopy > sectors)
-					{
-						tocopy = sectors;
-					}
-
-/* Read the data. */
-					if (mfs_read_data (info->mfs, buf, info->blocks[loop].firstsector + cursector, tocopy) < 0)
-					{
-						if (errno)
-							info->err_msg = "%s reading MFS volume";
-						else
-							info->err_msg = "Unknown error reading MFS volume";
-
-						info->err_arg1 = strerror (errno);
-						return -1;
-					}
-
-					buf += tocopy * 512;
-/* At this point, it is either the end of the buffer, at which point */
-/* cursector doesn't matter, or it is the end of this block, at which */
-/* point, cursector should be 0. */
-					cursector = 0;
-					sectors -= tocopy;
-					retval += tocopy;
-					info->cursector += tocopy;
-				}
-			}
-			return retval;
-/* In theory at this point the data is all written. */
+			info->err_msg = "Internal error: State %d consumed too much buffer";
+			info->err_arg1 = (void *)info->state;
+			return -1;
 		}
-		else
+
+/* Handle return codes */
+		switch (ret)
 		{
-/* The cursector starts 1 further away from 0 than there are presectors. */
-/* This is for the header.  Not too interesting here, but other places, the */
-/* header is not compressed, while the rest of the backup is. */
-			if (info->cursector > 0)
-			{
-/* This is part of the block list in the header. */
-				int presector = info->cursector - 1;
-				int curoff = presector * 512;
-				int headerused = 0;
-				int cursize;
+		case bsError:
+/* Error message should be set by handler */
+			return -1;
+			break;
 
-/* First, the list of partitions.  The array in memory will be copied */
-/* directly to the array on disk. */
-				cursize = info->nparts * sizeof (struct backup_partition);
-				if (curoff < cursize + headerused)
-				{
-					int needed_space = headerused + cursize - curoff;
-					int have_space = sectors * 512 - curoff;
+/* Nothing to do */
+		case bsMoreData:
+			break;
 
-					if (needed_space > have_space)
-					{
-						needed_space = have_space;
-					}
+/* Find the next valid state */
+		case bsNextState:
+			while (info->state < bsMax && info->state_machine[++info->state] == NULL) ;
+/* Initialize per-state values */
+			info->state_val1 = 0;
+			info->state_val2 = 0;
+			info->state_ptr1 = NULL;
+			break;
 
-					memcpy (buf, (char *)info->parts + curoff - headerused, needed_space);
+		default:
+			info->err_msg = "Internal error: State %d returned %d";
+			info->err_arg1 = (void *)info->state;
+			info->err_arg2 = (void *)ret;
+			return -1;
+		}
 
-					buf += needed_space;
-
-					curoff += needed_space;
-					needed_space = curoff;
-
-					while (presector < curoff / 512)
-					{
-						sectors--;
-						retval++;
-						presector++;
-						needed_space -= 512;
-						info->cursector++;
-					}
-				}
-				headerused += cursize;
-
-				cursize = info->nblocks * sizeof (struct backup_block);
-				if (sectors > 0 && curoff < cursize * headerused)
-				{
-					int needed_space = headerused + cursize - curoff;
-					int have_space = sectors * 512 - curoff;
-
-					if (needed_space > have_space)
-					{
-						needed_space = have_space;
-					}
-
-					memcpy (buf, (char *)info->blocks + curoff - headerused, needed_space);
-
-					buf += needed_space;
-
-					curoff += needed_space;
-					needed_space = curoff;
-
-					while (presector < curoff / 512)
-					{
-						sectors--;
-						retval++;
-						presector++;
-						needed_space -= 512;
-						info->cursector++;
-					}
-				}
-				headerused += cursize;
-
-				cursize = info->nmfs * sizeof (struct backup_partition);
-				if (sectors > 0 && curoff < cursize * headerused)
-				{
-					int needed_space = headerused + cursize - curoff;
-					int have_space = sectors * 512 - curoff;
-
-					if (needed_space > have_space)
-					{
-						needed_space = have_space;
-					}
-
-					memcpy (buf, (char *)info->mfsparts + curoff - headerused, needed_space);
-
-					buf += needed_space;
-
-					curoff += needed_space;
-					needed_space = curoff;
-
-					while (presector < curoff / 512)
-					{
-						sectors--;
-						retval++;
-						presector++;
-						needed_space -= 512;
-						info->cursector++;
-					}
-				}
-
-
-				while (sectors > 0 && presector < info->presector - 1)
-				{
-					int start = curoff & 511;
-					int end = (info->presector - presector - 1) * 512;
-
-					if (end / 512 > sectors) {
-						end = sectors * 512;
-					}
-
-					bzero (buf, end - start);
-
-					buf += end - start;
-					sectors -= end / 512;
-					retval += end / 512;
-					presector += end / 512;
-					info->cursector += end / 512;
-				}
-			}
-			else
-			{
-				struct backup_head *head = (struct backup_head *)buf;
-	
-				bzero (head, sizeof (*head));
-				head->magic = TB_MAGIC;
-				head->flags = info->back_flags;
-				head->nsectors = info->nsectors;
-				head->nparts = info->nparts;
-				head->nblocks = info->nblocks;
-				head->mfspairs = info->nmfs;
-				retval += 1;
-				sectors -= 1;
-				info->cursector += 1;
-				buf += 512;
-			}
+/* Deal with consumed buffer */
+		if (consumed > 0)
+		{
+			info->crc = compute_crc (buf, consumed * 512, info->crc);
+			info->cursector += consumed;
+			backup_blocks += consumed;
+			sectors -= consumed;
+			buf += consumed * 512;
 		}
 	}
 
-	return retval;
+	return backup_blocks;
 }
 
 /*************************************************************************/

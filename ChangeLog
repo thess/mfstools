@@ -1,6 +1,8 @@
+	Added V3 backup support.
 	Added new mfscopy utility to copy MFS volumes with one command.
 	Added ability to handle backup of an A drive with missing B drive.
 	Fixed bug in creating swap space of 128mb.
+	Fixed bug creating alternate Linux partition set the wrong size.
 	Changed restore to create version 1 swap signature for >128mb swap.
 	Preliminary MacOS X port.
 

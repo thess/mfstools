@@ -206,7 +206,7 @@ int
 mls_main (int argc, char **argv)
 {
 	char *arg = argv[1];
-	char *hda, *hdb;
+	char *hda = NULL, *hdb = NULL;
 
 	progname = argv[0];
 

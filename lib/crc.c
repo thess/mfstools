@@ -65,9 +65,25 @@ static long crc32tab[] = {		/* CRC polynomial 0xedb88320 */
 
 #define UPDC32(octet, crc) (crc32tab[((int)(crc) ^ octet) & 0xff] ^ (((crc) >> 8) & 0x00FFFFFF))
 
+/*************************************************/
+/* Compute the running CRC for a block of memory */
+unsigned int
+compute_crc (unsigned char *data, unsigned int size, unsigned int CRC)
+{
+	while (size)
+	{
+		CRC = UPDC32 (*data, CRC);
+
+		data++;
+		size--;
+	}
+
+	return CRC;
+}
+
 /**********************************************************************/
 /* Compute the checksum, replacing the integer at off with 0xdeadf00d */
-int
+unsigned int
 mfs_compute_crc (unsigned char *data, unsigned int size, unsigned int off)
 {
 	unsigned int CRC = 0;
@@ -93,9 +109,10 @@ mfs_compute_crc (unsigned char *data, unsigned int size, unsigned int off)
 	return htonl (CRC);
 }
 
+
 /******************************/
 /* Verify the CRC is correct. */
-int
+unsigned int
 mfs_check_crc (unsigned char *data, unsigned int size, unsigned int off)
 {
 	unsigned int target = *((unsigned int *) data + off);

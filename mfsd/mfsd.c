@@ -238,7 +238,7 @@ mfsd_main (int argc, char **argv)
 			printf ("???");
 		}
 
-		printf ("???: %-15d???: %d\n", htonl (inode_buf->unk1), htonl (inode_buf->unk2));
+		printf ("???: %-15x???: %x\n", htonl (inode_buf->unk1), htonl (inode_buf->unk2));
 		if (inode_buf->type == tyStream)
 		{
 			printf ("Size: %d blocks of %d bytes (%llu)\n", htonl (inode_buf->size), htonl (inode_buf->unk3), (unsigned long long) htonl (inode_buf->unk3) * (unsigned long long) htonl (inode_buf->size));
@@ -248,7 +248,7 @@ mfsd_main (int argc, char **argv)
 		{
 			printf ("Size: %d bytes\n", htonl (inode_buf->size));
 		}
-		printf ("Checksum: %08x  Flags(?): %d\n", inode_buf->checksum, htonl (inode_buf->inode_flags));
+		printf ("Checksum: %08x  Flags(?): %x\n", inode_buf->checksum, htonl (inode_buf->inode_flags));
 		printf ("Sigs: %02x %04x %08x (Always 02 beef 91231ebc?)\n", inode_buf->unk6, htons (inode_buf->beef), htonl (inode_buf->sig));
 		if (htonl (inode_buf->numblocks))
 		{

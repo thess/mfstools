@@ -23,23 +23,150 @@ struct device_info
 #endif
 };
 
+enum backup_state_ret {
+	bsError = -1,
+	bsMoreData = 0,
+	bsNextState = 1
+};
+
+/* States of the state machine for backup and restore */
+/* In addition to the state, there are 2 state specific values state_val1 */
+/* and state_val2 which are set to 0 at every state change. */
+/* The pointer in state_ptr1 is also set to NULL at every state change. */
+/* The value shared_val1 is shared between states. */
+enum backup_state {
+	bsBegin = 0,
+		// shared_val1 initialized to sizeof backup header padded to 8 bytes.
+			// Write backup header
+/* Backup description collection */
+	bsInfoPartitions,
+		// state_val1 as current partition index.
+		// shared_val1 as offset within current block of last partition,
+		//     padded to 8 bytes.
+			// List follows immediately after backup header
+	bsInfoBlocks,
+		// state_val1 as current MFS block index.
+		// shared_val1 as offset within current block of last MFS block,
+		//     padded to 8 bytes.
+			// List follows immediately after partition list
+	bsInfoInodes,
+		// state_val1 as current inode index.
+		// shared_val1 as offset within current block of last inode,
+		//     padded to 8 bytes.
+			// List follows immediately after partition list
+	bsInfoMFSPartitions,
+		// state_val1 as current MFS partition index.
+		// shared_val1 as offset within current block of last MFS partition,
+		//     padded to 8 bytes.
+			// List follows immediately after inode or block list
+	bsInfoEnd,
+		// If shared_val1 is not 0 or 512, consume remainder of block.
+			// Consume partial block left by MFS partition list
+	bsBootBlock,
+		// --- no state val used
+			// Sector 0 of the A drive
+	bsPartitions,
+		// state_val1 as current partition number.
+		// state_val2 as offset within current partition.
+			// Raw partitions to backup, one after another
+	bsMFSInit,
+		// --- no state val used
+			// Loads the MFS volumes (Restore only)
+/* v1 backup only */
+	bsBlocks,
+		// state_val1 as current MFS block.
+		// state_val2 as offset within current MFS blocks.
+			// Blocks read from MFS - all of MFS backed up
+/* v3 backup only after this point */
+	bsVolumeHeader,
+		// --- no state val usage
+			// Offset 0 of MFS volume
+	bsTransactionLog,
+		// state_val1 as offset within transaction log
+			// Region referenced by volume header
+	bsUnkRegion,
+		// state_val1 as offset within unknown region referenced in volume hdr
+			// Region referenced by volume header
+	bsZoneMaps,
+		// shared_ptr1 as pointer to current zone map in memory
+		// state_val1 as offset within current zone map
+			// Zone maps, implicitly stopping at the end of the volume
+	bsAppInodes,
+		// state_val1 as current inode number.
+		// state_val2 as offset within current inode.
+		// state_ptr1 as pointer to current inode structure.
+			// For each inode, inode meta-data followed immediately by inode
+			// data (Data only for non tyStream inosed with non-zero refcount)
+	bsMediaInodes,
+		// state_val1 as current inode index.
+		// state_val2 as offset within current inode.
+		// state_ptr1 as pointer to current inode structure.
+			// Each stream to be backed up read straight from MFS
+	bsComplete,
+		// --- no state val usage
+			// 512 bytes with CRC at the end
+			// Restore should check for CRC32_RESIDUAL as crc value at end
+	bsMax
+};
+
+struct backup_info;
+
+typedef enum backup_state_ret (*backup_state_handler[bsMax]) (struct backup_info *, void *, unsigned, unsigned *);
+
+/* Backup engines */
+extern backup_state_handler backup_v3;
+/* Restore engines */
+extern backup_state_handler restore_v1;
+extern backup_state_handler restore_v3;
+
 struct backup_info
 {
-	struct mfs_handle *mfs;
+/* Backup size */
 	int cursector;
-	int presector;
+	int nsectors;
+
+/* Backup state machine */
+	enum backup_state state;
+	unsigned state_val1;
+	unsigned state_val2;
+	unsigned shared_val1;
+	void *state_ptr1;
+
+	backup_state_handler *state_machine;
+
 	int ndevs;
 	struct device_info *devs;
+
+/* Stuff to backup */
 	int nparts;
 	struct backup_partition *parts;
+
+// V1 backups only
 	int nblocks;
 	struct backup_block *blocks;
+// V3 backups only
+	int ninodes;
+	unsigned *inodes;
+
 	int nmfs;
 	struct backup_partition *mfsparts;
-	int nsectors;
+
+/* Other backup stuff stuff */
 	int back_flags;
+	int crc;
+
+/* Compression */
 	struct z_stream_s *comp;
 	char *comp_buf;
+
+	struct mfs_handle *mfs;
+
+/* Error reporting */
+	char *err_msg;
+	void *err_arg1;
+	void *err_arg2;
+	void *err_arg3;
+
 #ifdef RESTORE
 	struct volume_handle *vols;
 	int nnewparts;
@@ -50,11 +177,8 @@ struct backup_info
 #else
 	unsigned int thresh;
 	char *hda;
+	unsigned int shrink_to;
 #endif
-	char *err_msg;
-	void *err_arg1;
-	void *err_arg2;
-	void *err_arg3;
 };
 
 struct block_info
@@ -82,7 +206,6 @@ struct backup_head_v3
 	unsigned int nparts;
 	unsigned int ninodes;
 	unsigned int mfspairs;
-	char reserved[488];
 };
 
 #define TB_MAGIC (('T' << 24) + ('B' << 16) + ('A' << 8) + ('K' << 0))

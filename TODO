@@ -3,18 +3,21 @@ MFS Lib
 *DONE*  Ability to open a truncated MFS volume (Bad 2nd drive case)
   Function to manipulate MFS allocation bitmap (Allocate new space)
 *DONE*  Remove dependency on environment variables
-Backup format
-  Addition of list of inodes (Not fsids)
-    Inodes replace block list for the listed streams
-    Restore to figure out blocks to restore to
-  New magic: TBK3
-Backup
-  Re-order blocks so application data is always before streams
+
+*DONE*Backup format
+*DONE*  Addition of list of inodes (Not fsids)
+*DONE*    Inodes replace block list for the listed streams
+*DONE*    Restore to figure out blocks to restore to
+*DONE*  New magic: TBK3
+
+*DONE*Backup
+*DONE*  Re-order blocks so application data is always before streams
 *DONE*  Verify all needed data is within the MFS volume pair
 *DONE*    Inode tables/data bearing application partitions
 *DONE*    Streams to be backed up
+
 Restore
-  Support for V1/2 and V3 backup format
+*DONE*  Support for V1/2 and V3 backup format
   New restore mode - MFS rebuild
     Requires V3 backup format
     Truncates MFS volume at last data storing app partition/media partition pair
@@ -31,6 +34,7 @@ Restore
       Finish V3 backup as normal (Allocating space from inodes)
 *DONE* Direct drive copy
 *DONE*  New tool to combine backup/restore in one process for direct copy
+
 Misc bug fixes
 *DONE*  Swap size
   Mfsadd to drives larger than 256gb (Need to investigate)
@@ -40,9 +44,19 @@ Misc bug fixes
 Plan V3.0
 1. Clean up error reporting/return (All)
 *DONE* 2. Handling of truncated volumes (Lib/Backup)
-3. V3 backup handling (Backup/Restore)
+*DONE* 3. V3 backup handling (Backup/Restore)
 4. MFS rebuild (Restore/Lib)
 *DONE* 5. Clean up platform independence (Merge of MacOs branch)
+
+TBK3 backup strategy:
+  NON-MFS
+    Raw partitions
+  MFS
+    Volume Header
+    Header allocated space (Transaction log and ? following log)
+    Zone maps (In order linked)
+    Inodes (Only allocated (Maybe), only one copy)
+    Streams
 
 Macpart
   API for modifying/creating partition table

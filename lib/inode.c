@@ -77,8 +77,8 @@ mfs_read_inode (struct mfs_handle *mfshnd, unsigned int inode)
 	return NULL;
 }
 
-/*************************************/
-/* Read an inode data and return it. */
+/*******************/
+/* Write an inode. */
 int
 mfs_write_inode (struct mfs_handle *mfshnd, mfs_inode *inode)
 {
@@ -92,9 +92,10 @@ mfs_write_inode (struct mfs_handle *mfshnd, mfs_inode *inode)
 		return -1;
 	}
 
-	MFS_update_crc (inode, 512, inode->checksum);
 	memcpy (buf, inode, 512);
-	memcpy (buf + 512, inode, 512);
+/* Do it after to avoid writing to source */
+	MFS_update_crc (buf, 512, ((mfs_inode *)buf)->checksum);
+	memcpy (buf + 512, buf, 512);
 
 	if (mfsvol_write_data (mfshnd->vols, buf, sector, 2) != 1024)
 	{
@@ -136,6 +137,97 @@ mfs_read_inode_by_fsid (struct mfs_handle *mfshnd, unsigned int fsid)
 /* This is not the inode you are looking for.  Move along. */
 	free (cur);
 	return NULL;
+}
+
+/**************************************/
+/* Write a portion of an inodes data. */
+int
+mfs_write_inode_data_part (struct mfs_handle *mfshnd, mfs_inode * inode, unsigned char *data, unsigned int start, unsigned int count)
+{
+	int totwrit = 0;
+
+/* Parameter sanity check. */
+	if (!data || !count || !inode)
+	{
+		return 0;
+	}
+
+/* If it doesn't fit in the sector find out where it is. */
+	if (inode->numblocks)
+	{
+		int loop;
+
+/* Loop through each block in the inode. */
+		for (loop = 0; count && loop < htonl (inode->numblocks); loop++)
+		{
+/* For sanity sake (Mine, not the code's), make these variables. */
+			unsigned int blkstart = htonl (inode->datablocks[loop].sector);
+			unsigned int blkcount = htonl (inode->datablocks[loop].count);
+			int result;
+
+/* If the start offset has not been reached, skip to it. */
+			if (start)
+			{
+				if (blkcount <= start)
+				{
+/* If the start offset is not within this block, decrement the start and keep */
+/* going. */
+					start -= blkcount;
+					continue;
+				}
+				else
+				{
+/* The start offset is within this block.  Adjust the block parameters a */
+/* little, since this is just local variables. */
+					blkstart += start;
+					blkcount -= start;
+					start = 0;
+				}
+			}
+
+/* If the entire data is within this block, make this block look like it */
+/* is no bigger than the data. */
+			if (blkcount > count)
+			{
+				blkcount = count;
+			}
+
+			result = mfsvol_write_data (mfshnd->vols, data, blkstart, blkcount);
+			count -= blkcount;
+
+/* Error - propogate it up. */
+			if (result < 0)
+			{
+				return result;
+			}
+
+/* Add to the total. */
+			totwrit += result;
+			data += result;
+/* If this is it, or if the amount written was truncated, return it. */
+			if (result != blkcount * 512 || count == 0)
+			{
+				return totwrit;
+			}
+		}
+	}
+	else if (htonl (inode->size) < 512 - 0x3c && inode->type != tyStream)
+	{
+		int result;
+
+		if (start)
+		{
+			return 0;
+		}
+
+		memcpy ((unsigned char *)inode + 0x3c, data, htonl (inode->size));
+		result = mfs_write_inode (mfshnd, inode);
+
+		return result < 0? result: 512;
+	}
+
+/* They must have asked for more data than there was.  Return the total written. */
+	return totwrit;
 }
 
 /*************************************/

@@ -101,12 +101,14 @@ esac],[build_apps=true])
 AM_CONDITIONAL(BUILD_MFSAPPS, test x$build_apps = xtrue)
 AH_TEMPLATE([BUILD_MFSAPPS],
 	[Build the utilities as standalone applications.])
-  
+
 AC_PROG_CC
 AC_PROG_MAKE_SET
 AC_PROG_INSTALL
 AC_PROG_RANLIB
 
+AC_CHECK_FUNCS(Endian32_Swap)
+  
 AC_CHECK_HEADERS(unistd.h)
 AC_CHECK_HEADERS(asm/page.h)
 AC_CHECK_HEADERS(asm/types.h)
