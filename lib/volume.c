@@ -99,13 +99,15 @@ mfs_add_volume (char *path, int flags)
 	path = mfs_device_translate (path);
 
 /* If the user requested RO, let them have it.  This may break a writer */
-/* program, but thats what it is intended to do. */
-	if (!strncmp (path, "RO:", 3))
+/* program, but thats what it is intended to do.  Also if fake_write is set, */
+/* set RO as well, for the actual file, just in case. */
+	if (fake_write || !strncmp (path, "RO:", 3))
 	{
 		path += 3;
 		flags = (flags & ~O_ACCMODE) | O_RDONLY;
 	}
 
+/* Open the file. */
 	newvol->file = tivo_partition_open (path, flags);
 
 	if (!newvol->file)
@@ -114,14 +116,13 @@ mfs_add_volume (char *path, int flags)
 		return 0;
 	}
 
-/* If read-only was requested, make it so. */
-	if ((flags & O_ACCMODE) == O_RDONLY)
+/* If read-only was requested, make it so, unless fake_write was selected. */
+	if ((flags & O_ACCMODE) == O_RDONLY && !fake_write)
 	{
 		newvol->vol_flags |= VOL_RDONLY;
 	}
 
-/* Find out the size of the device.  If the sectors is already set, assume */
-/* it is correct, and the flags are correct as well. */
+/* Find out the size of the device. */
 	newvol->sectors = tivo_partition_size (newvol->file);
 	if (newvol->sectors == 0)
 	{
@@ -438,6 +439,8 @@ mfs_write_data (void *buf, unsigned int sector, int count)
 	return tivo_partition_write (vol->file, buf, sector, count);
 }
 
+/******************************************************************************/
+/* Just a quick init.  All it really does is scan for the env MFS_FAKE_WRITE. */
 int
 mfs_readwrite_init ()
 {

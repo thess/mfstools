@@ -191,7 +191,14 @@ tivo_read_partition_table (char *device, int flags)
 
 /********************************************************************/
 /* Open a partition that is not byte-swapped or the kernel does not */
-/* recognize. */
+/* recognize.  This also handles regular files or partition devices. */
+/* The variable tivo_partition_accmode defines the preferred way to */
+/* open partitions.  In accKERNEL, it assumes the kernel knows what */
+/* to do and opens it directly.  In accDIRECT it opens the device */
+/* directly and tries to figure out the partition table itself.  In */
+/* accAUTO, it will first open it as a file, then if it gets an error, */
+/* or if the partition is empty, it will try opening the entire device. */
+
 tpFILE *
 tivo_partition_open (char *path, int flags)
 {
@@ -206,17 +213,21 @@ tivo_partition_open (char *path, int flags)
 
 	newfile.fd = -1;
 
+/* If the preferred access mode is kernel, or if it is auto, try to open it. */
 	if (tivo_partition_accmode == accAUTO || tivo_partition_accmode == accKERNEL)
 	{
 		newfile.fd = open (path, flags);
 		if (newfile.fd >= 0)
 		{
+/* The file exists, time to see what it is.  Use the 64 version just incase */
+/* the filesystem has big file support, and it is in a really big file. */
 			struct stat64 st;
 
 			if (fstat64 (newfile.fd, &st) == 0)
 			{
 				if (S_ISBLK (st.st_mode))
 				{
+/* The file is really a block device.  Get it's size with BLKGETSIZE. */
 					if (ioctl (newfile.fd, BLKGETSIZE, &newfile.extra.kernel.sectors) >= 0)
 					{
 						newfile.tptype = pDEVICE;
@@ -224,19 +235,32 @@ tivo_partition_open (char *path, int flags)
 				}
 				else if (S_ISREG (st.st_mode))
 				{
+/* The file is a regular file.  It's size was returned by the fstat call. */
 					newfile.tptype = pFILE;
 					newfile.extra.kernel.sectors = st.st_size / 512;
 				}
 				else
 				{
+/* Not a block device or regular file.  Ummmm, right.  Can't really use */
+/* character devices. */
 					errno = ENOTBLK;
 					close (newfile.fd);
 					newfile.fd = -1;
 				}
 			}
+			if (newfile.extra.kernel.sectors == 0)
+			{
+/* If it is too small, throw it back.  If the mode is accAUTO this will case */
+/* it to try opening the entire device, instead. */
+				close (newfile.fd);
+				bzero (file, sizeof (newfile));
+				newfile.fd = -1;
+			}
 		}
 	}
 
+/* If the type is still unknown and it is auto mode, or if the mode is direct */
+/* only, try opening the main device. */
 	if (newfile.tptype == pUNKNOWN && tivo_partition_accmode == accAUTO || tivo_partition_accmode == accDIRECT)
 	{
 /* Find the device name. */
@@ -249,6 +273,26 @@ tivo_partition_open (char *path, int flags)
 			devpath[partoff] = '\0';
 
 			partnum = strtoul (path + partoff, &path, 10);
+
+			if (!strncmp (devpath, "/dev/", 5))
+			{
+/* Devfs doesn't just append the partition number, it calls the partitions */
+/* part1, part2, part3, etc.  If devfs is in use, and the device being */
+/* referred to is not a compatibility name, this needs to be changed to */
+/* disc to refer to the entire drive. Only do this if the device name starts */
+/* with dev. */
+				if (!strcmp (devpath + partoff - 5, "/part"))
+				{
+					strcpy (devpath + partoff - 5, "/disc");
+				}
+/* Likewise, the old devfs naming scheme called partitions /dev/XX/cXbXtXuXpX */
+/* and whole drives /dev/XX/cXbXtXuX.  Even though this naming is depricated, */
+/* it is still an option in devfsd, which creates a compatibility namespace. */
+				else if (devpath[partoff - 1] == 'p' && isnum (devpath[partoff - 2]))
+				{
+					devpath[partoff - 1] = '\0';
+				}
+			}
 
 			if (!(path && *path) && partnum > 0)
 			{
@@ -286,6 +330,8 @@ tivo_partition_open (char *path, int flags)
 		}
 	}
 
+/* If the type is still unknown, it is an error, the file was unable to be */
+/* opened, or the default access mode is invalid. */
 	if (newfile.tptype == pUNKNOWN)
 	{
 		if (newfile.fd >= 0)
@@ -295,6 +341,7 @@ tivo_partition_open (char *path, int flags)
 		return 0;
 	}
 
+/* Allocate the actual file structure now that it is certain it will be used. */
 	file = malloc (sizeof (*file));
 	if (file)
 	{
@@ -309,10 +356,15 @@ tivo_partition_open (char *path, int flags)
 	return file;
 }
 
+/**************************************************************************/
+/* Clean up the tpFILE structure, closing the file if needed, and freeing */
+/* the memory used. */
 void
 tivo_partition_close (tpFILE * file)
 {
-	if (file->fd >= 0)
+/* Only close the file if it is owned by this tpFILE pointer.  If it is a */
+/* shared file leave it for the unwritten cleanup code. */
+	if (file->fd >= 0 && file->tptype != pDIRECT && file->tptype != pDIRECTFILE)
 	{
 		close (file->fd);
 		file->fd = -1;
@@ -320,6 +372,8 @@ tivo_partition_close (tpFILE * file)
 	free (file);
 }
 
+/***********************************/
+/* Return the size of a partition. */
 unsigned int
 tivo_partition_size (tpFILE * file)
 {
@@ -327,15 +381,19 @@ tivo_partition_size (tpFILE * file)
 	{
 	case pFILE:
 	case pDEVICE:
+/* If this tpFILE structure owns the FD, it knows the size itself. */
 		return file->extra.kernel.sectors;
 	case pDIRECT:
 	case pDIRECTFILE:
+/* If the FD is owned by a partition table, go there for the size. */
 		return file->extra.direct.part->sectors;
 	default:
 		return 0;
 	}
 }
 
+/******************************************************/
+/* Return the offset into the file of this partition. */
 unsigned int
 tivo_partition_offset (tpFILE * file)
 {
@@ -343,12 +401,17 @@ tivo_partition_offset (tpFILE * file)
 	{
 	case pDIRECT:
 	case pDIRECTFILE:
+/* If a partition table owns the file, it knows the start offset. */
 		return file->extra.direct.part->start;
 	default:
+/* If we own the file, the offset is always 0. */
 		return 0;
 	}
 }
 
+/***************************************************************************/
+/* Return the device name that this partition resides on.  This is not the */
+/* partition itself, but the whole device. */
 const char *
 tivo_partition_device_name (tpFILE * file)
 {
@@ -356,24 +419,32 @@ tivo_partition_device_name (tpFILE * file)
 	{
 	case pDIRECT:
 	case pDIRECTFILE:
+/* If a partition table ownes the file, it knows the device name. */
 		return (char *) file->extra.direct.pt->device;
 	default:
+/* If we own the file, the device name is unknown. */
 		return NULL;
 	}
 }
 
+/*******************************************************************/
+/* A convenience function to set the access mode to direct access. */
 void
 tivo_partition_direct ()
 {
 	tivo_partition_accmode = accDIRECT;
 }
 
+/**************************************************************************/
+/* A convenience function to set the access mode to file (kernel) access. */
 void
 tivo_partition_file ()
 {
 	tivo_partition_accmode = accKERNEL;
 }
 
+/**************************************************************************/
+/* A convenience function to set the access mode to automatically detect. */
 void
 tivo_partition_auto ()
 {

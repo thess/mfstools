@@ -198,6 +198,8 @@ mfs_read_inode_data (mfs_inode * inode, int *size)
 	unsigned char *data;
 	int result;
 
+/* If it doesn't make sense to read the data, don't do it.  Since streams are */
+/* so large, it doesn't make sense to read the whole thing. */
 	if (inode->type == tyStream || !inode || !size || !inode->size)
 	{
 		if (size)
@@ -216,6 +218,8 @@ mfs_read_inode_data (mfs_inode * inode, int *size)
 		return NULL;
 	}
 
+/* This function is just a wrapper for read_inode_data_part, with the last */
+/* parameter being implicitly the whole data. */
 	result = mfs_read_inode_data_part (inode, data, 0, (*size + 511) / 512);
 
 	if (result < 0)
