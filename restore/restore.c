@@ -1125,7 +1125,7 @@ build_partition_table (struct backup_info *info, int devno)
 
 /* If this is the first device, do re-ordering of the partitions to */
 /* "balance" the partitions for better performance. */
-	if (devno == 0 && (info->back_flags & RF_BALANCE))
+	if (info->back_flags & RF_BALANCE)
 	{
 /* Walk through each partition.  This looks wrong because it starts at the */
 /* beginning (The partition table) but accounts for it in curstart.  However */

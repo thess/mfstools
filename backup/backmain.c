@@ -236,6 +236,7 @@ backup_main (int argc, char **argv)
 	}
 	else
 	{
+		unsigned starttime;
 		char buf[BUFSIZE];
 		unsigned int cursec = 0, curcount;
 		int fd;
@@ -271,12 +272,15 @@ backup_main (int argc, char **argv)
 
 		if (quiet < 2)
 			fprintf (stderr, "Uncompressed backup size: %d megabytes\n", info->nsectors / 2048);
+
+		starttime = time(NULL);
+
 		while ((curcount = backup_read (info, buf, BUFSIZE)) > 0)
 		{
 			unsigned int prcnt, compr;
 			if (write (fd, buf, curcount) != curcount)
 			{
-				printf ("Backup failed: %s: %s\n", filename, sys_errlist[errno]);
+				printf ("Backup failed: %s: %s\n", filename, strerror(errno));
 				return 1;
 			}
 			cursec += curcount / 512;
@@ -284,10 +288,17 @@ backup_main (int argc, char **argv)
 			compr = get_percent (info->cursector - cursec, info->cursector);
 			if (quiet < 1)
 			{
+				unsigned timedelta = time(NULL) - starttime;
 				if (compressed)
-					fprintf (stderr, "Backing up %d of %d megabytes (%d.%02d%%) (%d.%02d%% compression)    \r", info->cursector / 2048, info->nsectors / 2048, prcnt / 100, prcnt % 100, compr / 100, compr % 100);
+					fprintf (stderr, "     \rBacking up %d of %d megabytes (%d.%02d%%) (%d.%02d%% compression)", info->cursector / 2048, info->nsectors / 2048, prcnt / 100, prcnt % 100, compr / 100, compr % 100);
 				else
-					fprintf (stderr, "Backing up %d of %d megabytes (%d.%02d%%)     \r", info->cursector / 2048, info->nsectors / 2048, prcnt / 100, prcnt % 100);
+					fprintf (stderr, "     \rBacking up %d of %d megabytes (%d.%02d%%)", info->cursector / 2048, info->nsectors / 2048, prcnt / 100, prcnt % 100);
+
+				if (prcnt > 10 && timedelta > 15)
+				{
+					unsigned ETA = timedelta * (10000 - prcnt) / prcnt;
+					fprintf (stderr, " %d mb/sec (ETA %d:%02d:%02d)", info->cursector / timedelta / 2048, ETA / 3600, ETA / 60 % 60, ETA % 60);
+				}
 			}
 		}
 

@@ -233,6 +233,7 @@ restore_main (int argc, char **argv)
 	info = init_restore (flags);
 	if (info)
 	{
+		unsigned starttime;
 		int fd, nread, nwrit;
 		char buf[BUFSIZE];
 		unsigned int cursec = 0, curcount;
@@ -258,7 +259,7 @@ restore_main (int argc, char **argv)
 		nread = read (fd, buf, BUFSIZE);
 		if (nread <= 0)
 		{
-			fprintf (stderr, "Restore failed: %s: %s\n", filename, sys_errlist[errno]);
+			fprintf (stderr, "Restore failed: %s: %s\n", filename, strerror(errno));
 			return 1;
 		}
 
@@ -299,6 +300,8 @@ restore_main (int argc, char **argv)
 			return 1;
 		}
 
+		starttime = time (NULL);
+
 		fprintf (stderr, "Starting restore\nUncompressed backup size: %d megabytes\n", info->nsectors / 2048);
 		while ((curcount = read (fd, buf, BUFSIZE)) > 0)
 		{
@@ -316,16 +319,24 @@ restore_main (int argc, char **argv)
 			compr = get_percent (info->cursector - cursec, info->cursector);
 			if (quiet < 1)
 			{
+				unsigned timedelta = time(NULL) - starttime;
+
 				if (info->back_flags & BF_COMPRESSED)
-					fprintf (stderr, "Restoring %d of %d megabytes (%d.%02d%%) (%d.%02d%% compression)    \r", info->cursector / 2048, info->nsectors / 2048, prcnt / 100, prcnt % 100, compr / 100, compr % 100);
+					fprintf (stderr, "     \rRestoring %d of %d megabytes (%d.%02d%%) (%d.%02d%% compression)", info->cursector / 2048, info->nsectors / 2048, prcnt / 100, prcnt % 100, compr / 100, compr % 100);
 				else
-					fprintf (stderr, "Restoring %d of %d megabytes (%d.%02d%%)    \r", info->cursector / 2048, info->nsectors / 2048, prcnt / 100, prcnt % 100);
+					fprintf (stderr, "     \rRestoring %d of %d megabytes (%d.%02d%%)", info->cursector / 2048, info->nsectors / 2048, prcnt / 100, prcnt % 100);
+
+				if (prcnt > 100 && timedelta > 15)
+				{
+					unsigned ETA = timedelta * (10000 - prcnt) / prcnt;
+					fprintf (stderr, " %d mb/sec (ETA %d:%02d:%02d)", info->cursector / timedelta / 2048, ETA / 3600, ETA / 60 % 60, ETA % 60);
+				}
 			}
 		}
 
 		if (curcount < 0)
 		{
-			fprintf (stderr, "Restore failed: %s: %s\n", filename, sys_errlist[errno]);
+			fprintf (stderr, "Restore failed: %s: %s\n", filename, strerror(errno));
 			return 1;
 		}
 	}
