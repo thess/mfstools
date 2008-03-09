@@ -130,6 +130,9 @@ AC_CHECK_HEADERS(time.h)
 AC_CHECK_HEADERS(unistd.h)
 AC_CHECK_HEADERS(zlib.h)
 
+AC_CHECK_FUNCS(lseek64)
+AC_CHECK_FUNCS(llseek)
+
 AC_OUTPUT(
 Makefile
 lib/Makefile

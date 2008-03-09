@@ -1,4 +1,4 @@
-INCLUDES += -I${top_srcdir}/include
+INCLUDES = -I${top_srcdir}/include
 
 noinst_LIBRARIES = libmfs.a libmfsvol.a libmacpart.a
 
