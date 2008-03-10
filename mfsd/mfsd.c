@@ -109,7 +109,8 @@ dump_inode_log (log_inode_update *entry)
 	{
 		printf ("Size: %d bytes\n", htonl (entry->size));
 	}
-	printf ("Data in inode: %d\n", htonl (entry->inodedata));
+	if (entry->inodedata && entry->inodedata != htonl (1))
+		printf ("Data in inode: %d\n", htonl (entry->inodedata));
 	if (!entry->inodedata)
 	{
 		int loop;
@@ -442,8 +443,14 @@ dump_log_entry (unsigned int sector, unsigned char *buf, unsigned int bufsize)
 		{
 			case ltMapUpdate:
 				printf ("Zone map update:\n");
-				printf ("  Remove: %-13d???: %d\n", htonl (entry->zonemap.remove), htonl (entry->zonemap.unk));
-				printf ("  Sector: %-13dSize: %d\n", htonl (entry->zonemap.sector), htonl (entry->zonemap.size));
+				if (!entry->zonemap.remove)
+					printf ("Change: Allocate     ");
+				else if (entry->zonemap.remove == htonl (1))
+					printf ("Change: Free         ");
+				else
+					printf ("Change: ?%-12d", htonl (entry->zonemap.remove));
+				printf ("???: %d\n", htonl (entry->zonemap.unk));
+				printf ("Sector: %-13dSize: %d\n", htonl (entry->zonemap.sector), htonl (entry->zonemap.size));
 				break;
 			case ltInodeUpdate:
 				printf ("iNode update:\n");
