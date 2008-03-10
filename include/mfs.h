@@ -10,7 +10,7 @@ typedef struct volume_header_s
 	unsigned int off00;
 	unsigned int abbafeed;
 	unsigned int checksum;
-	unsigned int off08;
+	unsigned int off0c;
 	unsigned int root_fsid;		/* Maybe? */
 	unsigned int off14;
 	unsigned int off18;
@@ -22,13 +22,15 @@ typedef struct volume_header_s
 	unsigned int logstart;
 	unsigned int lognsectors;
 	unsigned int logstamp;
-	unsigned int offb8;
-	unsigned int offbc;
+	unsigned int unkstart;		/* Not sure what it's used for */
+	unsigned int unksectors;	/* But definately an allocated area */
 	unsigned int offc0;
 	zone_map_ptr zonemap;
 	unsigned int offd8;
-	unsigned int offdc;
-	unsigned int offe0;
+								/* Following two used in transaction log */
+								/* And inodes */
+	unsigned int bootcycles;	/* Seems to be times booted on */
+	unsigned int bootsecs;		/* Seems to be seconds since boot */
 	unsigned int offe4;
 }
 volume_header;

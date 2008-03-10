@@ -1453,7 +1453,7 @@ restore_fudge_log (char *trans, unsigned int volsize)
 			return 0;
 		}
 
-		if (htons (cur->log.length) >= htonl (cur->inode.dbsize) + sizeof (log_inode_update) - 2)
+		if (htons (cur->log.length) >= htonl (cur->inode.datasize) + sizeof (log_inode_update) - 2)
 		{
 			int loc, spot;
 			unsigned int shrunk = 0;
@@ -1464,7 +1464,7 @@ restore_fudge_log (char *trans, unsigned int volsize)
 			dused = htonl (cur->inode.blockused) * bsize;
 			curblks = 0;
 
-			for (loc = 0, spot = 0; loc < htonl (cur->inode.dbsize) / sizeof (cur->inode.datablocks[0]); loc++)
+			for (loc = 0, spot = 0; loc < htonl (cur->inode.datasize) / sizeof (cur->inode.datablocks[0]); loc++)
 			{
 				if (htonl (cur->inode.datablocks[loc].sector) < volsize)
 				{
@@ -1498,7 +1498,7 @@ restore_fudge_log (char *trans, unsigned int volsize)
 				cur->log.length = htons (htons (cur->log.length) - shrunk);
 				cur->inode.size = htonl (dsize / bsize);
 				cur->inode.blockused = htonl (dused / bsize);
-				cur->inode.dbsize = htonl (htonl (cur->inode.dbsize) - shrunk);
+				cur->inode.datasize = htonl (htonl (cur->inode.datasize) - shrunk);
 			}
 			return shrunk;
 		}
