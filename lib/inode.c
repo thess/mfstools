@@ -77,8 +77,8 @@ mfs_read_inode (struct mfs_handle *mfshnd, unsigned int inode)
 	return NULL;
 }
 
-/*************************************/
-/* Read an inode data and return it. */
+/*******************/
+/* Write an inode. */
 int
 mfs_write_inode (struct mfs_handle *mfshnd, mfs_inode *inode)
 {
@@ -92,9 +92,10 @@ mfs_write_inode (struct mfs_handle *mfshnd, mfs_inode *inode)
 		return -1;
 	}
 
-	MFS_update_crc (inode, 512, inode->checksum);
 	memcpy (buf, inode, 512);
-	memcpy (buf + 512, inode, 512);
+/* Do it after to avoid writing to source */
+	MFS_update_crc (buf, 512, ((mfs_inode *)buf)->checksum);
+	memcpy (buf + 512, buf, 512);
 
 	if (mfsvol_write_data (mfshnd->vols, buf, sector, 2) != 1024)
 	{
@@ -138,6 +139,98 @@ mfs_read_inode_by_fsid (struct mfs_handle *mfshnd, unsigned int fsid)
 	return NULL;
 }
 
+/**************************************/
+/* Write a portion of an inodes data. */
+int
+mfs_write_inode_data_part (struct mfs_handle *mfshnd, mfs_inode * inode, unsigned char *data, unsigned int start, unsigned int count)
+{
+	int totwrit = 0;
+
+/* Parameter sanity check. */
+	if (!data || !count || !inode)
+	{
+		return 0;
+	}
+
+/* If it all fits in the inode block... */
+	if (inode->inode_flags & htonl (INODE_DATA))
+	{
+		int result;
+
+		if (start)
+		{
+			return 0;
+		}
+
+		memcpy ((unsigned char *)inode + 0x3c, data, 512 - 0x3c);
+		result = mfs_write_inode (mfshnd, inode);
+
+		return result < 0? result: 512;
+	}
+	else if (inode->numblocks)
+/* If it doesn't fit in the sector find out where it is. */
+	{
+		int loop;
+
+/* Loop through each block in the inode. */
+		for (loop = 0; count && loop < htonl (inode->numblocks); loop++)
+		{
+/* For sanity sake (Mine, not the code's), make these variables. */
+			unsigned int blkstart = htonl (inode->datablocks[loop].sector);
+			unsigned int blkcount = htonl (inode->datablocks[loop].count);
+			int result;
+
+/* If the start offset has not been reached, skip to it. */
+			if (start)
+			{
+				if (blkcount <= start)
+				{
+/* If the start offset is not within this block, decrement the start and keep */
+/* going. */
+					start -= blkcount;
+					continue;
+				}
+				else
+				{
+/* The start offset is within this block.  Adjust the block parameters a */
+/* little, since this is just local variables. */
+					blkstart += start;
+					blkcount -= start;
+					start = 0;
+				}
+			}
+
+/* If the entire data is within this block, make this block look like it */
+/* is no bigger than the data. */
+			if (blkcount > count)
+			{
+				blkcount = count;
+			}
+
+			result = mfsvol_write_data (mfshnd->vols, data, blkstart, blkcount);
+			count -= blkcount;
+
+/* Error - propogate it up. */
+			if (result < 0)
+			{
+				return result;
+			}
+
+/* Add to the total. */
+			totwrit += result;
+			data += result;
+/* If this is it, or if the amount written was truncated, return it. */
+			if (result != blkcount * 512 || count == 0)
+			{
+				return totwrit;
+			}
+		}
+	}
+
+/* They must have asked for more data than there was.  Return the total written. */
+	return totwrit;
+}
+
 /*************************************/
 /* Read a portion of an inodes data. */
 int
@@ -151,8 +244,26 @@ mfs_read_inode_data_part (struct mfs_handle *mfshnd, mfs_inode * inode, unsigned
 		return 0;
 	}
 
+/* All the data fits in the inode */
+	if (inode->inode_flags & htonl (INODE_DATA))
+	{
+		int size = htonl (inode->size);
+
+		if (start)
+		{
+			return 0;
+		}
+
+/* Corrupted inode, but fake it at least */
+		if (size > 512 - 0x3c)
+			size = 512 - 0xc3;
+
+		memset (data + size, 0, 512 - size);
+		memcpy (data, (unsigned char *) inode + 0x3c, size);
+		return 512;
+	}
 /* If it doesn't fit in the sector find out where it is. */
-	if (inode->numblocks)
+	else if (inode->numblocks)
 	{
 		int loop;
 
@@ -209,16 +320,6 @@ mfs_read_inode_data_part (struct mfs_handle *mfshnd, mfs_inode * inode, unsigned
 				return totread;
 			}
 		}
-	}
-	else if (htonl (inode->size) < 512 - 0x3c && inode->type != tyStream)
-	{
-		if (start)
-		{
-			return 0;
-		}
-		memset (data, 0, 512);
-		memcpy (data, (unsigned char *) inode + 0x3c, htonl (inode->size));
-		return 512;
 	}
 
 /* They must have asked for more data than there was.  Return the total read. */

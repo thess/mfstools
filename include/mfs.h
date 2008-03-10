@@ -69,8 +69,9 @@ struct mfs_handle
 // Flags to pass to mfs_init along with the accmode
 #define MFS_ERROROK		0x04000000	// Open despite errors
 
-int mfs_compute_crc (unsigned char *data, unsigned int size, unsigned int off);
-int mfs_check_crc (unsigned char *data, unsigned int size, unsigned int off);
+unsigned int compute_crc (unsigned char *data, unsigned int size, unsigned int crc);
+unsigned int mfs_compute_crc (unsigned char *data, unsigned int size, unsigned int off);
+unsigned int mfs_check_crc (unsigned char *data, unsigned int size, unsigned int off);
 void mfs_update_crc (unsigned char *data, unsigned int size, unsigned int off);
 void data_swab (void *data, int size);
 zone_header *mfs_next_zone (struct mfs_handle *mfshdn, zone_header *cur);
@@ -95,10 +96,13 @@ int mfs_strerror (struct mfs_handle *mfshnd, char *str);
 int mfs_has_error (struct mfs_handle *mfshnd);
 void mfs_clearerror (struct mfs_handle *mfshnd);
 
+#define CRC32_RESIDUAL 0xdebb20e3
+
 #define MFS_check_crc(data, size, crc) (mfs_check_crc ((unsigned char *)(data), (size), (unsigned int *)&(crc) - (unsigned int *)(data)))
 #define MFS_update_crc(data, size, crc) (mfs_update_crc ((unsigned char *)(data), (size), (unsigned int *)&(crc) - (unsigned int *)(data)))
 
 #define mfs_read_data(mfshnd,buf,sector,count) mfsvol_read_data ((mfshnd)->vols, buf, sector, count)
+#define mfs_write_data(mfshnd,buf,sector,count) mfsvol_write_data ((mfshnd)->vols, buf, sector, count)
 #define mfs_volume_size(mfshnd,sector) mfsvol_volume_size ((mfshnd)->vols, sector)
 #define mfs_volume_set_size(mfshnd) mfsvol_volume_set_size ((mfshnd)->vols)
 
