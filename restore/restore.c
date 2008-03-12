@@ -1443,6 +1443,7 @@ restore_fudge_log (char *trans, unsigned int volsize)
 		}
 		break;
 	case ltInodeUpdate:
+	case ltInodeUpdate2:
 		if (htons (cur->log.length) < sizeof (log_inode_update) - 2)
 		{
 			return 0;

@@ -26,7 +26,7 @@ typedef struct volume_header_s
 	unsigned int unksectors;	/* But definately an allocated area */
 	unsigned int offc0;
 	zone_map_ptr zonemap;
-	unsigned int offd8;
+	unsigned int next_fsid;		/* Incrementing value for the next fsid to create */
 								/* Following two used in transaction log */
 								/* And inodes */
 	unsigned int bootcycles;	/* Seems to be times booted on */
@@ -39,6 +39,8 @@ volume_header;
 struct zone_map
 {
 	zone_header *map;
+	bitmap_header **bitmaps;
+	int dirty;
 	struct zone_map *next;
 	struct zone_map *next_loaded;
 };
@@ -57,6 +59,9 @@ struct mfs_handle
 	volume_header vol_hdr;
 	struct zone_map_head zones[ztMax];
 	struct zone_map *loaded_zones;
+	
+	unsigned int bootcycle;
+	unsigned int bootsecs;
 
 	char *err_msg;
 	void *err_arg1;
@@ -75,10 +80,13 @@ unsigned int mfs_check_crc (unsigned char *data, unsigned int size, unsigned int
 void mfs_update_crc (unsigned char *data, unsigned int size, unsigned int off);
 void data_swab (void *data, int size);
 zone_header *mfs_next_zone (struct mfs_handle *mfshdn, zone_header *cur);
+int mfs_zone_map_commit (struct mfs_handle *mfshnd);
+int mfs_zone_map_update (struct mfs_handle *mfshnd, unsigned int sector, unsigned int size, unsigned int state, unsigned int logstamp);
 unsigned int mfs_inode_count (struct mfs_handle *mfshnd);
 unsigned int mfs_inode_to_sector (struct mfs_handle *mfshnd, unsigned int inode);
 mfs_inode *mfs_read_inode (struct mfs_handle *mfshnd, unsigned int inode);
 mfs_inode *mfs_read_inode_by_fsid (struct mfs_handle *mfshnd, unsigned int fsid);
+mfs_inode *mfs_find_inode_for_fsid (struct mfs_handle *mfshnd, unsigned int fsid);
 int mfs_write_inode (struct mfs_handle *mfshnd, mfs_inode *inode);
 int mfs_read_inode_data_part (struct mfs_handle *mfshnd, mfs_inode * inode, unsigned char *data, unsigned int start, unsigned int count);
 unsigned char *mfs_read_inode_data (struct mfs_handle *mfshnd, mfs_inode * inode, int *size);
@@ -105,5 +113,7 @@ void mfs_clearerror (struct mfs_handle *mfshnd);
 #define mfs_write_data(mfshnd,buf,sector,count) mfsvol_write_data ((mfshnd)->vols, buf, sector, count)
 #define mfs_volume_size(mfshnd,sector) mfsvol_volume_size ((mfshnd)->vols, sector)
 #define mfs_volume_set_size(mfshnd) mfsvol_volume_set_size ((mfshnd)->vols)
+#define mfs_enable_memwrite(mfshnd) mfsvol_enable_memwrite ((mfshnd)->vols)
+#define mfs_discard_memwrite(mfshnd) mfsvol_discard_memwrite ((mfshnd)->vols)
 
 #endif	/* MFS_H */

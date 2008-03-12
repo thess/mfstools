@@ -26,6 +26,31 @@
 
 #include "mfs.h"
 
+/*************************************/
+/* Write the volume header back out. */
+int
+mfs_write_volume_header (struct mfs_handle *mfshnd)
+{
+	unsigned char buf[512];
+	memset (buf, 0, sizeof (buf));
+
+	MFS_update_crc (&mfshnd->vol_hdr, sizeof (mfshnd->vol_hdr), mfshnd->vol_hdr.checksum);
+	memcpy (buf, &mfshnd->vol_hdr, sizeof (mfshnd->vol_hdr));
+
+	if (mfsvol_write_data (mfshnd->vols, buf, 0, 1) != 512)
+	{
+		mfshnd->err_msg = "%s writing volume header";
+		mfshnd->err_arg1 = strerror (errno);
+		return -1;
+	}
+	if (mfsvol_write_data (mfshnd->vols, buf, mfsvol_volume_size (mfshnd->vols, 0) - 1, 1) != 512)
+	{
+		mfshnd->err_msg = "%s writing volume header";
+		mfshnd->err_arg1 = strerror (errno);
+		return -1;
+	}
+}
+
 /**************************************/
 /* Load and verify the volume header. */
 int
@@ -67,6 +92,11 @@ mfs_load_volume_header (struct mfs_handle *mfshnd, int flags)
 			return -1;
 		}
 	}
+
+	/* Increment the boot cycle number */
+	mfshnd->bootcycle = htonl (mfshnd->vol_hdr.bootcycles) + 1;
+	/* Fake out seconds, all that's important is that it moves forward */
+	mfshnd->bootsecs = 1;
 
 /* Load the partition list from MFS. */
 	volume_names = mfshnd->vol_hdr.partitionlist;

@@ -125,7 +125,7 @@ mfs_read_inode_by_fsid (struct mfs_handle *mfshnd, unsigned int fsid)
 /* Repeat until either the fsid matches, the CHAINED flag is unset, or */
 /* every inode has been checked, which I hope I will not have to do. */
 	}
-	while (htonl (cur->fsid) != fsid && (htonl (cur->inode_flags) & INODE_CHAINED) && (inode = (inode + 1) & (mfs_inode_count (mfshnd) - 1)) != inode_base);
+	while (cur && htonl (cur->fsid) != fsid && (htonl (cur->inode_flags) & INODE_CHAINED) && (inode = (inode + 1) % (mfs_inode_count (mfshnd))) != inode_base);
 
 /* If cur is NULL or the fsid is correct and in use, then cur contains the */
 /* right return. */
@@ -137,6 +137,101 @@ mfs_read_inode_by_fsid (struct mfs_handle *mfshnd, unsigned int fsid)
 /* This is not the inode you are looking for.  Move along. */
 	free (cur);
 	return NULL;
+}
+
+/******************************************************************/
+/* Given a fsid, find an inode for it if one doesn't already exist. */
+mfs_inode *
+mfs_find_inode_for_fsid (struct mfs_handle *mfshnd, unsigned int fsid)
+{
+	int inode = (fsid * MFS_FSID_HASH) & (mfs_inode_count (mfshnd) - 1);
+	mfs_inode *cur = NULL;
+	int inode_base = inode;
+	mfs_inode *first = NULL;
+
+	do
+	{
+		if (cur && cur != first)
+		{
+			free (cur);
+		}
+
+		cur = mfs_read_inode (mfshnd, inode);
+		if (cur && !first && !cur->fsid && !cur->refcount)
+		{
+			first = cur;
+		}
+/* Repeat until either the fsid matches, the CHAINED flag is unset, or */
+/* every inode has been checked, which I hope I will not have to do. */
+	}
+	while (cur && htonl (cur->fsid) != fsid && (htonl (cur->inode_flags) & INODE_CHAINED) && (inode = (inode + 1) % (mfs_inode_count (mfshnd))) != inode_base);
+
+/* If nothing was read, something is wrong */
+	if (!cur)
+	{
+		if (first)
+		{
+			free (first);
+		}
+		return NULL;
+	}
+
+/* If the fsid was found, return the inode */
+	if (cur && (htonl (cur->fsid) == fsid))
+	{
+		if (first)
+		{
+			free (first);
+		}
+		return cur;
+	}
+
+/* If the fsid wasn't located, but an empty inode was, return that. */
+	if (first)
+	{
+		if (cur)
+		{
+			free (cur);
+		}
+		return first;
+	}
+
+/* Keep looking */
+	do
+	{
+		if (cur)
+		{
+/* Mark this inode chained */
+			if (!(cur->inode_flags & htonl (INODE_CHAINED)))
+			{
+				cur->inode_flags |= htonl (INODE_CHAINED);
+				if (mfs_write_inode (mfshnd, cur) < 0)
+				{
+					free (cur);
+					return NULL;
+				}
+			}
+			free (cur);
+		}
+
+		cur = mfs_read_inode (mfshnd, inode);
+		
+/* Repeat until a free inode is found, or */
+/* every inode has been checked, which I hope I will not have to do. */
+	}
+	while (cur && (cur->fsid || cur->refcount) && (inode = (inode + 1) % (mfs_inode_count (mfshnd))) != inode_base);
+
+	if (!cur)
+		return NULL;
+
+	if (cur->fsid || cur->refcount)
+	{
+		free (cur);
+		return NULL;
+	}
+
+	cur->inode = inode;
+	return cur;
 }
 
 /**************************************/

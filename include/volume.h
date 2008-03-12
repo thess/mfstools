@@ -11,6 +11,22 @@
 #define VOL_RDONLY      2		/* This volume is read-only */
 /* #define VOL_SWAB        4        This volume is byte-swapped */
 
+enum volume_write_mode_e
+{
+	vwNormal = 0,		// Writes go to the volume (If RW mode)
+	vwFake = 1,			// Writes pretend to go to the volume, but are hex dumped instead
+	vwLocal = 2			// Writes are cached in memory and returned on subsequent reads, but not written to the volume
+};
+
+/* Block written to memory */
+struct volume_mem_data
+{
+	unsigned int start;
+	unsigned int sectors;
+	struct volume_mem_data *next;
+	unsigned char data[0];
+};
+
 /* Information about the list of volumes needed for reads */
 struct volume_info
 {
@@ -19,13 +35,14 @@ struct volume_info
 	unsigned int sectors;
 	unsigned int offset;
 	int vol_flags;
+	struct volume_mem_data *mem_blocks;
 	struct volume_info *next;
 };
 
 struct volume_handle
 {
 	struct volume_info *volumes;
-	int fake_write;
+	enum volume_write_mode_e write_mode;
 	char *hda;
 	char *hdb;
 
@@ -43,6 +60,8 @@ unsigned int mfsvol_volume_size (struct volume_handle *hnd, unsigned int sector)
 unsigned int mfsvol_volume_set_size (struct volume_handle *hnd);
 int mfsvol_read_data (struct volume_handle *hnd, void *buf, unsigned int sector, int count);
 int mfsvol_write_data (struct volume_handle *hnd, void *buf, unsigned int sector, int count);
+void mfsvol_enable_memwrite (struct volume_handle *hnd);
+void mfsvol_discard_memwrite (struct volume_handle *hnd);
 void mfsvol_cleanup (struct volume_handle *hnd);
 struct volume_handle *mfsvol_init (const char *hda, const char *hdb);
 

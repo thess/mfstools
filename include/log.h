@@ -71,12 +71,21 @@ typedef enum log_trans_types_e
 	ltMapUpdate = 0,
 	ltInodeUpdate = 1,
 	ltCommit = 2,
-	ltFsSync = 4
+	ltFsSync = 4,
+	ltInodeUpdate2 = 8
 }
 log_trans_types;
+
+struct log_entry_list
+{
+	struct log_entry_list *next;
+	unsigned int logstamp;
+	log_entry_all entry;
+};
 
 unsigned int mfs_log_last_sync (struct mfs_handle *mfshnd);
 int mfs_log_read (struct mfs_handle *mfshnd, void *buf, unsigned int logstamp);
 int mfs_log_write (struct mfs_handle *mfshnd, void *buf);
+int mfs_log_fssync (struct mfs_handle *mfshnd);
 
 #endif /*LOG_H */

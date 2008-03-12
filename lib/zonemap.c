@@ -101,12 +101,274 @@ mfs_inode_to_sector (struct mfs_handle *mfshnd, unsigned int inode)
 }
 
 /************************************************************************/
+/* Return the state of a bit in a bitmap */
+static int
+mfs_zone_map_bit_state_get (bitmap_header *bitmap, unsigned int bit)
+{
+	unsigned int *mapints = (unsigned int *)(bitmap + 1);
+
+	/* Find the int that contains this bit */
+	mapints += bit / 32;
+	
+	/* Adjust the bit to be within this int */
+	/* MSB is bit 0, LSB is bit 31, etc */
+	bit = 31 & ~bit;
+	
+	/* Make it the actual bit */
+	bit = htonl (1 << bit);
+	
+	/* return it as 1 or 0 */
+	return (bit & *mapints) ? 1 : 0;
+}
+
+/************************************************************************/
+/* Set the state of a bit in a bitmap */
+static void
+mfs_zone_map_bit_state_set (bitmap_header *bitmap, unsigned int bit)
+{
+	unsigned int *mapints = (unsigned int *)(bitmap + 1);
+
+	/* Find the int that contains this bit */
+	mapints += bit / 32;
+	
+	/* Adjust the bit to be within this int */
+	/* MSB is bit 0, LSB is bit 31, etc */
+	bit = 31 & ~bit;
+	
+	/* Make it the actual bit */
+	bit = htonl (1 << bit);
+
+	*mapints |= bit;
+}
+
+/************************************************************************/
+/* Clear the state of a bit in a bitmap */
+static void
+mfs_zone_map_bit_state_clear (bitmap_header *bitmap, unsigned int bit)
+{
+	unsigned int *mapints = (unsigned int *)(bitmap + 1);
+
+	/* Find the int that contains this bit */
+	mapints += bit / 32;
+	
+	/* Adjust the bit to be within this int */
+	/* MSB is bit 0, LSB is bit 31, etc */
+	bit = 31 & ~bit;
+	
+	/* Make it the actual bit */
+	bit = htonl (1 << bit);
+
+	*mapints &= ~bit;
+}
+
+/************************************************************************/
+/* Allocate or free a block out of the bitmap */
+int
+mfs_zone_map_update (struct mfs_handle *mfshnd, unsigned int sector, unsigned int size, unsigned int state, unsigned int logstamp)
+{
+	struct zone_map *zone;
+	int order;
+	int orderfree;
+	int loop;
+	unsigned int mapbit;
+	
+	/* Find the zone to update based on the start sector */
+	for (zone = mfshnd->loaded_zones; zone; zone = zone->next_loaded)
+	{
+		if (sector >= htonl (zone->map->first) && sector <= htonl (zone->map->last))
+			break;
+	}
+	
+	if (!zone)
+	{
+		mfshnd->err_msg = "Sector %u out of bounds for zone map update in logstamp %d";
+		mfshnd->err_arg1 = (void *)sector;
+		mfshnd->err_arg2 = (void *)logstamp;
+		return 0;
+	}
+	
+	if (sector + size - 1 > htonl (zone->map->last))
+	{
+		mfshnd->err_msg = "Sector %u size %d crosses zone map boundry";
+		mfshnd->err_arg1 = (void *)sector;
+		mfshnd->err_arg2 = (void *)size;
+		return 0;
+	}
+	
+	if ((htonl (zone->map->first) - sector) % size)
+	{
+		mfshnd->err_msg = "Sector %u size %d not aligned with zone map";
+		mfshnd->err_arg1 = (void *)sector;
+		mfshnd->err_arg2 = (void *)size;
+		return 0;
+	}
+
+	/* Check the logstamp to see if this has already been updated...  */
+	/* Sure, there could be some integer wrap... */
+	/* After a hundred or so years */
+	if (logstamp <= htonl (zone->map->logstamp))
+		return 1;
+
+	/* From this point on, it is assumed that the request makes sense */
+	/* For example, no request to free a block that is partly free, or to */
+	/* allocate a block that is partly allocated */
+	/* Allocating a block that is fully allocated or freeing a block that */
+	/* is fully free is fine, however. */
+	
+	/* Find which level of bitmaps this block is on */
+	for (order = 0; order < htonl (zone->map->num); order++)
+	{
+		if ((htonl (zone->map->min) << order) >= size)
+			break;
+	}
+
+	/* One last set of sanity checks on the size */
+	if (order >= htonl (zone->map->num))
+	{
+		/* Should be caught by above check that it crosses the zone map boundry */
+		mfshnd->err_msg = "Sector %u size %d too large for zone map";
+		mfshnd->err_arg1 = (void *)sector;
+		mfshnd->err_arg2 = (void *)size;
+		return 0;
+	}
+
+	if ((htonl (zone->map->min) << order) != size)
+	{
+		mfshnd->err_msg = "Sector %u size %d not multiple of zone map allocation";
+		mfshnd->err_arg1 = (void *)sector;
+		mfshnd->err_arg2 = (void *)size;
+		return 0;
+	}
+
+	zone->map->logstamp = htonl (logstamp);
+	mapbit = (sector - htonl (zone->map->first)) / (htonl (zone->map->min) << order);
+
+	/* Find the first free bit */
+	for (orderfree = order; orderfree < htonl (zone->map->num); orderfree++)
+	{
+		if (mfs_zone_map_bit_state_get (zone->bitmaps[orderfree], mapbit >> (orderfree - order)))
+			break;
+	}
+
+	/* Free bit not found */
+	if (orderfree >= htonl (zone->map->num))
+		orderfree = -1;
+
+	if (state)
+	{
+		/* Free a block */
+		if (orderfree >= 0)
+		{
+			/* Already free */
+			return 1;
+		}
+
+		/* Set the bit to mark it free */
+		zone->map->free = htonl (htonl (zone->map->free) + size);
+		mfs_zone_map_bit_state_set (zone->bitmaps[order], mapbit);
+		zone->bitmaps[order]->freeblocks = htonl (htonl (zone->bitmaps[order]->freeblocks) + 1);
+		
+		/* Coalesce neighboring free bits into larger blocks */
+		while (order + 1 < htonl (zone->map->num) &&
+			mfs_zone_map_bit_state_get (zone->bitmaps[order], mapbit ^ 1))
+		{
+			/* Clear the bit and it's neighbor in the bitmap */
+			mfs_zone_map_bit_state_clear (zone->bitmaps[order], mapbit);
+			mfs_zone_map_bit_state_clear (zone->bitmaps[order], mapbit ^ 1);
+			zone->bitmaps[order]->freeblocks = htonl (htonl (zone->bitmaps[order]->freeblocks) - 2);
+
+			/* Move on to the next bitmap */
+			order++;
+			mapbit >>= 1;
+
+			/* Set the single bit in the next bitmap that represents both bits cleared */
+			mfs_zone_map_bit_state_set (zone->bitmaps[order], mapbit);
+			zone->bitmaps[order]->freeblocks = htonl (htonl (zone->bitmaps[order]->freeblocks) + 1);
+		}
+
+		/* Mark it dirty */
+		zone->dirty = 1;
+
+		/* Done! */
+		return 1;
+	}
+	else
+	{
+		/* Allocate a block */
+		if (orderfree < 0)
+		{
+			/* Already allocated */
+			return 1;
+		}
+
+		/* Set all the bit as free that are left over from borrowing from larger chunks */
+		while (order < orderfree)
+		{
+			mfs_zone_map_bit_state_set (zone->bitmaps[order], mapbit ^ 1);
+			zone->bitmaps[order]->freeblocks = htonl (htonl (zone->bitmaps[order]->freeblocks) + 1);
+
+			/* Move on to the next bitmap */
+			order++;
+			mapbit >>= 1;
+		}
+
+		/* Clear the bit to mark it allocated */
+		zone->map->free = htonl (htonl (zone->map->free) + size);
+		mfs_zone_map_bit_state_clear (zone->bitmaps[order], mapbit);
+		zone->bitmaps[order]->freeblocks = htonl (htonl (zone->bitmaps[order]->freeblocks) - 1);
+		
+		/* Set the last bit allocated - bit numbering is 1 based here (Or maybe it's next bit after last allocated) */
+		/* Hypothesis: This is used as a base for the search for next free bit */
+		zone->map->last = htonl (mapbit + 1);
+
+		/* Mark it dirty */
+		zone->dirty = 1;
+
+		/* Done! */
+		return 1;
+	}
+}
+
+/************************************************************************/
+/* Write changed zone maps back to disk */
+int
+mfs_zone_map_commit (struct mfs_handle *mfshnd)
+{
+	struct zone_map *zone;
+
+	for (zone = mfshnd->loaded_zones; zone; zone = zone->next_loaded)
+	{
+		if (zone->dirty)
+		{
+			int towrite = htonl (zone->map->length);
+			int nwrit;
+
+			MFS_update_crc (zone->map, towrite * 512, zone->map->checksum);
+
+			if (mfsvol_write_data (mfshnd->vols, zone->map, htonl (zone->map->sector), towrite) < 0)
+			{
+				return -1;
+			}
+			if (mfsvol_write_data (mfshnd->vols, zone->map, htonl (zone->map->sbackup), towrite) < 0)
+			{
+				return -1;
+			}
+		}
+	}
+	return 1;
+}
+
+/************************************************************************/
 /* Return how big a new zone map would need to be for a given number of */
 /* allocation blocks. */
 static int
 mfs_new_zone_map_size (unsigned int blocks)
 {
-	int size = sizeof (zone_header) + 4;
+/* I don't remember what the original +4 was for, but the +16 is because */
+/* apparently TiVo likes a little breathing room at the end, and throws */
+/* a tantrum if it doesn't have it.  This happens when the zone map has */
+/* 18 levels of bitmaps. */
+	int size = sizeof (zone_header) + 4 + 16;
 	int order = 0;
 
 /* Figure out the first order of 2 that is needed to have at least 1 bit for */
@@ -471,6 +733,7 @@ mfs_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsigned
 	mfsvol_write_data (mfshnd->vols, foo, 0, 1);
 	mfsvol_write_data (mfshnd->vols, foo, mfsvol_volume_size (mfshnd->vols, 0) - 1, 1);
 
+	mfs_cleanup_zone_maps(mfshnd);
 	return mfs_load_zone_maps (mfshnd);
 }
 
@@ -489,6 +752,8 @@ mfs_cleanup_zone_maps (struct mfs_handle *mfshnd)
 
 			mfshnd->zones[loop].next = map->next;
 			free (map->map);
+			if (map->bitmaps)
+				free (map->bitmaps);
 			free (map);
 		}
 	}
@@ -551,9 +816,11 @@ mfs_load_zone_maps (struct mfs_handle *mfshnd)
 
 	loop = 0;
 
-	while (ptr->sector && ptr->sbackup != htonl (0xdeadbeef))
+	while (ptr->sector && ptr->sbackup != htonl (0xdeadbeef) && ptr->length != 0)
 	{
 		struct zone_map *newmap;
+		unsigned long *bitmap_ptrs;
+		int loop2;
 
 /* Read the map, verify it's checksum. */
 		cur = mfs_load_zone_map (mfshnd, ptr);
@@ -578,11 +845,38 @@ mfs_load_zone_maps (struct mfs_handle *mfshnd)
 			free (cur);
 			return -1;
 		}
+		
+		if (cur->num != 0)
+		{
+			newmap->bitmaps = calloc (sizeof (*newmap->bitmaps), htonl (cur->num));
+			if (!newmap->bitmaps)
+			{
+				mfshnd->err_msg = "Out of memory";
+				free (newmap);
+				free (cur);
+				return -1;
+			}
+		}
+		else
+		{
+			newmap->bitmaps = NULL;
+		}
 
 /* Link it into the proper map type pool. */
 		newmap->map = cur;
 		*cur_heads[htonl (cur->type)] = newmap;
 		cur_heads[htonl (cur->type)] = &newmap->next;
+
+/* Get pointers to the bitmaps for easy access */
+		if (cur->num != 0)
+		{
+			bitmap_ptrs = (unsigned long *)(cur + 1);
+			newmap->bitmaps[0] = (bitmap_header *)&bitmap_ptrs[htonl (cur->num)];
+			for (loop2 = 1; loop2 < htonl (cur->num); loop2++)
+			{
+				newmap->bitmaps[loop2] = (bitmap_header *)((unsigned long)newmap->bitmaps[0] + (htonl (bitmap_ptrs[loop2]) - htonl (bitmap_ptrs[0])));
+			}
+		}
 
 /* Also link it into the loaded order. */
 		*loaded_head = newmap;

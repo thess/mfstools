@@ -15,7 +15,7 @@ typedef struct bitmap_header_s
 {
 	unsigned long nbits;		/* Number of bits in this map */
 	unsigned long freeblocks;	/* Number of free blocks in this map */
-	unsigned long last;			/* Last bit set ??? */
+	unsigned long last;			/* Last bit allocated (Cleared) */
 	unsigned long nints;		/* Number of ints in this map */
 }
 bitmap_header;
@@ -38,7 +38,7 @@ typedef struct zone_header_s
 	zone_map_ptr next;			/* Next zone map */
 	zone_type type;				/* Type of data in zone */
 	unsigned long logstamp;		/* Last log stamp */
-	unsigned long checksum;		/* Checksum of ??? */
+	unsigned long checksum;		/* Checksum of entire zone map and bitmaps */
 	unsigned long first;		/* First sector in this partition */
 	unsigned long last;			/* Last sector in this partition */
 	unsigned long size;			/* Size of this partition (sectors) */

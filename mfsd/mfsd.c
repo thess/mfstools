@@ -22,6 +22,7 @@ usage ()
 	fprintf (stderr, "    -l	Read from transaction log\n");
 	fprintf (stderr, "    -s	Read from sector, or from offset into file\n");
 	fprintf (stderr, "    -c	Read count sectors, where applicable\n");
+	fprintf (stderr, "    -C    Perform consistency checkpoint before displaying data\n");
 	fprintf (stderr, "    -h	Display in hex, no matter the format\n");
 	fprintf (stderr, "    -b	Display in binary, no matter the format\n");
 }
@@ -78,6 +79,9 @@ hexdump (unsigned char *buf, unsigned int sector, unsigned int size)
 int
 dump_inode_log (log_inode_update *entry)
 {
+	unsigned char date[17] = "xx/xx/xx xx:xx";
+	time_t modtime;
+
 	printf ("Inode: %-13dFSid: %d\n", htonl (entry->inode), htonl (entry->fsid));
 	printf ("Refcount: %-10dType: ", htonl (entry->refcount));
 
@@ -98,6 +102,10 @@ dump_inode_log (log_inode_update *entry)
 	default:
 		printf ("??? (%d)\n", entry->type);
 	}
+
+	modtime = htonl (entry->lastmodified);
+	strftime (date, 16, "%D %R", localtime (&modtime));
+	printf ("Last modified: %s\n", date);
 
 	printf ("Last update boot: %-15dSecs: %d\n", htonl (entry->bootcycles), htonl (entry->bootsecs));
 	if (entry->type == tyStream)
@@ -132,79 +140,94 @@ dump_inode_log (log_inode_update *entry)
 int
 dump_inode (mfs_inode *inode_buf, unsigned char *buf, unsigned int bufsize)
 {
+	unsigned char date[17] = "xx/xx/xx xx:xx";
+	time_t modtime;
+
 	if (!inode_buf && bufsize >= 512)
 	{
 		// If it wasn't read as an inode, check if it looks like one
 		inode_buf = (mfs_inode *)buf;
-		if (inode_buf->pad != htons(0xbeef) ||
-			inode_buf->sig != htonl(0x91231ebc) ||
+		if (inode_buf->sig != htonl(0x91231ebc) ||
 			!MFS_check_crc (inode_buf, 512, inode_buf->checksum))
 			return 0;
 	}
 
-	printf("\n    Inode block\n");
-	printf ("Inode: %-13dFSid: %d\n", htonl (inode_buf->inode), htonl (inode_buf->fsid));
-	printf ("Refcount: %-10dType: ", htonl (inode_buf->refcount));
+	do
+	{
+		printf("\n    Inode block\n");
+		printf ("Inode: %-13dFSid: %d\n", htonl (inode_buf->inode), htonl (inode_buf->fsid));
+		printf ("Refcount: %-10dType: ", htonl (inode_buf->refcount));
 
-	switch (inode_buf->type)
-	{
-	case tyDir:
-		printf ("tyDir\n");
-		break;
-	case tyDb:
-		printf ("tyDb\n");
-		break;
-	case tyStream:
-		printf ("tyStream\n");
-		break;
-	case tyFile:
-		printf ("tyFile\n");
-		break;
-	default:
-		printf ("??? (%d)\n", inode_buf->type);
-	}
-
-	printf ("Last update boot: %-15dSecs: %d\n", htonl (inode_buf->bootcycles), htonl (inode_buf->bootsecs));
-	if (inode_buf->type == tyStream)
-	{
-		printf ("Size: %d blocks of %d bytes (%llu)\n", htonl (inode_buf->size), htonl (inode_buf->unk3), (unsigned long long) htonl (inode_buf->unk3) * (unsigned long long) htonl (inode_buf->size));
-		printf ("Used: %d blocks of %d bytes (%llu)\n", htonl (inode_buf->blockused), htonl (inode_buf->blocksize), (unsigned long long) htonl (inode_buf->blockused) * (unsigned long long) htonl (inode_buf->blocksize));
-	}
-	else
-	{
-		printf ("Size: %d bytes\n", htonl (inode_buf->size));
-	}
-	printf ("Checksum: %08x  Flags:", inode_buf->checksum);
-	if (inode_buf->inode_flags & htonl(INODE_CHAINED))
-	{
-		printf (" CHAINED");
-	}
-	if (inode_buf->inode_flags & htonl(INODE_DATA))
-	{
-		printf (" DATA");
-	}
-	if (inode_buf->inode_flags & htonl(~(INODE_DATA | INODE_CHAINED)))
-	{
-		printf (" ? (%08x)\n", htonl(inode_buf->inode_flags));
-	}
-	else
-	{
-		printf ("\n");
-	}
-	printf ("Sigs: %04x %08x (Always beef 91231ebc?)\n", htons (inode_buf->pad), htonl (inode_buf->sig));
-	if (htonl (inode_buf->numblocks))
-	{
-		int loop;
-		printf ("Data is in %d blocks:\n", htonl (inode_buf->numblocks));
-		for (loop = 0; loop < htonl (inode_buf->numblocks); loop++)
+		switch (inode_buf->type)
 		{
-			printf ("At %-8x %d sectors\n", htonl (inode_buf->datablocks[loop].sector), htonl (inode_buf->datablocks[loop].count));
+		case tyDir:
+			printf ("tyDir\n");
+			break;
+		case tyDb:
+			printf ("tyDb\n");
+			break;
+		case tyStream:
+			printf ("tyStream\n");
+			break;
+		case tyFile:
+			printf ("tyFile\n");
+			break;
+		default:
+			printf ("??? (%d)\n", inode_buf->type);
 		}
+
+		modtime = htonl (inode_buf->lastmodified);
+		strftime (date, 16, "%D %R", localtime (&modtime));
+		printf ("Last modified: %s\n", date);
+
+		printf ("Last update boot: %-15dSecs: %d\n", htonl (inode_buf->bootcycles), htonl (inode_buf->bootsecs));
+		if (inode_buf->type == tyStream)
+		{
+			printf ("Size: %d blocks of %d bytes (%llu)\n", htonl (inode_buf->size), htonl (inode_buf->unk3), (unsigned long long) htonl (inode_buf->unk3) * (unsigned long long) htonl (inode_buf->size));
+			printf ("Used: %d blocks of %d bytes (%llu)\n", htonl (inode_buf->blockused), htonl (inode_buf->blocksize), (unsigned long long) htonl (inode_buf->blockused) * (unsigned long long) htonl (inode_buf->blocksize));
+		}
+		else
+		{
+			printf ("Size: %d bytes\n", htonl (inode_buf->size));
+		}
+		printf ("Checksum: %08x  Flags:", inode_buf->checksum);
+		if (inode_buf->inode_flags & htonl(INODE_CHAINED))
+		{
+			printf (" CHAINED");
+		}
+		if (inode_buf->inode_flags & htonl(INODE_DATA))
+		{
+			printf (" DATA");
+		}
+		if (inode_buf->inode_flags & htonl(~(INODE_DATA | INODE_CHAINED)))
+		{
+			printf (" ? (%08x)\n", htonl(inode_buf->inode_flags));
+		}
+		else
+		{
+			printf ("\n");
+		}
+		printf ("Sigs: %04x %08x (Always beef 91231ebc?)\n", htons (inode_buf->pad), htonl (inode_buf->sig));
+		if (htonl (inode_buf->numblocks))
+		{
+			int loop;
+			printf ("Data is in %d blocks:\n", htonl (inode_buf->numblocks));
+			for (loop = 0; loop < htonl (inode_buf->numblocks); loop++)
+			{
+				printf ("At %-8x %d sectors\n", htonl (inode_buf->datablocks[loop].sector), htonl (inode_buf->datablocks[loop].count));
+			}
+		}
+		else
+		{
+			printf ("Data is in inode block.\n");
+		}
+		
+		buf += 1024;
+		bufsize -= 1024;
+		inode_buf = (mfs_inode *)buf;
 	}
-	else
-	{
-		printf ("Data is in inode block.\n");
-	}
+	while (bufsize > 512 && inode_buf->sig == htonl(0x91231ebc) &&
+		MFS_check_crc (inode_buf, 512, inode_buf->checksum));
 
 	return 1;
 }
@@ -226,14 +249,14 @@ dump_mfs_header (unsigned char *buf, unsigned int bufsize)
 	printf ("\n    MFS Volume Header\n");
 	printf ("Sig: %08x   CRC: %08x   Size: %d\n", htonl (hdr->abbafeed), htonl (hdr->checksum), htonl (hdr->total_sectors));
 	printf ("MFS Partitions: %s\n", hdr->partitionlist);
-	printf ("Root FSID: %-13dLog stamp: %d\n", htonl (hdr->root_fsid), htonl (hdr->logstamp));
+	printf ("Root FSID: %-13dNext FSID: %d\n", htonl (hdr->root_fsid), htonl (hdr->next_fsid));
 	printf ("Redo log start: %-13dSize: %d\n", htonl (hdr->logstart), htonl (hdr->lognsectors));
 	printf ("?        start: %-13dSize: %d\n", htonl (hdr->unkstart), htonl (hdr->unksectors));
 	printf ("Zone map start: %-13dSize: %d\n", htonl (hdr->zonemap.sector), htonl (hdr->zonemap.length));
 	printf ("        backup: %-13dZone size: %-13dAllocation size: %d\n", htonl (hdr->zonemap.sbackup), htonl (hdr->zonemap.size), htonl (hdr->zonemap.min));
-	printf ("Last sync boot: %-13dTimestamp: %d\n", htonl (hdr->bootcycles), htonl (hdr->bootsecs));
+	printf ("Last sync boot: %-13dTimestamp: %-13dLast Commit: %d\n", htonl (hdr->bootcycles), htonl (hdr->bootsecs), htonl (hdr->logstamp));
 
-	if (hdr->off00 || hdr->off0c || hdr->off14 || hdr->off18 || hdr->off1c || hdr->off20 || hdr->offa8 || hdr->offc0 || hdr->offd8)
+	if (hdr->off00 || hdr->off0c || hdr->off14 || hdr->off18 || hdr->off1c || hdr->off20 || hdr->offa8 || hdr->offc0 || hdr->offe4)
 	{
 		printf ("Unknown data\n");
 		if (hdr->off00)
@@ -259,10 +282,6 @@ dump_mfs_header (unsigned char *buf, unsigned int bufsize)
 		if (hdr->offc0)
 		{
 			printf ("00000000:0c0 %02x %02x %02x %02x\n", buf[192], buf[193], buf[194], buf[195]);
-		}
-		if (hdr->offd8)
-		{
-			printf ("00000000:0d8 %02x %02x %02x %02x\n", buf[216], buf[217], buf[218], buf[219]);
 		}
 		if (hdr->offe4)
 		{
@@ -424,7 +443,10 @@ dump_log_entry (unsigned int sector, unsigned char *buf, unsigned int bufsize)
 				printf ("Zone Map Update\n");
 				break;
 			case ltInodeUpdate:
-				printf ("iNode Update\n");
+				printf ("Inode Update\n");
+				break;
+			case ltInodeUpdate2:
+				printf ("Inode Update 2\n");
 				break;
 			case ltCommit:
 				printf ("Log Commit\n");
@@ -453,8 +475,9 @@ dump_log_entry (unsigned int sector, unsigned char *buf, unsigned int bufsize)
 				printf ("Sector: %-13dSize: %d\n", htonl (entry->zonemap.sector), htonl (entry->zonemap.size));
 				break;
 			case ltInodeUpdate:
-				printf ("iNode update:\n");
-				dump_inode_log (&entry->log);
+			case ltInodeUpdate2:
+				printf ("Inode update:\n");
+				dump_inode_log (&entry->inode);
 				break;
 		}
 
@@ -475,6 +498,7 @@ mfsd_main (int argc, char **argv)
 	unsigned int inode = 0xdeadbeef;
 	unsigned int bufsize = 0;
 	unsigned int logstamp = 0xdeadbeef;
+	int dofssync = 0;
 
 	mfs_inode *inode_buf = NULL;
 
@@ -484,7 +508,7 @@ mfsd_main (int argc, char **argv)
 
 	progname = argv[0];
 
-	while ((curarg = getopt (argc, argv, "bhc:s:i:f:l:")) >= 0)
+	while ((curarg = getopt (argc, argv, "bhc:s:i:f:l:C")) >= 0)
 	{
 		switch (curarg)
 		{
@@ -521,6 +545,9 @@ mfsd_main (int argc, char **argv)
 			}
 			inode = strtoul (optarg, 0, 0);
 			break;
+		case 'C':
+			dofssync = 1;
+			break;
 		default:
 			usage ();
 			return 3;
@@ -539,6 +566,15 @@ mfsd_main (int argc, char **argv)
 	{
 		mfs_perror (mfs, argv[0]);
 		return 1;
+	}
+
+	if (dofssync)
+	{
+		mfs_enable_memwrite (mfs);
+		if (mfs_log_fssync (mfs) < 1)
+		{
+			mfs_perror (mfs, "fssync");
+		}
 	}
 
 	if (fsid)
