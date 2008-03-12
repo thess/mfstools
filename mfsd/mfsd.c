@@ -6,6 +6,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
+#include <time.h>
+
 #include "mfs.h"
 #include "log.h"
 
@@ -82,8 +84,8 @@ dump_inode_log (log_inode_update *entry)
 	unsigned char date[17] = "xx/xx/xx xx:xx";
 	time_t modtime;
 
-	printf ("Inode: %-13dFSid: %d\n", htonl (entry->inode), htonl (entry->fsid));
-	printf ("Refcount: %-10dType: ", htonl (entry->refcount));
+	printf ("Inode: %-13dFSid: %d\n", intswap32 (entry->inode), intswap32 (entry->fsid));
+	printf ("Refcount: %-10dType: ", intswap32 (entry->refcount));
 
 	switch (entry->type)
 	{
@@ -103,35 +105,35 @@ dump_inode_log (log_inode_update *entry)
 		printf ("??? (%d)\n", entry->type);
 	}
 
-	modtime = htonl (entry->lastmodified);
+	modtime = intswap32 (entry->lastmodified);
 	strftime (date, 16, "%D %R", localtime (&modtime));
 	printf ("Last modified: %s\n", date);
 
-	printf ("Last update boot: %-15dSecs: %d\n", htonl (entry->bootcycles), htonl (entry->bootsecs));
+	printf ("Last update boot: %-15dSecs: %d\n", intswap32 (entry->bootcycles), intswap32 (entry->bootsecs));
 	if (entry->type == tyStream)
 	{
-		printf ("Size: %d blocks of %d bytes (%llu)\n", htonl (entry->size), htonl (entry->unk3), (unsigned long long) htonl (entry->unk3) * (unsigned long long) htonl (entry->size));
-		printf ("Used: %d blocks of %d bytes (%llu)\n", htonl (entry->blockused), htonl (entry->blocksize), (unsigned long long) htonl (entry->blockused) * (unsigned long long) htonl (entry->blocksize));
+		printf ("Size: %d blocks of %d bytes (%llu)\n", intswap32 (entry->size), intswap32 (entry->unk3), (unsigned long long) intswap32 (entry->unk3) * (unsigned long long) intswap32 (entry->size));
+		printf ("Used: %d blocks of %d bytes (%llu)\n", intswap32 (entry->blockused), intswap32 (entry->blocksize), (unsigned long long) intswap32 (entry->blockused) * (unsigned long long) intswap32 (entry->blocksize));
 	}
 	else
 	{
-		printf ("Size: %d bytes\n", htonl (entry->size));
+		printf ("Size: %d bytes\n", intswap32 (entry->size));
 	}
-	if (entry->inodedata && entry->inodedata != htonl (1))
-		printf ("Data in inode: %d\n", htonl (entry->inodedata));
+	if (entry->inodedata && entry->inodedata != intswap32 (1))
+		printf ("Data in inode: %d\n", intswap32 (entry->inodedata));
 	if (!entry->inodedata)
 	{
 		int loop;
-		printf ("Data is in %d blocks:\n", htonl (entry->datasize) / sizeof (entry->datablocks[0]));
-		for (loop = 0; loop < htonl (entry->datasize) / sizeof (entry->datablocks[0]); loop++)
+		printf ("Data is in %d blocks:\n", intswap32 (entry->datasize) / sizeof (entry->datablocks[0]));
+		for (loop = 0; loop < intswap32 (entry->datasize) / sizeof (entry->datablocks[0]); loop++)
 		{
-			printf ("At %-8x %d sectors\n", htonl (entry->datablocks[loop].sector), htonl (entry->datablocks[loop].count));
+			printf ("At %-8x %d sectors\n", intswap32 (entry->datablocks[loop].sector), intswap32 (entry->datablocks[loop].count));
 		}
 	}
 	else
 	{
 		printf ("Data is in inode block.\n");
-		hexdump ((void *)&entry->datablocks[0], 0, htonl (entry->datasize));
+		hexdump ((void *)&entry->datablocks[0], 0, intswap32 (entry->datasize));
 	}
 
 	return 1;
@@ -147,7 +149,7 @@ dump_inode (mfs_inode *inode_buf, unsigned char *buf, unsigned int bufsize)
 	{
 		// If it wasn't read as an inode, check if it looks like one
 		inode_buf = (mfs_inode *)buf;
-		if (inode_buf->sig != htonl(0x91231ebc) ||
+		if (inode_buf->sig != intswap32(0x91231ebc) ||
 			!MFS_check_crc (inode_buf, 512, inode_buf->checksum))
 			return 0;
 	}
@@ -155,8 +157,8 @@ dump_inode (mfs_inode *inode_buf, unsigned char *buf, unsigned int bufsize)
 	do
 	{
 		printf("\n    Inode block\n");
-		printf ("Inode: %-13dFSid: %d\n", htonl (inode_buf->inode), htonl (inode_buf->fsid));
-		printf ("Refcount: %-10dType: ", htonl (inode_buf->refcount));
+		printf ("Inode: %-13dFSid: %d\n", intswap32 (inode_buf->inode), intswap32 (inode_buf->fsid));
+		printf ("Refcount: %-10dType: ", intswap32 (inode_buf->refcount));
 
 		switch (inode_buf->type)
 		{
@@ -176,45 +178,45 @@ dump_inode (mfs_inode *inode_buf, unsigned char *buf, unsigned int bufsize)
 			printf ("??? (%d)\n", inode_buf->type);
 		}
 
-		modtime = htonl (inode_buf->lastmodified);
+		modtime = intswap32 (inode_buf->lastmodified);
 		strftime (date, 16, "%D %R", localtime (&modtime));
 		printf ("Last modified: %s\n", date);
 
-		printf ("Last update boot: %-15dSecs: %d\n", htonl (inode_buf->bootcycles), htonl (inode_buf->bootsecs));
+		printf ("Last update boot: %-15dSecs: %d\n", intswap32 (inode_buf->bootcycles), intswap32 (inode_buf->bootsecs));
 		if (inode_buf->type == tyStream)
 		{
-			printf ("Size: %d blocks of %d bytes (%llu)\n", htonl (inode_buf->size), htonl (inode_buf->unk3), (unsigned long long) htonl (inode_buf->unk3) * (unsigned long long) htonl (inode_buf->size));
-			printf ("Used: %d blocks of %d bytes (%llu)\n", htonl (inode_buf->blockused), htonl (inode_buf->blocksize), (unsigned long long) htonl (inode_buf->blockused) * (unsigned long long) htonl (inode_buf->blocksize));
+			printf ("Size: %d blocks of %d bytes (%llu)\n", intswap32 (inode_buf->size), intswap32 (inode_buf->unk3), (unsigned long long) intswap32 (inode_buf->unk3) * (unsigned long long) intswap32 (inode_buf->size));
+			printf ("Used: %d blocks of %d bytes (%llu)\n", intswap32 (inode_buf->blockused), intswap32 (inode_buf->blocksize), (unsigned long long) intswap32 (inode_buf->blockused) * (unsigned long long) intswap32 (inode_buf->blocksize));
 		}
 		else
 		{
-			printf ("Size: %d bytes\n", htonl (inode_buf->size));
+			printf ("Size: %d bytes\n", intswap32 (inode_buf->size));
 		}
 		printf ("Checksum: %08x  Flags:", inode_buf->checksum);
-		if (inode_buf->inode_flags & htonl(INODE_CHAINED))
+		if (inode_buf->inode_flags & intswap32(INODE_CHAINED))
 		{
 			printf (" CHAINED");
 		}
-		if (inode_buf->inode_flags & htonl(INODE_DATA))
+		if (inode_buf->inode_flags & intswap32(INODE_DATA))
 		{
 			printf (" DATA");
 		}
-		if (inode_buf->inode_flags & htonl(~(INODE_DATA | INODE_CHAINED)))
+		if (inode_buf->inode_flags & intswap32(~(INODE_DATA | INODE_CHAINED)))
 		{
-			printf (" ? (%08x)\n", htonl(inode_buf->inode_flags));
+			printf (" ? (%08x)\n", intswap32(inode_buf->inode_flags));
 		}
 		else
 		{
 			printf ("\n");
 		}
-		printf ("Sigs: %04x %08x (Always beef 91231ebc?)\n", htons (inode_buf->pad), htonl (inode_buf->sig));
-		if (htonl (inode_buf->numblocks))
+		printf ("Sigs: %04x %08x (Always beef 91231ebc?)\n", intswap16 (inode_buf->pad), intswap32 (inode_buf->sig));
+		if (intswap32 (inode_buf->numblocks))
 		{
 			int loop;
-			printf ("Data is in %d blocks:\n", htonl (inode_buf->numblocks));
-			for (loop = 0; loop < htonl (inode_buf->numblocks); loop++)
+			printf ("Data is in %d blocks:\n", intswap32 (inode_buf->numblocks));
+			for (loop = 0; loop < intswap32 (inode_buf->numblocks); loop++)
 			{
-				printf ("At %-8x %d sectors\n", htonl (inode_buf->datablocks[loop].sector), htonl (inode_buf->datablocks[loop].count));
+				printf ("At %-8x %d sectors\n", intswap32 (inode_buf->datablocks[loop].sector), intswap32 (inode_buf->datablocks[loop].count));
 			}
 		}
 		else
@@ -226,7 +228,7 @@ dump_inode (mfs_inode *inode_buf, unsigned char *buf, unsigned int bufsize)
 		bufsize -= 1024;
 		inode_buf = (mfs_inode *)buf;
 	}
-	while (bufsize > 512 && inode_buf->sig == htonl(0x91231ebc) &&
+	while (bufsize > 512 && inode_buf->sig == intswap32(0x91231ebc) &&
 		MFS_check_crc (inode_buf, 512, inode_buf->checksum));
 
 	return 1;
@@ -242,19 +244,19 @@ dump_mfs_header (unsigned char *buf, unsigned int bufsize)
 
 	hdr = (volume_header *)buf;
 
-	if (hdr->abbafeed != htonl (0xabbafeed) ||
+	if (hdr->abbafeed != intswap32 (0xabbafeed) ||
 		!MFS_check_crc (hdr, sizeof (volume_header), hdr->checksum))
 		return 0;
 
 	printf ("\n    MFS Volume Header\n");
-	printf ("Sig: %08x   CRC: %08x   Size: %d\n", htonl (hdr->abbafeed), htonl (hdr->checksum), htonl (hdr->total_sectors));
+	printf ("Sig: %08x   CRC: %08x   Size: %d\n", intswap32 (hdr->abbafeed), intswap32 (hdr->checksum), intswap32 (hdr->total_sectors));
 	printf ("MFS Partitions: %s\n", hdr->partitionlist);
-	printf ("Root FSID: %-13dNext FSID: %d\n", htonl (hdr->root_fsid), htonl (hdr->next_fsid));
-	printf ("Redo log start: %-13dSize: %d\n", htonl (hdr->logstart), htonl (hdr->lognsectors));
-	printf ("?        start: %-13dSize: %d\n", htonl (hdr->unkstart), htonl (hdr->unksectors));
-	printf ("Zone map start: %-13dSize: %d\n", htonl (hdr->zonemap.sector), htonl (hdr->zonemap.length));
-	printf ("        backup: %-13dZone size: %-13dAllocation size: %d\n", htonl (hdr->zonemap.sbackup), htonl (hdr->zonemap.size), htonl (hdr->zonemap.min));
-	printf ("Last sync boot: %-13dTimestamp: %-13dLast Commit: %d\n", htonl (hdr->bootcycles), htonl (hdr->bootsecs), htonl (hdr->logstamp));
+	printf ("Root FSID: %-13dNext FSID: %d\n", intswap32 (hdr->root_fsid), intswap32 (hdr->next_fsid));
+	printf ("Redo log start: %-13dSize: %d\n", intswap32 (hdr->logstart), intswap32 (hdr->lognsectors));
+	printf ("?        start: %-13dSize: %d\n", intswap32 (hdr->unkstart), intswap32 (hdr->unksectors));
+	printf ("Zone map start: %-13dSize: %d\n", intswap32 (hdr->zonemap.sector), intswap32 (hdr->zonemap.length));
+	printf ("        backup: %-13dZone size: %-13dAllocation size: %d\n", intswap32 (hdr->zonemap.sbackup), intswap32 (hdr->zonemap.size), intswap32 (hdr->zonemap.min));
+	printf ("Last sync boot: %-13dTimestamp: %-13dLast Commit: %d\n", intswap32 (hdr->bootcycles), intswap32 (hdr->bootsecs), intswap32 (hdr->logstamp));
 
 	if (hdr->off00 || hdr->off0c || hdr->off14 || hdr->off18 || hdr->off1c || hdr->off20 || hdr->offa8 || hdr->offc0 || hdr->offe4)
 	{
@@ -305,11 +307,11 @@ dump_zone_map (unsigned int sector, unsigned char *buf, unsigned int bufsize)
 
 	zone = (zone_header *)buf;
 
-	if (sector != htonl (zone->sector) && sector != htonl (zone->sbackup) || htonl (zone->length) * 512 < bufsize || !MFS_check_crc (zone, htonl (zone->length) * 512, zone->checksum))
+	if (sector != intswap32 (zone->sector) && sector != intswap32 (zone->sbackup) || intswap32 (zone->length) * 512 < bufsize || !MFS_check_crc (zone, intswap32 (zone->length) * 512, zone->checksum))
 		return 0;
 
 	printf ("\n    Zone map ");
-	switch (htonl (zone->type))
+	switch (intswap32 (zone->type))
 	{
 		case ztInode:
 			printf ("(Inode)\n");
@@ -321,27 +323,27 @@ dump_zone_map (unsigned int sector, unsigned char *buf, unsigned int bufsize)
 			printf ("(Media)\n");
 			break;
 		default:
-			printf ("(Unknown type %d)\n", htonl (zone->type));
+			printf ("(Unknown type %d)\n", intswap32 (zone->type));
 	}
-	printf ("Sector: %-13dBackup: %-13dLength: %d\n", htonl (zone->sector), htonl (zone->sbackup), htonl (zone->length));
-	printf ("Next:   %-13dBackup: %-13dLength: %d\n", htonl (zone->next.sector), htonl (zone->next.sbackup), htonl (zone->next.length));
-	printf ("Next zone size: %-13dAllocation size: %d\n", htonl (zone->next.size), htonl (zone->next.min));
-	printf ("CRC: %08x     Logstamp: %d\n", htonl (zone->checksum), htonl (zone->logstamp));
-	printf ("Zone sectors: %d-%-13dAllocation size: %d\n", htonl (zone->first), htonl (zone->last), htonl (zone->min));
-	printf ("Zone size: %-13dFree: %d\n", htonl (zone->size), htonl (zone->free));
+	printf ("Sector: %-13dBackup: %-13dLength: %d\n", intswap32 (zone->sector), intswap32 (zone->sbackup), intswap32 (zone->length));
+	printf ("Next:   %-13dBackup: %-13dLength: %d\n", intswap32 (zone->next.sector), intswap32 (zone->next.sbackup), intswap32 (zone->next.length));
+	printf ("Next zone size: %-13dAllocation size: %d\n", intswap32 (zone->next.size), intswap32 (zone->next.min));
+	printf ("CRC: %08x     Logstamp: %d\n", intswap32 (zone->checksum), intswap32 (zone->logstamp));
+	printf ("Zone sectors: %d-%-13dAllocation size: %d\n", intswap32 (zone->first), intswap32 (zone->last), intswap32 (zone->min));
+	printf ("Zone size: %-13dFree: %d\n", intswap32 (zone->size), intswap32 (zone->free));
 	if (zone->zero)
-		printf ("???: %08x\n", htonl (zone->zero));
+		printf ("???: %08x\n", intswap32 (zone->zero));
 
-	printf ("Bitmaps: %d\n", htonl (zone->num));
+	printf ("Bitmaps: %d\n", intswap32 (zone->num));
 
 	ptrs = (unsigned long *)(buf + sizeof (*zone));
-	bitmap0 = (bitmap_header *)&ptrs[htonl (zone->num)];
+	bitmap0 = (bitmap_header *)&ptrs[intswap32 (zone->num)];
 
-	for (loop = 0; loop < htonl (zone->num); loop++)
+	for (loop = 0; loop < intswap32 (zone->num); loop++)
 	{
-		bitmap_header *bitmap = (bitmap_header *)((unsigned long)bitmap0 + (htonl (ptrs[loop]) - htonl (ptrs[0])));
-		printf ("    Bitmap addr: %08x  Start: %08x:%03x\n", htonl (ptrs[loop]), ((unsigned long)(bitmap + 1) - (unsigned long)buf) / 512 + sector, ((unsigned long)(bitmap + 1) - (unsigned long)buf) % 512);
-		printf ("          Nbits: %-10dNints: %-10dFree: %-10dLast: %d\n", htonl (bitmap->nbits), htonl (bitmap->nints), htonl (bitmap->freeblocks), htonl (bitmap->last));
+		bitmap_header *bitmap = (bitmap_header *)((unsigned long)bitmap0 + (intswap32 (ptrs[loop]) - intswap32 (ptrs[0])));
+		printf ("    Bitmap addr: %08x  Start: %08x:%03x\n", intswap32 (ptrs[loop]), ((unsigned long)(bitmap + 1) - (unsigned long)buf) / 512 + sector, ((unsigned long)(bitmap + 1) - (unsigned long)buf) % 512);
+		printf ("          Nbits: %-10dNints: %-10dFree: %-10dLast: %d\n", intswap32 (bitmap->nbits), intswap32 (bitmap->nints), intswap32 (bitmap->freeblocks), intswap32 (bitmap->last));
 	}
 
 	return 1;
@@ -359,32 +361,32 @@ dump_log_entry (unsigned int sector, unsigned char *buf, unsigned int bufsize)
 
 	hdr = (log_hdr *)buf;
 
-	if ((sector != 0xdeadbeef && sector != (htonl (hdr->logstamp) % htonl (mfs->vol_hdr.lognsectors)) + htonl (mfs->vol_hdr.logstart)) || !MFS_check_crc(buf, 512, hdr->crc))
+	if ((sector != 0xdeadbeef && sector != (intswap32 (hdr->logstamp) % intswap32 (mfs->vol_hdr.lognsectors)) + intswap32 (mfs->vol_hdr.logstart)) || !MFS_check_crc(buf, 512, hdr->crc))
 		return 0;
 
-	printf ("\n    Log entry stamp %d\n", htonl (hdr->logstamp));
-	printf ("Size: %-13dFirst: %-13dCRC: %08x\n", htonl (hdr->size), htonl (hdr->first), htonl (hdr->crc));
+	printf ("\n    Log entry stamp %d\n", intswap32 (hdr->logstamp));
+	printf ("Size: %-13dFirst: %-13dCRC: %08x\n", intswap32 (hdr->size), intswap32 (hdr->first), intswap32 (hdr->crc));
 
-	off = htonl (hdr->first);
+	off = intswap32 (hdr->first);
 	hdroff = 0;
-	while (off < bufsize && off < htonl (hdr->size) || hdroff + 512 <= bufsize)
+	while (off < bufsize && off < intswap32 (hdr->size) || hdroff + 512 <= bufsize)
 	{
 		unsigned char *allocated = NULL;
 		unsigned int allocwritten = 0;
 		log_entry_all *entry;
 
-		if (off >= htonl (hdr->size))
+		if (off >= intswap32 (hdr->size))
 		{
-			unsigned int oldlogstamp = htonl (hdr->logstamp);
+			unsigned int oldlogstamp = intswap32 (hdr->logstamp);
 
 			hdroff += 512;
 			off = 0;
 			hdr = (log_hdr *)(buf + hdroff);
-			if (hdroff >= bufsize || oldlogstamp + 1 != htonl (hdr->logstamp) || !MFS_check_crc(buf + hdroff, 512, hdr->crc))
+			if (hdroff >= bufsize || oldlogstamp + 1 != intswap32 (hdr->logstamp) || !MFS_check_crc(buf + hdroff, 512, hdr->crc))
 				return 1;
 
-			printf ("\n    Log entry stamp %d\n", htonl (hdr->logstamp));
-			printf ("Size: %-13dFirst: %-13dCRC: %08x\n", htonl (hdr->size), htonl (hdr->first), htonl (hdr->crc));
+			printf ("\n    Log entry stamp %d\n", intswap32 (hdr->logstamp));
+			printf ("Size: %-13dFirst: %-13dCRC: %08x\n", intswap32 (hdr->size), intswap32 (hdr->first), intswap32 (hdr->crc));
 
 			continue;
 		}
@@ -398,46 +400,46 @@ dump_log_entry (unsigned int sector, unsigned char *buf, unsigned int bufsize)
 		}
 
 		// Entry extends into the next log sector
-		while (off + htons (entry->log.length) + 2 - allocwritten > htonl (hdr->size))
+		while (off + intswap16 (entry->log.length) + 2 - allocwritten > intswap32 (hdr->size))
 		{
-			unsigned int oldlogstamp = htonl (hdr->logstamp);
+			unsigned int oldlogstamp = intswap32 (hdr->logstamp);
 
 			if (!allocated)
 			{
-				allocated = malloc (htons (entry->log.length) + 2);
+				allocated = malloc (intswap16 (entry->log.length) + 2);
 				allocwritten = 0;
 				entry = (log_entry_all *)allocated;
 			}
-			memcpy (allocated + allocwritten, buf + hdroff + off + sizeof (log_hdr), htonl (hdr->size) - off);
-			allocwritten += htonl (hdr->size) - off;
+			memcpy (allocated + allocwritten, buf + hdroff + off + sizeof (log_hdr), intswap32 (hdr->size) - off);
+			allocwritten += intswap32 (hdr->size) - off;
 
 			hdroff += 512;
 			off = 0;
 
 			hdr = (log_hdr *)(buf + hdroff);
-			if (hdroff >= bufsize || oldlogstamp + 1 != htonl (hdr->logstamp) || !MFS_check_crc(buf + hdroff, 512, hdr->crc))
+			if (hdroff >= bufsize || oldlogstamp + 1 != intswap32 (hdr->logstamp) || !MFS_check_crc(buf + hdroff, 512, hdr->crc))
 			{
 				printf("... Continued in next log entry\n");
 				free (allocated);
 				return 1;
 			}
 
-			printf ("\n    Continued in log entry stamp %d\n", htonl (hdr->logstamp));
-			printf ("Size: %-13dFirst: %-13dCRC: %08x\n", htonl (hdr->size), htonl (hdr->first), htonl (hdr->crc));
+			printf ("\n    Continued in log entry stamp %d\n", intswap32 (hdr->logstamp));
+			printf ("Size: %-13dFirst: %-13dCRC: %08x\n", intswap32 (hdr->size), intswap32 (hdr->first), intswap32 (hdr->crc));
 
 			continue;
 		}
 
 		if (allocated)
 		{
-			memcpy (allocated + allocwritten, buf + hdroff + off + sizeof (log_hdr), htons (entry->log.length) + 2 - allocwritten);
-			off += htons (entry->log.length) + 2 - allocwritten;
+			memcpy (allocated + allocwritten, buf + hdroff + off + sizeof (log_hdr), intswap16 (entry->log.length) + 2 - allocwritten);
+			off += intswap16 (entry->log.length) + 2 - allocwritten;
 		}
 		else
-			off += htons (entry->log.length) + 2;
+			off += intswap16 (entry->log.length) + 2;
 
-		printf ("\nLog entry length: %-13dType: ", htons (entry->log.length));
-		switch (htonl (entry->log.transtype))
+		printf ("\nLog entry length: %-13dType: ", intswap16 (entry->log.length));
+		switch (intswap32 (entry->log.transtype))
 		{
 			case ltMapUpdate:
 				printf ("Zone Map Update\n");
@@ -455,24 +457,24 @@ dump_log_entry (unsigned int sector, unsigned char *buf, unsigned int bufsize)
 				printf ("FS Sync Complete\n");
 				break;
 			default:
-				printf ("Unknown (%d)\n", htonl (entry->log.transtype));
+				printf ("Unknown (%d)\n", intswap32 (entry->log.transtype));
 		}
 
-		printf ("Boot: %-13dTimestamp: %d\n", htonl (entry->log.bootcycles), htonl (entry->log.bootsecs));
-		printf ("FSId: %-13d???: %-13d???: %d\n", htonl (entry->log.fsid), htonl (entry->log.unk1), htonl (entry->log.unk2));
+		printf ("Boot: %-13dTimestamp: %d\n", intswap32 (entry->log.bootcycles), intswap32 (entry->log.bootsecs));
+		printf ("FSId: %-13d???: %-13d???: %d\n", intswap32 (entry->log.fsid), intswap32 (entry->log.unk1), intswap32 (entry->log.unk2));
 
-		switch (htonl (entry->log.transtype))
+		switch (intswap32 (entry->log.transtype))
 		{
 			case ltMapUpdate:
 				printf ("Zone map update:\n");
 				if (!entry->zonemap.remove)
 					printf ("Change: Allocate     ");
-				else if (entry->zonemap.remove == htonl (1))
+				else if (entry->zonemap.remove == intswap32 (1))
 					printf ("Change: Free         ");
 				else
-					printf ("Change: ?%-12d", htonl (entry->zonemap.remove));
-				printf ("???: %d\n", htonl (entry->zonemap.unk));
-				printf ("Sector: %-13dSize: %d\n", htonl (entry->zonemap.sector), htonl (entry->zonemap.size));
+					printf ("Change: ?%-12d", intswap32 (entry->zonemap.remove));
+				printf ("???: %d\n", intswap32 (entry->zonemap.unk));
+				printf ("Sector: %-13dSize: %d\n", intswap32 (entry->zonemap.sector), intswap32 (entry->zonemap.size));
 				break;
 			case ltInodeUpdate:
 			case ltInodeUpdate2:
@@ -585,7 +587,7 @@ mfsd_main (int argc, char **argv)
 			mfs_perror (mfs, "Read fsid");
 			return 1;
 		}
-		bufsize = sizeof (*inode_buf) + htonl (inode_buf->numblocks) * 8;
+		bufsize = sizeof (*inode_buf) + intswap32 (inode_buf->numblocks) * 8;
 		buf = (unsigned char *) inode_buf;
 	}
 	else if (inode != 0xdeadbeef)
@@ -596,7 +598,7 @@ mfsd_main (int argc, char **argv)
 			mfs_perror (mfs, "Read inode");
 			return 1;
 		}
-		bufsize = sizeof (*inode_buf) + htonl (inode_buf->numblocks) * 8;
+		bufsize = sizeof (*inode_buf) + intswap32 (inode_buf->numblocks) * 8;
 		buf = (unsigned char *) inode_buf;
 	}
 

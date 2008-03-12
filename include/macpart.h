@@ -1,3 +1,8 @@
+#ifndef MACPART_H
+#define MACPART_H
+
+#include "util.h"
+
 #define TIVO_BOOT_MAGIC         0x1492
 #define TIVO_BOOT_AMIGC         0x9214
 #define MAC_PARTITION_MAGIC     0x504d
@@ -108,14 +113,6 @@ int tivo_partition_table_write (const char *device);
 int tivo_partition_read (tpFILE * file, void *buf, unsigned int sector, int count);
 int tivo_partition_write (tpFILE * file, void *buf, unsigned int sector, int count);
 
-#ifndef EXTERNINLINE
-#if DEBUG
-#define EXTERNINLINE static inline
-#else
-#define EXTERNINLINE extern inline
-#endif
-#endif
-
 /* Some quick routines, mainly intended for internal macpart use. */
 EXTERNINLINE int
 _tivo_partition_fd (tpFILE * file)
@@ -132,3 +129,4 @@ _tivo_partition_swab (tpFILE * file)
 {
 	return ((file->tptype == pDIRECT || file->tptype == pDIRECTFILE) && file->extra.direct.pt->vol_flags & VOL_SWAB);
 }
+#endif

@@ -4,6 +4,7 @@
 #include "volume.h"
 #include "zonemap.h"
 #include "fsid.h"
+#include "util.h"
 
 typedef struct volume_header_s
 {
@@ -103,11 +104,6 @@ void mfs_perror (struct mfs_handle *mfshnd, char *str);
 int mfs_strerror (struct mfs_handle *mfshnd, char *str);
 int mfs_has_error (struct mfs_handle *mfshnd);
 void mfs_clearerror (struct mfs_handle *mfshnd);
-
-#define CRC32_RESIDUAL 0xdebb20e3
-
-#define MFS_check_crc(data, size, crc) (mfs_check_crc ((unsigned char *)(data), (size), (unsigned int *)&(crc) - (unsigned int *)(data)))
-#define MFS_update_crc(data, size, crc) (mfs_update_crc ((unsigned char *)(data), (size), (unsigned int *)&(crc) - (unsigned int *)(data)))
 
 #define mfs_read_data(mfshnd,buf,sector,count) mfsvol_read_data ((mfshnd)->vols, buf, sector, count)
 #define mfs_write_data(mfshnd,buf,sector,count) mfsvol_write_data ((mfshnd)->vols, buf, sector, count)

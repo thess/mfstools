@@ -21,9 +21,6 @@
 #include <linux/unistd.h>
 #endif
 
-/* For htonl() */
-#include <netinet/in.h>
-
 #include "mfs.h"
 #include "macpart.h"
 
@@ -53,6 +50,9 @@ mfsvol_device_translate (struct volume_handle *hnd, char *dev)
 			devbase = hnd->hda;
 			break;
 		case 'b':
+			devbase = hnd->hdb;
+			break;
+		case 'c':
 			devbase = hnd->hdb;
 			break;
 		}

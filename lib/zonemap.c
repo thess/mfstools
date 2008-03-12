@@ -19,9 +19,6 @@
 #include <linux/unistd.h>
 #endif
 
-/* For htonl() */
-#include <netinet/in.h>
-
 #include "mfs.h"
 #include "macpart.h"
 
@@ -84,14 +81,14 @@ mfs_inode_to_sector (struct mfs_handle *mfshnd, unsigned int inode)
 /* Loop through each inode map, seeing if the current inode is within it. */
 	for (cur = mfshnd->zones[ztInode].next; cur; cur = cur->next)
 	{
-		if (sector < htonl (cur->map->size))
+		if (sector < intswap32 (cur->map->size))
 		{
-			return (sector + htonl (cur->map->first));
+			return (sector + intswap32 (cur->map->first));
 		}
 
 /* If not, subtract the size so the inode sector offset is now relative to */
 /* the next inode zone. */
-		sector -= htonl (cur->map->size);
+		sector -= intswap32 (cur->map->size);
 	}
 
 /* This should never happen. */
@@ -115,7 +112,7 @@ mfs_zone_map_bit_state_get (bitmap_header *bitmap, unsigned int bit)
 	bit = 31 & ~bit;
 	
 	/* Make it the actual bit */
-	bit = htonl (1 << bit);
+	bit = intswap32 (1 << bit);
 	
 	/* return it as 1 or 0 */
 	return (bit & *mapints) ? 1 : 0;
@@ -136,7 +133,7 @@ mfs_zone_map_bit_state_set (bitmap_header *bitmap, unsigned int bit)
 	bit = 31 & ~bit;
 	
 	/* Make it the actual bit */
-	bit = htonl (1 << bit);
+	bit = intswap32 (1 << bit);
 
 	*mapints |= bit;
 }
@@ -156,7 +153,7 @@ mfs_zone_map_bit_state_clear (bitmap_header *bitmap, unsigned int bit)
 	bit = 31 & ~bit;
 	
 	/* Make it the actual bit */
-	bit = htonl (1 << bit);
+	bit = intswap32 (1 << bit);
 
 	*mapints &= ~bit;
 }
@@ -175,7 +172,7 @@ mfs_zone_map_update (struct mfs_handle *mfshnd, unsigned int sector, unsigned in
 	/* Find the zone to update based on the start sector */
 	for (zone = mfshnd->loaded_zones; zone; zone = zone->next_loaded)
 	{
-		if (sector >= htonl (zone->map->first) && sector <= htonl (zone->map->last))
+		if (sector >= intswap32 (zone->map->first) && sector <= intswap32 (zone->map->last))
 			break;
 	}
 	
@@ -187,7 +184,7 @@ mfs_zone_map_update (struct mfs_handle *mfshnd, unsigned int sector, unsigned in
 		return 0;
 	}
 	
-	if (sector + size - 1 > htonl (zone->map->last))
+	if (sector + size - 1 > intswap32 (zone->map->last))
 	{
 		mfshnd->err_msg = "Sector %u size %d crosses zone map boundry";
 		mfshnd->err_arg1 = (void *)sector;
@@ -195,7 +192,7 @@ mfs_zone_map_update (struct mfs_handle *mfshnd, unsigned int sector, unsigned in
 		return 0;
 	}
 	
-	if ((htonl (zone->map->first) - sector) % size)
+	if ((intswap32 (zone->map->first) - sector) % size)
 	{
 		mfshnd->err_msg = "Sector %u size %d not aligned with zone map";
 		mfshnd->err_arg1 = (void *)sector;
@@ -206,7 +203,7 @@ mfs_zone_map_update (struct mfs_handle *mfshnd, unsigned int sector, unsigned in
 	/* Check the logstamp to see if this has already been updated...  */
 	/* Sure, there could be some integer wrap... */
 	/* After a hundred or so years */
-	if (logstamp <= htonl (zone->map->logstamp))
+	if (logstamp <= intswap32 (zone->map->logstamp))
 		return 1;
 
 	/* From this point on, it is assumed that the request makes sense */
@@ -216,14 +213,14 @@ mfs_zone_map_update (struct mfs_handle *mfshnd, unsigned int sector, unsigned in
 	/* is fully free is fine, however. */
 	
 	/* Find which level of bitmaps this block is on */
-	for (order = 0; order < htonl (zone->map->num); order++)
+	for (order = 0; order < intswap32 (zone->map->num); order++)
 	{
-		if ((htonl (zone->map->min) << order) >= size)
+		if ((intswap32 (zone->map->min) << order) >= size)
 			break;
 	}
 
 	/* One last set of sanity checks on the size */
-	if (order >= htonl (zone->map->num))
+	if (order >= intswap32 (zone->map->num))
 	{
 		/* Should be caught by above check that it crosses the zone map boundry */
 		mfshnd->err_msg = "Sector %u size %d too large for zone map";
@@ -232,7 +229,7 @@ mfs_zone_map_update (struct mfs_handle *mfshnd, unsigned int sector, unsigned in
 		return 0;
 	}
 
-	if ((htonl (zone->map->min) << order) != size)
+	if ((intswap32 (zone->map->min) << order) != size)
 	{
 		mfshnd->err_msg = "Sector %u size %d not multiple of zone map allocation";
 		mfshnd->err_arg1 = (void *)sector;
@@ -240,18 +237,18 @@ mfs_zone_map_update (struct mfs_handle *mfshnd, unsigned int sector, unsigned in
 		return 0;
 	}
 
-	zone->map->logstamp = htonl (logstamp);
-	mapbit = (sector - htonl (zone->map->first)) / (htonl (zone->map->min) << order);
+	zone->map->logstamp = intswap32 (logstamp);
+	mapbit = (sector - intswap32 (zone->map->first)) / (intswap32 (zone->map->min) << order);
 
 	/* Find the first free bit */
-	for (orderfree = order; orderfree < htonl (zone->map->num); orderfree++)
+	for (orderfree = order; orderfree < intswap32 (zone->map->num); orderfree++)
 	{
 		if (mfs_zone_map_bit_state_get (zone->bitmaps[orderfree], mapbit >> (orderfree - order)))
 			break;
 	}
 
 	/* Free bit not found */
-	if (orderfree >= htonl (zone->map->num))
+	if (orderfree >= intswap32 (zone->map->num))
 		orderfree = -1;
 
 	if (state)
@@ -264,18 +261,18 @@ mfs_zone_map_update (struct mfs_handle *mfshnd, unsigned int sector, unsigned in
 		}
 
 		/* Set the bit to mark it free */
-		zone->map->free = htonl (htonl (zone->map->free) + size);
+		zone->map->free = intswap32 (intswap32 (zone->map->free) + size);
 		mfs_zone_map_bit_state_set (zone->bitmaps[order], mapbit);
-		zone->bitmaps[order]->freeblocks = htonl (htonl (zone->bitmaps[order]->freeblocks) + 1);
+		zone->bitmaps[order]->freeblocks = intswap32 (intswap32 (zone->bitmaps[order]->freeblocks) + 1);
 		
 		/* Coalesce neighboring free bits into larger blocks */
-		while (order + 1 < htonl (zone->map->num) &&
+		while (order + 1 < intswap32 (zone->map->num) &&
 			mfs_zone_map_bit_state_get (zone->bitmaps[order], mapbit ^ 1))
 		{
 			/* Clear the bit and it's neighbor in the bitmap */
 			mfs_zone_map_bit_state_clear (zone->bitmaps[order], mapbit);
 			mfs_zone_map_bit_state_clear (zone->bitmaps[order], mapbit ^ 1);
-			zone->bitmaps[order]->freeblocks = htonl (htonl (zone->bitmaps[order]->freeblocks) - 2);
+			zone->bitmaps[order]->freeblocks = intswap32 (intswap32 (zone->bitmaps[order]->freeblocks) - 2);
 
 			/* Move on to the next bitmap */
 			order++;
@@ -283,7 +280,7 @@ mfs_zone_map_update (struct mfs_handle *mfshnd, unsigned int sector, unsigned in
 
 			/* Set the single bit in the next bitmap that represents both bits cleared */
 			mfs_zone_map_bit_state_set (zone->bitmaps[order], mapbit);
-			zone->bitmaps[order]->freeblocks = htonl (htonl (zone->bitmaps[order]->freeblocks) + 1);
+			zone->bitmaps[order]->freeblocks = intswap32 (intswap32 (zone->bitmaps[order]->freeblocks) + 1);
 		}
 
 		/* Mark it dirty */
@@ -305,7 +302,7 @@ mfs_zone_map_update (struct mfs_handle *mfshnd, unsigned int sector, unsigned in
 		while (order < orderfree)
 		{
 			mfs_zone_map_bit_state_set (zone->bitmaps[order], mapbit ^ 1);
-			zone->bitmaps[order]->freeblocks = htonl (htonl (zone->bitmaps[order]->freeblocks) + 1);
+			zone->bitmaps[order]->freeblocks = intswap32 (intswap32 (zone->bitmaps[order]->freeblocks) + 1);
 
 			/* Move on to the next bitmap */
 			order++;
@@ -313,13 +310,13 @@ mfs_zone_map_update (struct mfs_handle *mfshnd, unsigned int sector, unsigned in
 		}
 
 		/* Clear the bit to mark it allocated */
-		zone->map->free = htonl (htonl (zone->map->free) + size);
+		zone->map->free = intswap32 (intswap32 (zone->map->free) + size);
 		mfs_zone_map_bit_state_clear (zone->bitmaps[order], mapbit);
-		zone->bitmaps[order]->freeblocks = htonl (htonl (zone->bitmaps[order]->freeblocks) - 1);
+		zone->bitmaps[order]->freeblocks = intswap32 (intswap32 (zone->bitmaps[order]->freeblocks) - 1);
 		
 		/* Set the last bit allocated - bit numbering is 1 based here (Or maybe it's next bit after last allocated) */
 		/* Hypothesis: This is used as a base for the search for next free bit */
-		zone->map->last = htonl (mapbit + 1);
+		zone->map->last = intswap32 (mapbit + 1);
 
 		/* Mark it dirty */
 		zone->dirty = 1;
@@ -340,16 +337,16 @@ mfs_zone_map_commit (struct mfs_handle *mfshnd)
 	{
 		if (zone->dirty)
 		{
-			int towrite = htonl (zone->map->length);
+			int towrite = intswap32 (zone->map->length);
 			int nwrit;
 
 			MFS_update_crc (zone->map, towrite * 512, zone->map->checksum);
 
-			if (mfsvol_write_data (mfshnd->vols, zone->map, htonl (zone->map->sector), towrite) < 0)
+			if (mfsvol_write_data (mfshnd->vols, zone->map, intswap32 (zone->map->sector), towrite) < 0)
 			{
 				return -1;
 			}
-			if (mfsvol_write_data (mfshnd->vols, zone->map, htonl (zone->map->sbackup), towrite) < 0)
+			if (mfsvol_write_data (mfshnd->vols, zone->map, intswap32 (zone->map->sbackup), towrite) < 0)
 			{
 				return -1;
 			}
@@ -432,7 +429,7 @@ mfs_new_zone_map (struct mfs_handle *mfshnd, unsigned int sector, unsigned int b
 /* previous zone map.  Subtract the header and all the fsmem pointers from */
 /* it, and thats the base for that map.  Now add in all the sectors from that */
 /* map, plus 1 extra and 8 bytes. */
-	fsmem_base = htonl (*(unsigned int *) (last + 1)) - (sizeof (*last) + htonl (last->num) * 4) + htonl (last->length) * 512 + 512 + 8;
+	fsmem_base = intswap32 (*(unsigned int *) (last + 1)) - (sizeof (*last) + intswap32 (last->num) * 4) + intswap32 (last->length) * 512 + 512 + 8;
 
 	buf = malloc (zonesize);
 
@@ -445,7 +442,7 @@ mfs_new_zone_map (struct mfs_handle *mfshnd, unsigned int sector, unsigned int b
 /* vegitarians or vegans in the crowd. */
 	for (loop = 0; loop < zonesize; loop += 4)
 	{
-		*(int *) (buf + loop) = htonl (0xdeadbeef);
+		*(int *) (buf + loop) = intswap32 (0xdeadbeef);
 	}
 
 /* Figure out the order of the blocks count. */
@@ -459,23 +456,23 @@ mfs_new_zone_map (struct mfs_handle *mfshnd, unsigned int sector, unsigned int b
 	zone = (zone_header *) buf;
 
 /* Fill in the header values. */
-	zone->sector = htonl (sector);
-	zone->sbackup = htonl (backup);
-	zone->length = htonl (zonesize / 512);
+	zone->sector = intswap32 (sector);
+	zone->sbackup = intswap32 (backup);
+	zone->length = intswap32 (zonesize / 512);
 	zone->next.sector = 0;
 	zone->next.length = 0;
 	zone->next.size = 0;
 	zone->next.min = 0;
-	zone->type = htonl (type);
+	zone->type = intswap32 (type);
 	zone->logstamp = 0;
-	zone->checksum = htonl (0xdeadf00d);
-	zone->first = htonl (first);
-	zone->last = htonl (first + size - 1);
-	zone->size = htonl (size);
-	zone->min = htonl (minalloc);
-	zone->free = htonl (size);
+	zone->checksum = intswap32 (0xdeadf00d);
+	zone->first = intswap32 (first);
+	zone->last = intswap32 (first + size - 1);
+	zone->size = intswap32 (size);
+	zone->min = intswap32 (minalloc);
+	zone->free = intswap32 (size);
 	zone->zero = 0;
-	zone->num = htonl (order);
+	zone->num = intswap32 (order);
 
 /* Grab a pointer to the array where fsmem pointers will go. */
 	fsmem_pointers = (unsigned int *) (zone + 1);
@@ -495,15 +492,15 @@ mfs_new_zone_map (struct mfs_handle *mfshnd, unsigned int sector, unsigned int b
 		int nbits;
 		int nints;
 		bitmap_header *bitmap = (bitmap_header *) curofs;
-		fsmem_pointers[loop] = htonl (fsmem_base + (char *) curofs - (char *) zone);
+		fsmem_pointers[loop] = intswap32 (fsmem_base + (char *) curofs - (char *) zone);
 
 /* Set in the basic, constant header values.  The nbits is how many bits */
 /* there are in the table, including extra inactive bits padding to the */
 /* next power of 2.  The nints represents how many ints those bits take up. */
 		nbits = 1 << order;
-		bitmap->nbits = htonl (nbits);
+		bitmap->nbits = intswap32 (nbits);
 		nints = (nbits + 31) / 32;
-		bitmap->nints = htonl (nints);
+		bitmap->nints = intswap32 (nints);
 
 /* Clear all the bits by default. */
 		memset (curofs + sizeof (*bitmap) / 4, 0, nints * 4);
@@ -516,9 +513,9 @@ mfs_new_zone_map (struct mfs_handle *mfshnd, unsigned int sector, unsigned int b
 /* inactive. */
 		if (blocks & 1)
 		{
-			bitmap->last = htonl (blocks - 1);
-			bitmap->freeblocks = htonl (1);
-			curofs[4 + (blocks - 1) / 32] = htonl (1 << (31 - (blocks - 1) % 32));
+			bitmap->last = intswap32 (blocks - 1);
+			bitmap->freeblocks = intswap32 (1);
+			curofs[4 + (blocks - 1) / 32] = intswap32 (1 << (31 - (blocks - 1) % 32));
 		}
 		else
 		{
@@ -539,15 +536,15 @@ mfs_new_zone_map (struct mfs_handle *mfshnd, unsigned int sector, unsigned int b
 
 /* Update the CRC in the new zone, as well as the previous tail, since it's */
 /* next pointer was updated. */
-	MFS_update_crc (last, htonl (last->length) * 512, last->checksum);
-	MFS_update_crc (zone, htonl (zone->length) * 512, zone->checksum);
+	MFS_update_crc (last, intswap32 (last->length) * 512, last->checksum);
+	MFS_update_crc (zone, intswap32 (zone->length) * 512, zone->checksum);
 
 /* Write the changes, with the changes to live MFS last.  This should use */
 /* the journaling facilities, but I don't know how. */
-	mfsvol_write_data (mfshnd->vols, zone, htonl (zone->sector), htonl (zone->length));
-	mfsvol_write_data (mfshnd->vols, zone, htonl (zone->sbackup), htonl (zone->length));
-	mfsvol_write_data (mfshnd->vols, last, htonl (last->sector), htonl (last->length));
-	mfsvol_write_data (mfshnd->vols, last, htonl (last->sbackup), htonl (last->length));
+	mfsvol_write_data (mfshnd->vols, zone, intswap32 (zone->sector), intswap32 (zone->length));
+	mfsvol_write_data (mfshnd->vols, zone, intswap32 (zone->sbackup), intswap32 (zone->length));
+	mfsvol_write_data (mfshnd->vols, last, intswap32 (last->sector), intswap32 (last->length));
+	mfsvol_write_data (mfshnd->vols, last, intswap32 (last->sbackup), intswap32 (last->length));
 
 	return 0;
 }
@@ -599,7 +596,7 @@ mfs_can_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsi
 
 /* Check that the last zone map is writable.  This is needed for adding the */
 /* new pointer. */
-	if (!mfsvol_is_writable (mfshnd->vols, htonl (cur->map->sector)))
+	if (!mfsvol_is_writable (mfshnd->vols, intswap32 (cur->map->sector)))
 	{
 		mfshnd->err_msg = "Readonly volume set";
 		return -1;
@@ -654,7 +651,7 @@ mfs_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsigned
 
 /* Check that the last zone map is writable.  This is needed for adding the */
 /* new pointer. */
-	if (!mfsvol_is_writable (mfshnd->vols, htonl (cur->map->sector)))
+	if (!mfsvol_is_writable (mfshnd->vols, intswap32 (cur->map->sector)))
 	{
 		mfshnd->err_msg = "Readonly volume set";
 		return -1;
@@ -725,7 +722,7 @@ mfs_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsigned
 	snprintf (foo, 128, "%s %s %s", mfshnd->vol_hdr.partitionlist, app, media);
 	foo[127] = 0;
 	strcpy (mfshnd->vol_hdr.partitionlist, foo);
-	mfshnd->vol_hdr.total_sectors = htonl (mfsvol_volume_set_size (mfshnd->vols));
+	mfshnd->vol_hdr.total_sectors = intswap32 (mfsvol_volume_set_size (mfshnd->vols));
 	MFS_update_crc (&mfshnd->vol_hdr, sizeof (mfshnd->vol_hdr), mfshnd->vol_hdr.checksum);
 
 	memset (foo, 0, sizeof (foo));
@@ -766,7 +763,7 @@ mfs_cleanup_zone_maps (struct mfs_handle *mfshnd)
 static zone_header *
 mfs_load_zone_map (struct mfs_handle *mfshnd, zone_map_ptr * ptr)
 {
-	zone_header *hdr = calloc (htonl (ptr->length), 512);
+	zone_header *hdr = calloc (intswap32 (ptr->length), 512);
 
 	if (!hdr)
 	{
@@ -774,16 +771,16 @@ mfs_load_zone_map (struct mfs_handle *mfshnd, zone_map_ptr * ptr)
 	}
 
 /* Read the map. */
-	mfsvol_read_data (mfshnd->vols, (unsigned char *) hdr, htonl (ptr->sector), htonl (ptr->length));
+	mfsvol_read_data (mfshnd->vols, (unsigned char *) hdr, intswap32 (ptr->sector), intswap32 (ptr->length));
 
 /* Verify the CRC matches. */
-	if (!MFS_check_crc ((unsigned char *) hdr, htonl (ptr->length) * 512, hdr->checksum))
+	if (!MFS_check_crc ((unsigned char *) hdr, intswap32 (ptr->length) * 512, hdr->checksum))
 	{
 
 /* If the CRC doesn't match, try the backup map. */
-		mfsvol_read_data (mfshnd->vols, (unsigned char *) hdr, htonl (ptr->sbackup), htonl (ptr->length));
+		mfsvol_read_data (mfshnd->vols, (unsigned char *) hdr, intswap32 (ptr->sbackup), intswap32 (ptr->length));
 
-		if (!MFS_check_crc ((unsigned char *) hdr, htonl (ptr->length) * 512, hdr->checksum))
+		if (!MFS_check_crc ((unsigned char *) hdr, intswap32 (ptr->length) * 512, hdr->checksum))
 		{
 			mfshnd->err_msg = "Zone map checksum error";
 			free (hdr);
@@ -816,7 +813,7 @@ mfs_load_zone_maps (struct mfs_handle *mfshnd)
 
 	loop = 0;
 
-	while (ptr->sector && ptr->sbackup != htonl (0xdeadbeef) && ptr->length != 0)
+	while (ptr->sector && ptr->sbackup != intswap32 (0xdeadbeef) && ptr->length != 0)
 	{
 		struct zone_map *newmap;
 		unsigned long *bitmap_ptrs;
@@ -830,10 +827,10 @@ mfs_load_zone_maps (struct mfs_handle *mfshnd)
 			return -1;
 		}
 
-		if (htonl (cur->type) < 0 || htonl (cur->type) >= ztMax)
+		if (intswap32 (cur->type) < 0 || intswap32 (cur->type) >= ztMax)
 		{
 			mfshnd->err_msg = "Bad map type %d";
-			mfshnd->err_arg1 = (void *)htonl (cur->type);
+			mfshnd->err_arg1 = (void *)intswap32 (cur->type);
 			free (cur);
 			return -1;
 		}
@@ -848,7 +845,7 @@ mfs_load_zone_maps (struct mfs_handle *mfshnd)
 		
 		if (cur->num != 0)
 		{
-			newmap->bitmaps = calloc (sizeof (*newmap->bitmaps), htonl (cur->num));
+			newmap->bitmaps = calloc (sizeof (*newmap->bitmaps), intswap32 (cur->num));
 			if (!newmap->bitmaps)
 			{
 				mfshnd->err_msg = "Out of memory";
@@ -864,17 +861,17 @@ mfs_load_zone_maps (struct mfs_handle *mfshnd)
 
 /* Link it into the proper map type pool. */
 		newmap->map = cur;
-		*cur_heads[htonl (cur->type)] = newmap;
-		cur_heads[htonl (cur->type)] = &newmap->next;
+		*cur_heads[intswap32 (cur->type)] = newmap;
+		cur_heads[intswap32 (cur->type)] = &newmap->next;
 
 /* Get pointers to the bitmaps for easy access */
 		if (cur->num != 0)
 		{
 			bitmap_ptrs = (unsigned long *)(cur + 1);
-			newmap->bitmaps[0] = (bitmap_header *)&bitmap_ptrs[htonl (cur->num)];
-			for (loop2 = 1; loop2 < htonl (cur->num); loop2++)
+			newmap->bitmaps[0] = (bitmap_header *)&bitmap_ptrs[intswap32 (cur->num)];
+			for (loop2 = 1; loop2 < intswap32 (cur->num); loop2++)
 			{
-				newmap->bitmaps[loop2] = (bitmap_header *)((unsigned long)newmap->bitmaps[0] + (htonl (bitmap_ptrs[loop2]) - htonl (bitmap_ptrs[0])));
+				newmap->bitmaps[loop2] = (bitmap_header *)((unsigned long)newmap->bitmaps[0] + (intswap32 (bitmap_ptrs[loop2]) - intswap32 (bitmap_ptrs[0])));
 			}
 		}
 
@@ -882,8 +879,8 @@ mfs_load_zone_maps (struct mfs_handle *mfshnd)
 		*loaded_head = newmap;
 		loaded_head = &newmap->next_loaded;
 /* And add it to the totals. */
-		mfshnd->zones[htonl (cur->type)].size += htonl (cur->size);
-		mfshnd->zones[htonl (cur->type)].free += htonl (cur->free);
+		mfshnd->zones[intswap32 (cur->type)].size += intswap32 (cur->size);
+		mfshnd->zones[intswap32 (cur->type)].free += intswap32 (cur->free);
 		loop++;
 
 		ptr = &cur->next;

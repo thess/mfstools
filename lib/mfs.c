@@ -21,9 +21,6 @@
 #include <linux/unistd.h>
 #endif
 
-/* For htonl() */
-#include <netinet/in.h>
-
 #include "mfs.h"
 
 /*************************************/
@@ -94,7 +91,7 @@ mfs_load_volume_header (struct mfs_handle *mfshnd, int flags)
 	}
 
 	/* Increment the boot cycle number */
-	mfshnd->bootcycle = htonl (mfshnd->vol_hdr.bootcycles) + 1;
+	mfshnd->bootcycle = intswap32 (mfshnd->vol_hdr.bootcycles) + 1;
 	/* Fake out seconds, all that's important is that it moves forward */
 	mfshnd->bootsecs = 1;
 
@@ -126,11 +123,11 @@ mfs_load_volume_header (struct mfs_handle *mfshnd, int flags)
 	total_sectors = mfsvol_volume_set_size (mfshnd->vols);
 
 /* If the sectors mismatch, report it.. But continue anyway. */
-	if (total_sectors != htonl (mfshnd->vol_hdr.total_sectors))
+	if (total_sectors != intswap32 (mfshnd->vol_hdr.total_sectors))
 	{
 		mfshnd->err_msg = "Volume size (%u) mismatch with reported size (%u)";
 		mfshnd->err_arg1 = (void *)total_sectors;
-		mfshnd->err_arg2 = (void *)htonl (mfshnd->vol_hdr.total_sectors);
+		mfshnd->err_arg2 = (void *)intswap32 (mfshnd->vol_hdr.total_sectors);
 	}
 
 	return total_sectors;

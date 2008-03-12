@@ -27,9 +27,6 @@
 #include <linux/unistd.h>
 #endif
 
-/* For htonl() */
-#include <netinet/in.h>
-
 /* #include "mfs.h" */
 #include "macpart.h"
 
@@ -180,7 +177,7 @@ tivo_read_partition_table (const char *device, int flags)
 		}
 
 /* Find out what the magic is in the bootblock. */
-		switch (htons (*(unsigned short *) buf))
+		switch (intswap16 (*(unsigned short *) buf))
 		{
 		case TIVO_BOOT_MAGIC:
 /* It is the right magic.  Do nothing. */
@@ -216,7 +213,7 @@ tivo_read_partition_table (const char *device, int flags)
 			part = (struct mac_partition *) buf;
 
 /* If it doesn't have the magic, it's not hip.  No more partitions. */
-			if (htons (part->signature) != MAC_PARTITION_MAGIC)
+			if (intswap16 (part->signature) != MAC_PARTITION_MAGIC)
 			{
 				break;
 			}
@@ -224,12 +221,12 @@ tivo_read_partition_table (const char *device, int flags)
 /* If this is the first, update the max. */
 			if (cursec == 1)
 			{
-				maxsec = htonl (part->map_count);
+				maxsec = intswap32 (part->map_count);
 			}
 
 /* Add it to the list. */
-			parts[partitions].start = htonl (part->start_block);
-			parts[partitions].sectors = htonl (part->block_count);
+			parts[partitions].start = intswap32 (part->start_block);
+			parts[partitions].sectors = intswap32 (part->block_count);
 			parts[partitions].name = strdup (part->name);
 			parts[partitions].type = strdup (part->type);
 			parts[partitions].refs = 1;
@@ -832,7 +829,7 @@ tivo_partition_table_write (const char *device)
 		part.start = 0;
 		part.table = table;
 		file.extra.direct.part = &part;
-		*(unsigned short *)buf = htons (TIVO_BOOT_MAGIC);
+		*(unsigned short *)buf = intswap16 (TIVO_BOOT_MAGIC);
 		if (tivo_partition_write (&file, buf, 0, 1) != 512)
 			return -1;
 	}
@@ -844,15 +841,15 @@ tivo_partition_table_write (const char *device)
 		bzero (buf, sizeof (buf));
 		if (loop < table->count)
 		{
-			mp->signature = htons (MAC_PARTITION_MAGIC);
-			mp->map_count = htonl (table->count);
-			mp->start_block = htonl (table->partitions[loop].start);
-			mp->block_count = htonl (table->partitions[loop].sectors);
+			mp->signature = intswap16 (MAC_PARTITION_MAGIC);
+			mp->map_count = intswap32 (table->count);
+			mp->start_block = intswap32 (table->partitions[loop].start);
+			mp->block_count = intswap32 (table->partitions[loop].sectors);
 /* One smaller so the result is null terminated, due to the bzero(). */
 			strncpy (mp->name, table->partitions[loop].name, sizeof (mp->name) - 1);
 			strncpy (mp->type, table->partitions[loop].type, sizeof (mp->type) - 1);
 			mp->data_count = mp->block_count;
-			mp->status = htonl (0x33);
+			mp->status = intswap32 (0x33);
 		}
 		if (tivo_partition_write (&file, buf, loop, 1) != 512)
 			return -1;

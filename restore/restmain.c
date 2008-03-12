@@ -10,8 +10,6 @@
 #ifdef HAVE_ASM_TYPES_H
 #include <asm/types.h>
 #endif
-/* For htonl() */
-#include <netinet/in.h>
 #include <sys/param.h>
 
 #include "mfs.h"

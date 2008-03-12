@@ -24,8 +24,6 @@
 #include <linux/fs.h>
 #endif
 #include <ctype.h>
-/* For htonl() */
-#include <netinet/in.h>
 
 #include "mfs.h"
 #include "macpart.h"
@@ -373,28 +371,28 @@ scan_inodes (struct backup_info *info)
 				unsigned int streamsize;
 
 				if (info->back_flags & (BF_THRESHTOT | BF_STREAMTOT))
-					streamsize = htonl (inode->blocksize) / 512 * htonl (inode->size);
+					streamsize = intswap32 (inode->blocksize) / 512 * intswap32 (inode->size);
 				else
-					streamsize = htonl (inode->blocksize) / 512 * htonl (inode->blockused);
+					streamsize = intswap32 (inode->blocksize) / 512 * intswap32 (inode->blockused);
 
 /* Only backup streams that are smaller than the threshhold. */
-				if (streamsize > 0 && (((info->back_flags & BF_THRESHSIZE) && streamsize < info->thresh) || (!(info->back_flags & BF_THRESHSIZE) && htonl (inode->fsid) <= info->thresh)))
+				if (streamsize > 0 && (((info->back_flags & BF_THRESHSIZE) && streamsize < info->thresh) || (!(info->back_flags & BF_THRESHSIZE) && intswap32 (inode->fsid) <= info->thresh)))
 				{
 /* Add all blocks. */
 
 					if ((info->back_flags & (BF_THRESHTOT | BF_STREAMTOT)) == BF_THRESHTOT)
-						streamsize = htonl (inode->blocksize) / 512 * htonl (inode->blockused);
+						streamsize = intswap32 (inode->blocksize) / 512 * intswap32 (inode->blockused);
 
-					for (loop2 = 0; loop2 < htonl (inode->numblocks); loop2++)
+					for (loop2 = 0; loop2 < intswap32 (inode->numblocks); loop2++)
 					{
-						unsigned int thiscount = htonl (inode->datablocks[loop2].count);
-						unsigned int thissector = htonl (inode->datablocks[loop2].sector);
+						unsigned int thiscount = intswap32 (inode->datablocks[loop2].count);
+						unsigned int thissector = intswap32 (inode->datablocks[loop2].sector);
 
 						if (thiscount > streamsize)
 							thiscount = streamsize;
 
 #if DEBUG
-						fprintf (stderr, "Inode %d: ", htonl (inode->fsid));
+						fprintf (stderr, "Inode %d: ", intswap32 (inode->fsid));
 #endif
 
 						if (backup_add_block (blocks, partstart, &pool, thissector, thiscount) != 0)
@@ -418,10 +416,10 @@ scan_inodes (struct backup_info *info)
 			}
 			else
 			{
-				for (loop2 = 0; loop2 < htonl (inode->numblocks); loop2++)
+				for (loop2 = 0; loop2 < intswap32 (inode->numblocks); loop2++)
 				{
-					unsigned int thiscount = htonl (inode->datablocks[loop2].count);
-					unsigned int thissector = htonl (inode->datablocks[loop2].sector);
+					unsigned int thiscount = intswap32 (inode->datablocks[loop2].count);
+					unsigned int thissector = intswap32 (inode->datablocks[loop2].sector);
 
 					if (highest < thiscount + thissector)
 					{
@@ -457,14 +455,14 @@ scan_inodes (struct backup_info *info)
 		while ((hdr = mfs_next_zone (info->mfs, hdr)) != 0)
 		{
 #if DEBUG
-			fprintf (stderr, "Checking zone at %ld of type %d for region %ld-%ld\n", htonl (hdr->sector), htonl (hdr->type), htonl (hdr->first), htonl (hdr->last));
+			fprintf (stderr, "Checking zone at %ld of type %d for region %ld-%ld\n", intswap32 (hdr->sector), intswap32 (hdr->type), intswap32 (hdr->first), intswap32 (hdr->last));
 #endif
-			if (htonl (hdr->type) != ztMedia)
+			if (intswap32 (hdr->type) != ztMedia)
 			{
-				if (htonl (hdr->sector) + htonl (hdr->length) > highest)
-					highest = htonl (hdr->sector) + htonl (hdr->length);
-				if (htonl (hdr->last) > highest)
-					highest = htonl (hdr->last);
+				if (intswap32 (hdr->sector) + intswap32 (hdr->length) > highest)
+					highest = intswap32 (hdr->sector) + intswap32 (hdr->length);
+				if (intswap32 (hdr->last) > highest)
+					highest = intswap32 (hdr->last);
 			}
 		}
 	}
@@ -842,7 +840,7 @@ backup_verify_zone_maps (struct backup_info *info)
 		fprintf (stderr, "Zone type %d at %ld\n", zone->type, zone->first);
 #endif
 
-		if (htonl (zone->first) >= volume_size)
+		if (intswap32 (zone->first) >= volume_size)
 		{
 			info->err_msg = "%s zone outside available volume";
 			switch (zone->type)

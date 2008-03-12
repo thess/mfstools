@@ -24,9 +24,6 @@
 #include <linux/unistd.h>
 #endif
 
-/* For htonl() */
-#include <netinet/in.h>
-
 /* #include "mfs.h" */
 #include "macpart.h"
 

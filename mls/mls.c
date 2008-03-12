@@ -7,9 +7,6 @@
 #include <string.h>
 #include <time.h>
 
-/* For htonl() */
-#include <netinet/in.h>
-
 #include "mfs.h"
 
 char *progname;
@@ -50,11 +47,11 @@ print_file_details (fs_entry * file)
 	mfs_inode *nfo;
 	time_t modtime;
 
-	nfo = mfs_read_inode_by_fsid (mfs, htonl (file->fsid));
+	nfo = mfs_read_inode_by_fsid (mfs, intswap32 (file->fsid));
 
 	if (nfo)
 	{
-		modtime = htonl (nfo->lastmodified);
+		modtime = intswap32 (nfo->lastmodified);
 		strftime (date, 16, "%D %R", localtime (&modtime));
 	}
 
@@ -79,11 +76,11 @@ print_file_details (fs_entry * file)
 
 	if (file->type == tyStream)
 	{
-		printf ("    %-26s%-8s%8d%16s%7d x %d(%d)\n", file->name, type, htonl (file->fsid), date, nfo ? htonl (nfo->blocksize) : -1, nfo ? htonl (nfo->size) : -1, nfo ? htonl (nfo->blockused) : -1);
+		printf ("    %-26s%-8s%8d%16s%7d x %d(%d)\n", file->name, type, intswap32 (file->fsid), date, nfo ? intswap32 (nfo->blocksize) : -1, nfo ? intswap32 (nfo->size) : -1, nfo ? intswap32 (nfo->blockused) : -1);
 	}
 	else
 	{
-		printf ("    %-26s%-8s%8d%16s%7d\n", file->name, type, htonl (file->fsid), date, nfo ? htonl (nfo->size) : -1);
+		printf ("    %-26s%-8s%8d%16s%7d\n", file->name, type, intswap32 (file->fsid), date, nfo ? intswap32 (nfo->size) : -1);
 	}
 	if (nfo)
 		free (nfo);
@@ -142,7 +139,7 @@ list_file (unsigned char *name)
 		}
 
 		free (cur_nfo);
-		cur_nfo = mfs_read_inode_by_fsid (mfs, htonl (cur_file->fsid));
+		cur_nfo = mfs_read_inode_by_fsid (mfs, intswap32 (cur_file->fsid));
 		if (!cur_nfo)
 		{
 			fprintf (stderr, "No such file or directory!\n");
@@ -171,7 +168,7 @@ list_file (unsigned char *name)
 		free (cur_nfo);
 		if (cur_file)
 		{
-			cur_nfo = mfs_read_inode_by_fsid (mfs, htonl (cur_file->fsid));
+			cur_nfo = mfs_read_inode_by_fsid (mfs, intswap32 (cur_file->fsid));
 		}
 		else
 		{

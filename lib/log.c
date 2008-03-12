@@ -21,16 +21,13 @@
 #include <linux/unistd.h>
 #endif
 
-/* For htonl() */
-#include <netinet/in.h>
-
 #include "mfs.h"
 #include "log.h"
 
 unsigned int
 mfs_log_last_sync (struct mfs_handle *mfshnd)
 {
-	return htonl (mfshnd->vol_hdr.logstamp);
+	return intswap32 (mfshnd->vol_hdr.logstamp);
 }
 
 int
@@ -38,12 +35,12 @@ mfs_log_read (struct mfs_handle *mfshnd, void *buf, unsigned int logstamp)
 {
 	log_hdr *tmp = buf;
 
-	if (mfsvol_read_data (mfshnd->vols, buf, (logstamp % htonl (mfshnd->vol_hdr.lognsectors)) + htonl (mfshnd->vol_hdr.logstart), 1) != 512)
+	if (mfsvol_read_data (mfshnd->vols, buf, (logstamp % intswap32 (mfshnd->vol_hdr.lognsectors)) + intswap32 (mfshnd->vol_hdr.logstart), 1) != 512)
 	{
 		return -1;
 	}
 
-	if (logstamp != htonl (tmp->logstamp))
+	if (logstamp != intswap32 (tmp->logstamp))
 	{
 		return 0;
 	}
@@ -62,11 +59,11 @@ int
 mfs_log_write (struct mfs_handle *mfshnd, void *buf)
 {
 	log_hdr *tmp = buf;
-	unsigned int logstamp = htonl (tmp->logstamp);
+	unsigned int logstamp = intswap32 (tmp->logstamp);
 
 	MFS_update_crc (buf, 512, tmp->crc);
 
-	if (mfsvol_write_data (mfshnd->vols, buf, (logstamp % htonl (mfshnd->vol_hdr.lognsectors)) + htonl (mfshnd->vol_hdr.logstart), 1) != 512)
+	if (mfsvol_write_data (mfshnd->vols, buf, (logstamp % intswap32 (mfshnd->vol_hdr.lognsectors)) + intswap32 (mfshnd->vol_hdr.logstart), 1) != 512)
 	{
 		return -1;
 	}
@@ -79,16 +76,16 @@ mfs_log_sync_inode (struct mfs_handle *mfshnd, log_inode_update *entry)
 {
 	mfs_inode *inode;
 
-	if (htonl (entry->inode) == -1)
-		inode = mfs_find_inode_for_fsid (mfshnd, htonl (entry->fsid));
+	if (intswap32 (entry->inode) == -1)
+		inode = mfs_find_inode_for_fsid (mfshnd, intswap32 (entry->fsid));
 	else
-		inode = mfs_read_inode (mfshnd, htonl (entry->inode));
+		inode = mfs_read_inode (mfshnd, intswap32 (entry->inode));
 
 	if (!inode)
 	{
 		mfshnd->err_msg = "Error loading inode %d for fsid %d";
-		mfshnd->err_arg1 = (void *)htonl (entry->inode);
-		mfshnd->err_arg2 = (void *)htonl (entry->fsid);
+		mfshnd->err_arg1 = (void *)intswap32 (entry->inode);
+		mfshnd->err_arg2 = (void *)intswap32 (entry->fsid);
 		return 0;
 	}
 
@@ -106,22 +103,22 @@ mfs_log_sync_inode (struct mfs_handle *mfshnd, log_inode_update *entry)
 	inode->pad = entry->pad;
 	if (entry->inodedata)
 	{
-		inode->inode_flags |= htonl (INODE_DATA);
+		inode->inode_flags |= intswap32 (INODE_DATA);
 		inode->numblocks = 0;
 	}
 	else
 	{
-		inode->inode_flags &= htonl (~INODE_DATA);
-		inode->numblocks = htonl (htonl (entry->datasize) / sizeof (inode->datablocks[0]));
+		inode->inode_flags &= intswap32 (~INODE_DATA);
+		inode->numblocks = intswap32 (intswap32 (entry->datasize) / sizeof (inode->datablocks[0]));
 	}
-	memcpy (&inode->datablocks[0], &entry->datablocks[0], htonl (entry->datasize));
+	memcpy (&inode->datablocks[0], &entry->datablocks[0], intswap32 (entry->datasize));
 	if (mfs_write_inode (mfshnd, inode) < 0)
 		return 0;
 
 	/* Update the next fsid field in the volume header if it's needed */
-	if (htonl (mfshnd->vol_hdr.next_fsid) <= htonl (entry->fsid))
+	if (intswap32 (mfshnd->vol_hdr.next_fsid) <= intswap32 (entry->fsid))
 	{
-		mfshnd->vol_hdr.next_fsid = htonl (htonl (entry->fsid) + 1);
+		mfshnd->vol_hdr.next_fsid = intswap32 (intswap32 (entry->fsid) + 1);
 	}
 	return 1;
 } 
@@ -142,7 +139,7 @@ mfs_log_fssync_list (struct mfs_handle *mfshnd, struct log_entry_list *list, uns
 			return 0;
 		}
 
-		switch (htonl (cur->entry.log.transtype))
+		switch (intswap32 (cur->entry.log.transtype))
 		{
 			case ltMapUpdate:
 			case ltInodeUpdate:
@@ -152,7 +149,7 @@ mfs_log_fssync_list (struct mfs_handle *mfshnd, struct log_entry_list *list, uns
 				break;
 			default:
 				mfshnd->err_msg = "Unknown transaction log type %d";
-				mfshnd->err_arg1 = (void *)htonl (cur->entry.log.transtype);
+				mfshnd->err_arg1 = (void *)intswap32 (cur->entry.log.transtype);
 				return 0;
 		}
 	}
@@ -160,10 +157,10 @@ mfs_log_fssync_list (struct mfs_handle *mfshnd, struct log_entry_list *list, uns
 	/* Commit each log entry in turn */
 	for (cur = list; cur; cur = cur->next)
 	{
-		switch (htonl (cur->entry.log.transtype))
+		switch (intswap32 (cur->entry.log.transtype))
 		{
 			case ltMapUpdate:
-				if (mfs_zone_map_update (mfshnd, htonl (cur->entry.zonemap.sector), htonl (cur->entry.zonemap.size), htonl (cur->entry.zonemap.remove), logstamp) < 1)
+				if (mfs_zone_map_update (mfshnd, intswap32 (cur->entry.zonemap.sector), intswap32 (cur->entry.zonemap.size), intswap32 (cur->entry.zonemap.remove), logstamp) < 1)
 				{
 					return 0;
 				}
@@ -188,18 +185,18 @@ mfs_log_fssync_list (struct mfs_handle *mfshnd, struct log_entry_list *list, uns
 		memset (buf, 0, sizeof (buf));
 		log_hdr *hdr = (log_hdr *)buf;
 		log_entry *entry = (log_entry *)(hdr + 1);
-		hdr->logstamp = htonl (logstamp + 1);
-		hdr->size = htonl (sizeof (*entry) + 2);
-		entry->length = htons (sizeof (*entry) - 2);
-		entry->bootcycles = htonl (mfshnd->bootcycle);
-		entry->bootsecs = htonl (++mfshnd->bootsecs);
-		entry->transtype = htonl (ltFsSync);
+		hdr->logstamp = intswap32 (logstamp + 1);
+		hdr->size = intswap32 (sizeof (*entry) + 2);
+		entry->length = intswap16 (sizeof (*entry) - 2);
+		entry->bootcycles = intswap32 (mfshnd->bootcycle);
+		entry->bootsecs = intswap32 (++mfshnd->bootsecs);
+		entry->transtype = intswap32 (ltFsSync);
 		
 		mfs_log_write (mfshnd, buf);
 		
-		mfshnd->vol_hdr.logstamp = htonl (logstamp);
-		mfshnd->vol_hdr.bootcycles = htonl (mfshnd->bootcycle);
-		mfshnd->vol_hdr.bootsecs = htonl (mfshnd->bootsecs);
+		mfshnd->vol_hdr.logstamp = intswap32 (logstamp);
+		mfshnd->vol_hdr.bootcycles = intswap32 (mfshnd->bootcycle);
+		mfshnd->vol_hdr.bootsecs = intswap32 (mfshnd->bootsecs);
 		/* Increment it again so this transaction will be distinct from */
 		/* updates before the next transaction */
 		mfshnd->bootsecs++;
@@ -248,14 +245,14 @@ mfs_log_load_committed_list (struct mfs_handle *mfshnd, unsigned int start, unsi
 		{
 			/* Start a new log entry */
 			partread = 0;
-			partremaining = htons (*(unsigned short *)(buf + curstart + sizeof (log_hdr))) + 2;
+			partremaining = intswap16 (*(unsigned short *)(buf + curstart + sizeof (log_hdr))) + 2;
 			if (partremaining > 2)
 			{
 				/* Only allocate if there is going to be actual data */
 				cur = calloc (partremaining + sizeof (cur->next) + sizeof (cur->logstamp), 1);
 			}
 		}
-		else if (partremaining < htonl (curlog->first) || curlog->first == 0)
+		else if (partremaining < intswap32 (curlog->first) || curlog->first == 0)
 		{
 			/* Existing entry that doesn't look like it's properly continued */
 			mfshnd->err_msg = "Error reading from log entry %d";
@@ -270,13 +267,13 @@ mfs_log_load_committed_list (struct mfs_handle *mfshnd, unsigned int start, unsi
 		}
 
 		/* Read in the entries */
-		while (partremaining > 0 && curstart < htonl (curlog->size))
+		while (partremaining > 0 && curstart < intswap32 (curlog->size))
 		{
 			int tocopy = partremaining;
 
-			if (tocopy > htonl (curlog->size) - curstart)
+			if (tocopy > intswap32 (curlog->size) - curstart)
 			{
-				tocopy = htonl (curlog->size) - curstart;
+				tocopy = intswap32 (curlog->size) - curstart;
 			}
 
 			if (cur)
@@ -299,7 +296,7 @@ mfs_log_load_committed_list (struct mfs_handle *mfshnd, unsigned int start, unsi
 				*tail = cur;
 				tail = &cur->next;
 
-				if (cur->entry.log.transtype == htonl (ltCommit))
+				if (cur->entry.log.transtype == intswap32 (ltCommit))
 				{
 					/* Mark the new end of what is to be committed */
 					synctail = &cur->next;
@@ -310,9 +307,9 @@ mfs_log_load_committed_list (struct mfs_handle *mfshnd, unsigned int start, unsi
 			cur = NULL;
 			partread = 0;
 			partremaining = 0;
-			if (curstart + 2 <= htonl (curlog->size))
+			if (curstart + 2 <= intswap32 (curlog->size))
 			{
-				partremaining = htons (*(unsigned short *)(buf + curstart + sizeof (log_hdr))) + 2;
+				partremaining = intswap16 (*(unsigned short *)(buf + curstart + sizeof (log_hdr))) + 2;
 				if (partremaining > 2)
 				{
 					/* Only allocate if there is going to be actual data */

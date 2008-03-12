@@ -21,9 +21,6 @@
 #include <linux/unistd.h>
 #endif
 
-/* For htonl() */
-#include <netinet/in.h>
-
 #include "mfs.h"
 
 /*************************************/
@@ -86,7 +83,7 @@ mfs_write_inode (struct mfs_handle *mfshnd, mfs_inode *inode)
 	int sector;
 
 /* Find the sector number for this inode. */
-	sector = mfs_inode_to_sector (mfshnd, htonl (inode->inode));
+	sector = mfs_inode_to_sector (mfshnd, intswap32 (inode->inode));
 	if (sector == 0)
 	{
 		return -1;
@@ -125,11 +122,11 @@ mfs_read_inode_by_fsid (struct mfs_handle *mfshnd, unsigned int fsid)
 /* Repeat until either the fsid matches, the CHAINED flag is unset, or */
 /* every inode has been checked, which I hope I will not have to do. */
 	}
-	while (cur && htonl (cur->fsid) != fsid && (htonl (cur->inode_flags) & INODE_CHAINED) && (inode = (inode + 1) % (mfs_inode_count (mfshnd))) != inode_base);
+	while (cur && intswap32 (cur->fsid) != fsid && (intswap32 (cur->inode_flags) & INODE_CHAINED) && (inode = (inode + 1) % (mfs_inode_count (mfshnd))) != inode_base);
 
 /* If cur is NULL or the fsid is correct and in use, then cur contains the */
 /* right return. */
-	if (!cur || (htonl (cur->fsid) == fsid && cur->refcount != 0))
+	if (!cur || (intswap32 (cur->fsid) == fsid && cur->refcount != 0))
 	{
 		return cur;
 	}
@@ -164,7 +161,7 @@ mfs_find_inode_for_fsid (struct mfs_handle *mfshnd, unsigned int fsid)
 /* Repeat until either the fsid matches, the CHAINED flag is unset, or */
 /* every inode has been checked, which I hope I will not have to do. */
 	}
-	while (cur && htonl (cur->fsid) != fsid && (htonl (cur->inode_flags) & INODE_CHAINED) && (inode = (inode + 1) % (mfs_inode_count (mfshnd))) != inode_base);
+	while (cur && intswap32 (cur->fsid) != fsid && (intswap32 (cur->inode_flags) & INODE_CHAINED) && (inode = (inode + 1) % (mfs_inode_count (mfshnd))) != inode_base);
 
 /* If nothing was read, something is wrong */
 	if (!cur)
@@ -177,7 +174,7 @@ mfs_find_inode_for_fsid (struct mfs_handle *mfshnd, unsigned int fsid)
 	}
 
 /* If the fsid was found, return the inode */
-	if (cur && (htonl (cur->fsid) == fsid))
+	if (cur && (intswap32 (cur->fsid) == fsid))
 	{
 		if (first)
 		{
@@ -202,9 +199,9 @@ mfs_find_inode_for_fsid (struct mfs_handle *mfshnd, unsigned int fsid)
 		if (cur)
 		{
 /* Mark this inode chained */
-			if (!(cur->inode_flags & htonl (INODE_CHAINED)))
+			if (!(cur->inode_flags & intswap32 (INODE_CHAINED)))
 			{
-				cur->inode_flags |= htonl (INODE_CHAINED);
+				cur->inode_flags |= intswap32 (INODE_CHAINED);
 				if (mfs_write_inode (mfshnd, cur) < 0)
 				{
 					free (cur);
@@ -248,7 +245,7 @@ mfs_write_inode_data_part (struct mfs_handle *mfshnd, mfs_inode * inode, unsigne
 	}
 
 /* If it all fits in the inode block... */
-	if (inode->inode_flags & htonl (INODE_DATA))
+	if (inode->inode_flags & intswap32 (INODE_DATA))
 	{
 		int result;
 
@@ -268,11 +265,11 @@ mfs_write_inode_data_part (struct mfs_handle *mfshnd, mfs_inode * inode, unsigne
 		int loop;
 
 /* Loop through each block in the inode. */
-		for (loop = 0; count && loop < htonl (inode->numblocks); loop++)
+		for (loop = 0; count && loop < intswap32 (inode->numblocks); loop++)
 		{
 /* For sanity sake (Mine, not the code's), make these variables. */
-			unsigned int blkstart = htonl (inode->datablocks[loop].sector);
-			unsigned int blkcount = htonl (inode->datablocks[loop].count);
+			unsigned int blkstart = intswap32 (inode->datablocks[loop].sector);
+			unsigned int blkcount = intswap32 (inode->datablocks[loop].count);
 			int result;
 
 /* If the start offset has not been reached, skip to it. */
@@ -340,9 +337,9 @@ mfs_read_inode_data_part (struct mfs_handle *mfshnd, mfs_inode * inode, unsigned
 	}
 
 /* All the data fits in the inode */
-	if (inode->inode_flags & htonl (INODE_DATA))
+	if (inode->inode_flags & intswap32 (INODE_DATA))
 	{
-		int size = htonl (inode->size);
+		int size = intswap32 (inode->size);
 
 		if (start)
 		{
@@ -363,11 +360,11 @@ mfs_read_inode_data_part (struct mfs_handle *mfshnd, mfs_inode * inode, unsigned
 		int loop;
 
 /* Loop through each block in the inode. */
-		for (loop = 0; count && loop < htonl (inode->numblocks); loop++)
+		for (loop = 0; count && loop < intswap32 (inode->numblocks); loop++)
 		{
 /* For sanity sake, make these variables. */
-			unsigned int blkstart = htonl (inode->datablocks[loop].sector);
-			unsigned int blkcount = htonl (inode->datablocks[loop].count);
+			unsigned int blkstart = intswap32 (inode->datablocks[loop].sector);
+			unsigned int blkcount = intswap32 (inode->datablocks[loop].count);
 			int result;
 
 /* If the start offset has not been reached, skip to it. */
@@ -441,7 +438,7 @@ mfs_read_inode_data (struct mfs_handle *mfshnd, mfs_inode * inode, int *size)
 		return NULL;
 	}
 
-	*size = htonl (inode->size);
+	*size = intswap32 (inode->size);
 
 	data = malloc ((*size + 511) & ~511);
 	if (!data)

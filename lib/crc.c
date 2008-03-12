@@ -21,9 +21,6 @@
 #include <linux/unistd.h>
 #endif
 
-/* For htonl() */
-#include <netinet/in.h>
-
 #include "mfs.h"
 
 /* ANSI X3.66 CRC32 checksum */
@@ -106,7 +103,7 @@ mfs_compute_crc (unsigned char *data, unsigned int size, unsigned int off)
 		off--;
 	}
 
-	return htonl (CRC);
+	return intswap32 (CRC);
 }
 
 
