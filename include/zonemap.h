@@ -20,34 +20,76 @@ typedef struct bitmap_header_s
 }
 bitmap_header;
 
-typedef struct zone_map_ptr_s
+typedef struct zone_map_ptr_32_s
 {
-	unsigned long sector;		/* Sector of next table */
-	unsigned long sbackup;		/* Sector of backup of next table */
-	unsigned long length;		/* Length of next table in sectors */
-	unsigned long size;			/* Size of partition of next table */
-	unsigned long min;			/* Minimum allocation of next table */
+	uint32_t sector;		/* Sector of next table */
+	uint32_t sbackup;		/* Sector of backup of next table */
+	uint32_t length;		/* Length of next table in sectors */
+	uint32_t size;			/* Size of partition of next table */
+	uint32_t min;			/* Minimum allocation of next table */
 }
-zone_map_ptr;
+zone_map_ptr_32;
 
-typedef struct zone_header_s
+typedef struct zone_map_ptr_64_s
 {
-	unsigned long sector;		/* Sector of this table */
-	unsigned long sbackup;		/* Sector of backup of this table */
-	unsigned long length;		/* Length of this table in sectors */
-	zone_map_ptr next;			/* Next zone map */
-	zone_type type;				/* Type of data in zone */
-	unsigned long logstamp;		/* Last log stamp */
-	unsigned long checksum;		/* Checksum of entire zone map and bitmaps */
-	unsigned long first;		/* First sector in this partition */
-	unsigned long last;			/* Last sector in this partition */
-	unsigned long size;			/* Size of this partition (sectors) */
-	unsigned long min;			/* Minimum allocation size (sectors) */
-	unsigned long free;			/* Free space in this partition */
-	unsigned long zero;			/* Always zero? */
-	unsigned long num;			/* Num of bitmaps.  Followed by num */
+	uint64_t sector;		/* Sector of next table */
+	uint64_t sbackup;		/* Sector of backup of next table */
+	uint64_t length;		/* Length of next table in sectors */
+	uint64_t size;			/* Size of partition of next table */
+	uint64_t min;			/* Minimum allocation of next table */
+}
+zone_map_ptr_64;
+
+typedef struct zone_header_32_s
+{
+	uint32_t sector;		/* Sector of this table */
+	uint32_t sbackup;		/* Sector of backup of this table */
+	uint32_t length;		/* Length of this table in sectors */
+	zone_map_ptr_32 next;	/* Next zone map */
+	zone_type type;			/* Type of data in zone */
+	uint32_t logstamp;		/* Last log stamp */
+	uint32_t checksum;		/* Checksum of entire zone map and bitmaps */
+	uint32_t first;			/* First sector in this zone */
+	uint32_t last;			/* Last sector in this zone */
+	uint32_t size;			/* Size of this zone (sectors) */
+	uint32_t min;			/* Minimum allocation size (sectors) */
+	uint32_t free;			/* Free space in this zone */
+	uint32_t zero;			/* Always zero? */
+	uint32_t num;			/* Num of bitmaps.  Followed by num */
 	/* addresses, pointing to mmapped */
 	/* memory from /tmp/fsmem for bitmaps */
+}
+zone_header_32;
+
+typedef struct zone_header_64_s
+{
+	uint64_t sector;			/* Sector of this table */
+	uint64_t sbackup;			/* Sector of backup of this table */
+	uint64_t next_sector;		/* Sector of next table */
+	uint64_t next_sbackup;		/* Sector of backup of next table */
+	uint64_t next_size;			/* Size of next zone (sectors) */
+	uint64_t first;				/* First sector in this zone */
+	uint64_t last;				/* Last sector in this zone */
+	uint64_t size;				/* Size of this zone (sectors) */
+	uint64_t free;				/* Free space in this zone */
+	uint32_t next_length;		/* Length of next table in sectors */
+	uint32_t length;			/* Length of this table in sectors */
+	uint32_t min;				/* Minimum allocation size (sectors) */
+	uint32_t next_min;			/* Minimum allocation size of next zone (sectors) */
+	uint32_t logstamp;			/* Last log stamp */
+	zone_type type;				/* Type of data in zone */
+	uint32_t checksum;			/* Checksum of entire zone map and bitmaps */
+	uint32_t zero;				/* Always zero? */
+	uint32_t num;				/* Num of bitmaps.  Followed by num */
+	/* addresses, pointing to mmapped */
+	/* memory from /tmp/fsmem for bitmaps */
+}
+zone_header_64;
+
+typedef union zone_header_u
+{
+	zone_header_32 z32;
+	zone_header_64 z64;
 }
 zone_header;
 

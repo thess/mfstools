@@ -1,7 +1,7 @@
 #ifdef HAVE_CONFIG_H
 #include <config.h>
 #endif
-#include <stdio.h>
+#include <stdio.h> 
 #include <stdlib.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -124,16 +124,27 @@ dump_inode_log (log_inode_update *entry)
 	if (!entry->inodedata)
 	{
 		int loop;
-		printf ("Data is in %d blocks:\n", intswap32 (entry->datasize) / sizeof (entry->datablocks[0]));
-		for (loop = 0; loop < intswap32 (entry->datasize) / sizeof (entry->datablocks[0]); loop++)
+		if (mfs->is_64)
 		{
-			printf ("At %-8x %d sectors\n", intswap32 (entry->datablocks[loop].sector), intswap32 (entry->datablocks[loop].count));
+			printf ("Data is in %d blocks:\n", intswap32 (entry->datasize) / sizeof (entry->datablocks.d64[0]));
+			for (loop = 0; loop < intswap32 (entry->datasize) / sizeof (entry->datablocks.d64[0]); loop++)
+			{
+				printf ("At %lld %d sectors\n", intswap64 (entry->datablocks.d64[loop].sector), intswap32 (entry->datablocks.d64[loop].count));
+			}
+		}
+		else
+		{
+			printf ("Data is in %d blocks:\n", intswap32 (entry->datasize) / sizeof (entry->datablocks.d32[0]));
+			for (loop = 0; loop < intswap32 (entry->datasize) / sizeof (entry->datablocks.d32[0]); loop++)
+			{
+				printf ("At %d %d sectors\n", intswap32 (entry->datablocks.d32[loop].sector), intswap32 (entry->datablocks.d32[loop].count));
+			}
 		}
 	}
 	else
 	{
 		printf ("Data is in inode block.\n");
-		hexdump ((void *)&entry->datablocks[0], 0, intswap32 (entry->datasize));
+		hexdump ((void *)&entry->datablocks.d32[0], 0, intswap32 (entry->datasize));
 	}
 
 	return 1;
@@ -209,14 +220,25 @@ dump_inode (mfs_inode *inode_buf, unsigned char *buf, unsigned int bufsize)
 		{
 			printf ("\n");
 		}
-		printf ("Sigs: %04x %08x (Always beef 91231ebc?)\n", intswap16 (inode_buf->pad), intswap32 (inode_buf->sig));
+		printf ("Sigs: %04x %08x %d bit\n", intswap16 (inode_buf->pad), intswap32 (inode_buf->sig), (inode_buf->sig & intswap32 (0x40000000)) ? 64 : 32);
 		if (intswap32 (inode_buf->numblocks))
 		{
 			int loop;
-			printf ("Data is in %d blocks:\n", intswap32 (inode_buf->numblocks));
-			for (loop = 0; loop < intswap32 (inode_buf->numblocks); loop++)
+			if (mfs->is_64)
 			{
-				printf ("At %-8x %d sectors\n", intswap32 (inode_buf->datablocks[loop].sector), intswap32 (inode_buf->datablocks[loop].count));
+				printf ("Data is in %d blocks:\n", intswap32 (inode_buf->numblocks));
+				for (loop = 0; loop < intswap32 (inode_buf->numblocks); loop++)
+				{
+					printf ("At %lld %d sectors\n", intswap64 (inode_buf->datablocks.d64[loop].sector), intswap32 (inode_buf->datablocks.d64[loop].count));
+				}
+			}
+			else
+			{
+				printf ("Data is in %d blocks:\n", intswap32 (inode_buf->numblocks));
+				for (loop = 0; loop < intswap32 (inode_buf->numblocks); loop++)
+				{
+					printf ("At %d %d sectors\n", intswap32 (inode_buf->datablocks.d32[loop].sector), intswap32 (inode_buf->datablocks.d32[loop].count));
+				}
 			}
 		}
 		else
@@ -239,17 +261,33 @@ dump_mfs_header (unsigned char *buf, unsigned int bufsize)
 {
 	volume_header *hdr;
 
-	if (bufsize < sizeof (volume_header))
+	if (bufsize < sizeof (volume_header_32))
 		return 0;
 
 	hdr = (volume_header *)buf;
+	switch (intswap32 (hdr->v32.magic))
+	{
+		case MFS32_MAGIC:
+			return dump_mfs_header_32 (&hdr->v32, buf, bufsize);
+		case MFS64_MAGIC:
+			return dump_mfs_header_64 (&hdr->v64, buf, bufsize);
+	}
 
-	if (hdr->abbafeed != intswap32 (0xabbafeed) ||
-		!MFS_check_crc (hdr, sizeof (volume_header), hdr->checksum))
+	return 0;
+}
+
+int
+dump_mfs_header_32 (volume_header_32 *hdr, unsigned char *buf, unsigned int bufsize)
+{
+	if (bufsize < sizeof (volume_header_32))
+		return 0;
+
+	if (!MFS_check_crc (hdr, sizeof (volume_header_32), hdr->checksum))
 		return 0;
 
 	printf ("\n    MFS Volume Header\n");
-	printf ("Sig: %08x   CRC: %08x   Size: %d\n", intswap32 (hdr->abbafeed), intswap32 (hdr->checksum), intswap32 (hdr->total_sectors));
+	printf ("State: %-13dFirst partition size: %dx1024 sectors (%dmb)\n", intswap32 (hdr->state), intswap32 (hdr->firstpartsize), intswap32 (hdr->firstpartsize) / 2);
+	printf ("Sig: %08x   CRC: %08x   Size: %d\n", intswap32 (hdr->magic), intswap32 (hdr->checksum), intswap32 (hdr->total_sectors));
 	printf ("MFS Partitions: %s\n", hdr->partitionlist);
 	printf ("Root FSID: %-13dNext FSID: %d\n", intswap32 (hdr->root_fsid), intswap32 (hdr->next_fsid));
 	printf ("Redo log start: %-13dSize: %d\n", intswap32 (hdr->logstart), intswap32 (hdr->lognsectors));
@@ -258,20 +296,16 @@ dump_mfs_header (unsigned char *buf, unsigned int bufsize)
 	printf ("        backup: %-13dZone size: %-13dAllocation size: %d\n", intswap32 (hdr->zonemap.sbackup), intswap32 (hdr->zonemap.size), intswap32 (hdr->zonemap.min));
 	printf ("Last sync boot: %-13dTimestamp: %-13dLast Commit: %d\n", intswap32 (hdr->bootcycles), intswap32 (hdr->bootsecs), intswap32 (hdr->logstamp));
 
-	if (hdr->off00 || hdr->off0c || hdr->off14 || hdr->off18 || hdr->off1c || hdr->off20 || hdr->offa8 || hdr->offc0 || hdr->offe4)
+	if (hdr->off0c || hdr->off14 || hdr->off1c || hdr->off20 || hdr->offa8 || hdr->offc0 || hdr->offe4)
 	{
 		printf ("Unknown data\n");
-		if (hdr->off00)
-		{
-			printf ("00000000:000 %02x %02x %02x %02x\n", buf[0], buf[1], buf[2], buf[3]);
-		}
 		if (hdr->off0c)
 		{
 			printf ("00000000:00c %02x %02x %02x %02x\n", buf[12], buf[13], buf[14], buf[15]);
 		}
-		if (hdr->off14 || hdr->off18)
+		if (hdr->off14)
 		{
-			printf ("00000000:014 %02x %02x %02x %02x %02x %02x %02x %02x\n", buf[20], buf[21], buf[22], buf[23], buf[24], buf[25], buf[26], buf[27]);
+			printf ("00000000:014 %02x %02x %02x %02x\n", buf[20], buf[21], buf[22], buf[23]);
 		}
 		if (hdr->off1c || hdr->off20)
 		{
@@ -295,19 +329,84 @@ dump_mfs_header (unsigned char *buf, unsigned int bufsize)
 }
 
 int
+dump_mfs_header_64 (volume_header_64 *hdr, unsigned char *buf, unsigned int bufsize)
+{
+	if (bufsize < sizeof (volume_header_64))
+		return 0;
+
+	if (!MFS_check_crc (hdr, sizeof (volume_header_64), hdr->checksum))
+		return 0;
+
+	printf ("\n    MFS Volume Header\n");
+	printf ("State: %-13dFirst partition size: %dx1024 sectors (%dmb)\n", intswap32 (hdr->state), intswap32 (hdr->firstpartsize), intswap32 (hdr->firstpartsize) / 2);
+	printf ("Sig: %08x   CRC: %08x   Size: %lld\n", intswap32 (hdr->magic), intswap32 (hdr->checksum), intswap64 (hdr->total_sectors));
+	printf ("MFS Partitions: %s\n", hdr->partitionlist);
+	printf ("Root FSID: %-13dNext FSID: %d\n", intswap32 (hdr->root_fsid), intswap32 (hdr->next_fsid));
+	printf ("Redo log start: %-13lldSize: %d\n", intswap64 (hdr->logstart), intswap32 (hdr->lognsectors));
+	printf ("?        start: %-13lldSize: %d\n", intswap64 (hdr->unkstart), intswap32 (hdr->unknsectors));
+	printf ("Zone map start: %-13lldSize: %lld\n", intswap64 (hdr->zonemap.sector), intswap64 (hdr->zonemap.length));
+	printf ("        backup: %-13lldZone size: %-13lldAllocation size: %lld\n", intswap64 (hdr->zonemap.sbackup), intswap64 (hdr->zonemap.size), intswap64 (hdr->zonemap.min));
+	printf ("Last sync boot: %-13dTimestamp: %-13dLast Commit: %d\n", intswap32 (hdr->bootcycles), intswap32 (hdr->bootsecs), intswap32 (hdr->logstamp));
+
+	if (hdr->off0c || hdr->off14 || hdr->off1c || hdr->off20 || hdr->offb8 || hdr->offc8 || hdr->off100 || hdr->off110 || hdr->off114)
+	{
+		printf ("Unknown data\n");
+		if (hdr->off0c)
+		{
+			printf ("00000000:00c %02x %02x %02x %02x\n", buf[12], buf[13], buf[14], buf[15]);
+		}
+		if (hdr->off14)
+		{
+			printf ("00000000:014 %02x %02x %02x %02x\n", buf[20], buf[21], buf[22], buf[23]);
+		}
+		if (hdr->off1c || hdr->off20)
+		{
+			printf ("00000000:01c %02x %02x %02x %02x %02x %02x %02x %02x\n", buf[28], buf[29], buf[30], buf[31], buf[32], buf[33], buf[34], buf[35]);
+		}
+		if (hdr->offb8)
+		{
+			printf ("00000000:0b8 %02x %02x %02x %02x\n", buf[184], buf[185], buf[186], buf[187]);
+		}
+		if (hdr->offc8)
+		{
+			printf ("00000000:0c0 %02x %02x %02x %02x\n", buf[200], buf[201], buf[202], buf[203]);
+		}
+		if (hdr->off100)
+		{
+			printf ("00000000:100 %02x %02x %02x %02x\n", buf[256], buf[257], buf[258], buf[259]);
+		}
+		if (hdr->off110 || hdr->off114)
+		{
+			printf ("00000000:110 %02x %02x %02x %02x %02x %02x %02x %02x\n", buf[272], buf[273], buf[274], buf[275], buf[276], buf[277], buf[278], buf[279]);
+		}
+	}
+
+	return 1;
+}
+
+int
 dump_zone_map (unsigned int sector, unsigned char *buf, unsigned int bufsize)
 {
-	zone_header *zone;
+	if (mfs->is_64)
+		return dump_zone_map_64 (sector, buf, bufsize);
+	else
+		return dump_zone_map_32 (sector, buf, bufsize);
+}
+
+int
+dump_zone_map_32 (unsigned int sector, unsigned char *buf, unsigned int bufsize)
+{
+	zone_header_32 *zone;
 	unsigned long *ptrs;
 	bitmap_header *bitmap0;
 	int loop;
 
-	if (bufsize < sizeof (zone_header))
+	if (bufsize < sizeof (zone_header_32))
 		return 0;
 
-	zone = (zone_header *)buf;
+	zone = (zone_header_32 *)buf;
 
-	if (sector != intswap32 (zone->sector) && sector != intswap32 (zone->sbackup) || intswap32 (zone->length) * 512 < bufsize || !MFS_check_crc (zone, intswap32 (zone->length) * 512, zone->checksum))
+	if (sector != intswap32 (zone->sector) && sector != intswap32 (zone->sbackup) || intswap32 (zone->length) * 512 > bufsize || !MFS_check_crc (zone, intswap32 (zone->length) * 512, zone->checksum))
 		return 0;
 
 	printf ("\n    Zone map ");
@@ -350,6 +449,61 @@ dump_zone_map (unsigned int sector, unsigned char *buf, unsigned int bufsize)
 }
 
 int
+dump_zone_map_64 (unsigned int sector, unsigned char *buf, unsigned int bufsize)
+{
+	zone_header_64 *zone;
+	unsigned long *ptrs;
+	bitmap_header *bitmap0;
+	int loop;
+
+	if (bufsize < sizeof (zone_header_64))
+		return 0;
+
+	zone = (zone_header_64 *)buf;
+
+	if (sector != intswap64 (zone->sector) && sector != intswap64 (zone->sbackup) || intswap32 (zone->length) * 512 > bufsize || !MFS_check_crc (zone, intswap32 (zone->length) * 512, zone->checksum))
+		return 0;
+
+	printf ("\n    Zone map ");
+	switch (intswap32 (zone->type))
+	{
+		case ztInode:
+			printf ("(Inode)\n");
+			break;
+		case ztApplication:
+			printf ("(Application)\n");
+			break;
+		case ztMedia:
+			printf ("(Media)\n");
+			break;
+		default:
+			printf ("(Unknown type %d)\n", intswap32 (zone->type));
+	}
+	printf ("Sector: %-13lldBackup: %-13lldLength: %d\n", intswap64 (zone->sector), intswap64 (zone->sbackup), intswap32 (zone->length));
+	printf ("Next:   %-13lldBackup: %-13lldLength: %d\n", intswap64 (zone->next_sector), intswap64 (zone->next_sbackup), intswap32 (zone->next_length));
+	printf ("Next zone size: %-13lldAllocation size: %d\n", intswap64 (zone->next_size), intswap32 (zone->next_min));
+	printf ("CRC: %08x     Logstamp: %d\n", intswap32 (zone->checksum), intswap32 (zone->logstamp));
+	printf ("Zone sectors: %lld-%-13lldAllocation size: %d\n", intswap64 (zone->first), intswap64 (zone->last), intswap32 (zone->min));
+	printf ("Zone size: %-13lldFree: %lld\n", intswap64 (zone->size), intswap64 (zone->free));
+	if (zone->zero)
+		printf ("???: %08x\n", intswap32 (zone->zero));
+
+	printf ("Bitmaps: %d\n", intswap32 (zone->num));
+
+	ptrs = (unsigned long *)(buf + sizeof (*zone));
+	bitmap0 = (bitmap_header *)&ptrs[intswap32 (zone->num)];
+
+	for (loop = 0; loop < intswap32 (zone->num); loop++)
+	{
+		bitmap_header *bitmap = (bitmap_header *)((unsigned long)bitmap0 + (intswap32 (ptrs[loop]) - intswap32 (ptrs[0])));
+		printf ("    Bitmap addr: %08x  Start: %08x:%03x\n", intswap32 (ptrs[loop]), ((unsigned long)(bitmap + 1) - (unsigned long)buf) / 512 + sector, ((unsigned long)(bitmap + 1) - (unsigned long)buf) % 512);
+		printf ("          Nbits: %-10dNints: %-10dFree: %-10dLast: %d\n", intswap32 (bitmap->nbits), intswap32 (bitmap->nints), intswap32 (bitmap->freeblocks), intswap32 (bitmap->last));
+	}
+
+	return 1;
+}
+
+int
 dump_log_entry (unsigned int sector, unsigned char *buf, unsigned int bufsize)
 {
 	log_hdr *hdr;
@@ -361,7 +515,7 @@ dump_log_entry (unsigned int sector, unsigned char *buf, unsigned int bufsize)
 
 	hdr = (log_hdr *)buf;
 
-	if ((sector != 0xdeadbeef && sector != (intswap32 (hdr->logstamp) % intswap32 (mfs->vol_hdr.lognsectors)) + intswap32 (mfs->vol_hdr.logstart)) || !MFS_check_crc(buf, 512, hdr->crc))
+	if (sector != 0xdeadbeef && sector != mfs_log_stamp_to_sector (mfs, intswap32 (hdr->logstamp)) || !MFS_check_crc(buf, 512, hdr->crc))
 		return 0;
 
 	printf ("\n    Log entry stamp %d\n", intswap32 (hdr->logstamp));
@@ -444,6 +598,9 @@ dump_log_entry (unsigned int sector, unsigned char *buf, unsigned int bufsize)
 			case ltMapUpdate:
 				printf ("Zone Map Update\n");
 				break;
+			case ltMapUpdate64:
+				printf ("Zone Map Update 64 bit\n");
+				break;
 			case ltInodeUpdate:
 				printf ("Inode Update\n");
 				break;
@@ -456,6 +613,9 @@ dump_log_entry (unsigned int sector, unsigned char *buf, unsigned int bufsize)
 			case ltFsSync:
 				printf ("FS Sync Complete\n");
 				break;
+			case ltLogReplay:
+				printf ("Replay Transaction Log\n");
+				break;
 			default:
 				printf ("Unknown (%d)\n", intswap32 (entry->log.transtype));
 		}
@@ -467,14 +627,26 @@ dump_log_entry (unsigned int sector, unsigned char *buf, unsigned int bufsize)
 		{
 			case ltMapUpdate:
 				printf ("Zone map update:\n");
-				if (!entry->zonemap.remove)
+				if (!entry->zonemap_32.remove)
 					printf ("Change: Allocate     ");
-				else if (entry->zonemap.remove == intswap32 (1))
+				else if (entry->zonemap_32.remove == intswap32 (1))
 					printf ("Change: Free         ");
 				else
-					printf ("Change: ?%-12d", intswap32 (entry->zonemap.remove));
-				printf ("???: %d\n", intswap32 (entry->zonemap.unk));
-				printf ("Sector: %-13dSize: %d\n", intswap32 (entry->zonemap.sector), intswap32 (entry->zonemap.size));
+					printf ("Change: ?%-12d", intswap32 (entry->zonemap_32.remove));
+				if (entry->zonemap_32.unk)
+					printf ("???: %d\n", intswap32 (entry->zonemap_32.unk));
+				printf ("Sector: %-13dSize: %d\n", intswap32 (entry->zonemap_32.sector), intswap32 (entry->zonemap_32.size));
+				break;
+			case ltMapUpdate64:
+				printf ("Zone map update:\n");
+				if (!entry->zonemap_64.remove)
+					printf ("Change: Allocate     ");
+				else if (entry->zonemap_64.remove == intswap32 (1))
+					printf ("Change: Free         ");
+				else
+					printf ("Change: ?%-12d", intswap32 (entry->zonemap_64.remove));
+				printf ("Sector: %-13lldSize: %lld\n", intswap64 (entry->zonemap_64.sector), intswap64 (entry->zonemap_64.size));
+				printf ("Unknown Flag: %d\n", entry->zonemap_64.flag);
 				break;
 			case ltInodeUpdate:
 			case ltInodeUpdate2:

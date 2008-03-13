@@ -105,7 +105,7 @@ mfs_write_inode (struct mfs_handle *mfshnd, mfs_inode *inode)
 /******************************************************************/
 /* Read an inode data based on an fsid, scanning ahead as needed. */
 mfs_inode *
-mfs_read_inode_by_fsid (struct mfs_handle *mfshnd, unsigned int fsid)
+mfs_read_inode_by_fsid (struct mfs_handle *mfshnd, uint32_t fsid)
 {
 	int inode = (fsid * MFS_FSID_HASH) & (mfs_inode_count (mfshnd) - 1);
 	mfs_inode *cur = NULL;
@@ -268,9 +268,20 @@ mfs_write_inode_data_part (struct mfs_handle *mfshnd, mfs_inode * inode, unsigne
 		for (loop = 0; count && loop < intswap32 (inode->numblocks); loop++)
 		{
 /* For sanity sake (Mine, not the code's), make these variables. */
-			unsigned int blkstart = intswap32 (inode->datablocks[loop].sector);
-			unsigned int blkcount = intswap32 (inode->datablocks[loop].count);
+			uint64_t blkstart;
+			uint64_t blkcount;
 			int result;
+
+			if (mfshnd->is_64)
+			{
+				blkstart = intswap64 (inode->datablocks.d64[loop].sector);
+				blkcount = intswap32 (inode->datablocks.d64[loop].count);
+			}
+			else
+			{
+				blkstart = intswap32 (inode->datablocks.d32[loop].sector);
+				blkcount = intswap32 (inode->datablocks.d32[loop].count);
+			}
 
 /* If the start offset has not been reached, skip to it. */
 			if (start)
@@ -326,7 +337,7 @@ mfs_write_inode_data_part (struct mfs_handle *mfshnd, mfs_inode * inode, unsigne
 /*************************************/
 /* Read a portion of an inodes data. */
 int
-mfs_read_inode_data_part (struct mfs_handle *mfshnd, mfs_inode * inode, unsigned char *data, unsigned int start, unsigned int count)
+mfs_read_inode_data_part (struct mfs_handle *mfshnd, mfs_inode * inode, unsigned char *data, uint64_t start, unsigned int count)
 {
 	int totread = 0;
 
@@ -363,9 +374,20 @@ mfs_read_inode_data_part (struct mfs_handle *mfshnd, mfs_inode * inode, unsigned
 		for (loop = 0; count && loop < intswap32 (inode->numblocks); loop++)
 		{
 /* For sanity sake, make these variables. */
-			unsigned int blkstart = intswap32 (inode->datablocks[loop].sector);
-			unsigned int blkcount = intswap32 (inode->datablocks[loop].count);
+			uint64_t blkstart;
+			uint64_t blkcount;
 			int result;
+
+			if (mfshnd->is_64)
+			{
+				blkstart = intswap64 (inode->datablocks.d64[loop].sector);
+				blkcount = intswap32 (inode->datablocks.d64[loop].count);
+			}
+			else
+			{
+				blkstart = intswap32 (inode->datablocks.d32[loop].sector);
+				blkcount = intswap32 (inode->datablocks.d32[loop].count);
+			}
 
 /* If the start offset has not been reached, skip to it. */
 			if (start)

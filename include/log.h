@@ -22,7 +22,7 @@ typedef struct log_entry_s
 }
 __attribute__ ((packed)) log_entry;
 
-typedef struct log_map_update_s
+typedef struct log_map_update_32_s
 {
 	log_entry log;
 	unsigned int remove;
@@ -30,7 +30,21 @@ typedef struct log_map_update_s
 	unsigned int size;
 	unsigned int unk;
 }
-__attribute__ ((packed)) log_map_update;
+__attribute__ ((packed)) log_map_update_32;
+
+typedef struct log_map_update_64_s
+{
+	log_entry log;
+	unsigned int remove;
+	unsigned int pad;	/* Padded with AAAAAAAA */
+	uint64_t sector;
+	uint64_t size;
+	unsigned char flag;	/* 0 or 1, no clue on the meaning */
+	unsigned char pad2;
+	unsigned short pad3;
+	unsigned int pad4;
+}
+__attribute__ ((packed)) log_map_update_64;
 
 typedef struct log_inode_update_s
 {
@@ -50,19 +64,29 @@ typedef struct log_inode_update_s
 	unsigned short pad;
 	unsigned int inodedata;		/* 1 if data in inode, 0 if blocks */
 	unsigned int datasize;		/* Size of datablocks array / data in inode */
-	struct
+	union
 	{
-		unsigned int sector;
-		unsigned int count;
-	}
-	datablocks[0];
+		struct
+		{
+			unsigned int sector;
+			unsigned int count;
+		}
+		d32[0];
+		struct
+		{
+			uint64_t sector;
+			uint32_t count;
+		}
+		d64[0];
+	} datablocks;
 }
 __attribute__ ((packed)) log_inode_update;
 
 typedef union log_entry_all_u
 {
 	log_entry log;
-	log_map_update zonemap;
+	log_map_update_32 zonemap_32;
+	log_map_update_64 zonemap_64;
 	log_inode_update inode;
 } log_entry_all;
 
@@ -71,7 +95,11 @@ typedef enum log_trans_types_e
 	ltMapUpdate = 0,
 	ltInodeUpdate = 1,
 	ltCommit = 2,
+	/* Rollback = 3? */
 	ltFsSync = 4,
+	ltLogReplay = 5,
+	/* ? = 6 */
+	ltMapUpdate64 = 7,
 	ltInodeUpdate2 = 8
 }
 log_trans_types;

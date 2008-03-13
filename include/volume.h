@@ -21,8 +21,8 @@ enum volume_write_mode_e
 /* Block written to memory */
 struct volume_mem_data
 {
-	unsigned int start;
-	unsigned int sectors;
+	uint64_t start;
+	uint64_t sectors;
 	struct volume_mem_data *next;
 	unsigned char data[0];
 };
@@ -31,10 +31,10 @@ struct volume_mem_data
 struct volume_info
 {
 	struct tivo_partition_file *file;
-	unsigned int start;
-	unsigned int sectors;
-	unsigned int offset;
 	int vol_flags;
+	uint64_t start;
+	uint64_t sectors;
+	uint64_t offset;
 	struct volume_mem_data *mem_blocks;
 	struct volume_info *next;
 };
@@ -53,13 +53,13 @@ struct volume_handle
 };
 
 char *mfsvol_device_translate (struct volume_handle *hnd, char *dev);
-int mfsvol_add_volume (struct volume_handle *hnd, char *path, int flags);
-struct volume_info *mfsvol_get_volume (struct volume_handle *hnd, unsigned int sector);
-int mfsvol_is_writable (struct volume_handle *hnd, unsigned int sector);
-unsigned int mfsvol_volume_size (struct volume_handle *hnd, unsigned int sector);
-unsigned int mfsvol_volume_set_size (struct volume_handle *hnd);
-int mfsvol_read_data (struct volume_handle *hnd, void *buf, unsigned int sector, int count);
-int mfsvol_write_data (struct volume_handle *hnd, void *buf, unsigned int sector, int count);
+uint64_t mfsvol_add_volume (struct volume_handle *hnd, char *path, int flags);
+struct volume_info *mfsvol_get_volume (struct volume_handle *hnd, uint64_t sector);
+int mfsvol_is_writable (struct volume_handle *hnd, uint64_t sector);
+uint64_t mfsvol_volume_size (struct volume_handle *hnd, uint64_t sector);
+uint64_t mfsvol_volume_set_size (struct volume_handle *hnd);
+int mfsvol_read_data (struct volume_handle *hnd, void *buf, uint64_t sector, int count);
+int mfsvol_write_data (struct volume_handle *hnd, void *buf, uint64_t sector, int count);
 void mfsvol_enable_memwrite (struct volume_handle *hnd);
 void mfsvol_discard_memwrite (struct volume_handle *hnd);
 void mfsvol_cleanup (struct volume_handle *hnd);

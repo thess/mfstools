@@ -86,7 +86,7 @@ data_swab (void *data, int size)
 /* Read data from the MFS volume set.  It must be in whole sectors, and must */
 /* not cross a volume boundry. */
 int
-tivo_partition_read (tpFILE * file, void *buf, unsigned int sector, int count)
+tivo_partition_read (tpFILE * file, void *buf, uint64_t sector, int count)
 {
 #ifdef USE__LLSEEK
 	loff_t result;
@@ -154,7 +154,7 @@ tivo_partition_read (tpFILE * file, void *buf, unsigned int sector, int count)
 /* Write data to the MFS volume set.  It must be in whole sectors, and must */
 /* not cross a volume boundry. */
 int
-tivo_partition_write (tpFILE * file, void *buf, unsigned int sector, int count)
+tivo_partition_write (tpFILE * file, void *buf, uint64_t sector, int count)
 {
 #ifdef USE__LLSEEK
 	loff_t result;

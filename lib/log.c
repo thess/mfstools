@@ -27,7 +27,27 @@
 unsigned int
 mfs_log_last_sync (struct mfs_handle *mfshnd)
 {
-	return intswap32 (mfshnd->vol_hdr.logstamp);
+	if (mfshnd->is_64)
+	{
+		return intswap32 (mfshnd->vol_hdr.v64.logstamp);
+	}
+	else
+	{
+		return intswap32 (mfshnd->vol_hdr.v32.logstamp);
+	}
+}
+
+uint64_t
+mfs_log_stamp_to_sector (struct mfs_handle *mfshnd, unsigned int logstamp)
+{
+	if (mfshnd->is_64)
+	{
+		return (logstamp % intswap32 (mfshnd->vol_hdr.v64.lognsectors)) + intswap64 (mfshnd->vol_hdr.v64.logstart);
+	}
+	else
+	{
+		return (logstamp % intswap32 (mfshnd->vol_hdr.v32.lognsectors)) + intswap32 (mfshnd->vol_hdr.v32.logstart);
+	}
 }
 
 int
@@ -35,7 +55,7 @@ mfs_log_read (struct mfs_handle *mfshnd, void *buf, unsigned int logstamp)
 {
 	log_hdr *tmp = buf;
 
-	if (mfsvol_read_data (mfshnd->vols, buf, (logstamp % intswap32 (mfshnd->vol_hdr.lognsectors)) + intswap32 (mfshnd->vol_hdr.logstart), 1) != 512)
+	if (mfsvol_read_data (mfshnd->vols, buf, mfs_log_stamp_to_sector (mfshnd, logstamp), 1) != 512)
 	{
 		return -1;
 	}
@@ -63,7 +83,7 @@ mfs_log_write (struct mfs_handle *mfshnd, void *buf)
 
 	MFS_update_crc (buf, 512, tmp->crc);
 
-	if (mfsvol_write_data (mfshnd->vols, buf, (logstamp % intswap32 (mfshnd->vol_hdr.lognsectors)) + intswap32 (mfshnd->vol_hdr.logstart), 1) != 512)
+	if (mfsvol_write_data (mfshnd->vols, buf, mfs_log_stamp_to_sector (mfshnd, logstamp), 1) != 512)
 	{
 		return -1;
 	}
@@ -109,16 +129,33 @@ mfs_log_sync_inode (struct mfs_handle *mfshnd, log_inode_update *entry)
 	else
 	{
 		inode->inode_flags &= intswap32 (~INODE_DATA);
-		inode->numblocks = intswap32 (intswap32 (entry->datasize) / sizeof (inode->datablocks[0]));
+		if (mfshnd->is_64)
+		{
+			inode->numblocks = intswap32 (intswap32 (entry->datasize) / sizeof (inode->datablocks.d64[0]));
+		}
+		else
+		{
+			inode->numblocks = intswap32 (intswap32 (entry->datasize) / sizeof (inode->datablocks.d32[0]));
+		}
 	}
-	memcpy (&inode->datablocks[0], &entry->datablocks[0], intswap32 (entry->datasize));
+	memcpy (&inode->datablocks.d32[0], &entry->datablocks.d32[0], intswap32 (entry->datasize));
 	if (mfs_write_inode (mfshnd, inode) < 0)
 		return 0;
 
 	/* Update the next fsid field in the volume header if it's needed */
-	if (intswap32 (mfshnd->vol_hdr.next_fsid) <= intswap32 (entry->fsid))
+	if (mfshnd->is_64)
 	{
-		mfshnd->vol_hdr.next_fsid = intswap32 (intswap32 (entry->fsid) + 1);
+		if (intswap32 (mfshnd->vol_hdr.v64.next_fsid) <= intswap32 (entry->fsid))
+		{
+			mfshnd->vol_hdr.v64.next_fsid = intswap32 (intswap32 (entry->fsid) + 1);
+		}
+	}
+	else
+	{
+		if (intswap32 (mfshnd->vol_hdr.v32.next_fsid) <= intswap32 (entry->fsid))
+		{
+			mfshnd->vol_hdr.v32.next_fsid = intswap32 (intswap32 (entry->fsid) + 1);
+		}
 	}
 	return 1;
 } 
@@ -142,10 +179,12 @@ mfs_log_fssync_list (struct mfs_handle *mfshnd, struct log_entry_list *list, uns
 		switch (intswap32 (cur->entry.log.transtype))
 		{
 			case ltMapUpdate:
+			case ltMapUpdate64:
 			case ltInodeUpdate:
 			case ltInodeUpdate2:
 			case ltCommit:
 			case ltFsSync:
+			case ltLogReplay:
 				break;
 			default:
 				mfshnd->err_msg = "Unknown transaction log type %d";
@@ -160,7 +199,13 @@ mfs_log_fssync_list (struct mfs_handle *mfshnd, struct log_entry_list *list, uns
 		switch (intswap32 (cur->entry.log.transtype))
 		{
 			case ltMapUpdate:
-				if (mfs_zone_map_update (mfshnd, intswap32 (cur->entry.zonemap.sector), intswap32 (cur->entry.zonemap.size), intswap32 (cur->entry.zonemap.remove), logstamp) < 1)
+				if (mfs_zone_map_update (mfshnd, intswap32 (cur->entry.zonemap_32.sector), intswap32 (cur->entry.zonemap_32.size), intswap32 (cur->entry.zonemap_32.remove), logstamp) < 1)
+				{
+					return 0;
+				}
+				break;
+			case ltMapUpdate64:
+				if (mfs_zone_map_update (mfshnd, intswap64 (cur->entry.zonemap_64.sector), intswap64 (cur->entry.zonemap_64.size), intswap32 (cur->entry.zonemap_64.remove), logstamp) < 1)
 				{
 					return 0;
 				}
@@ -174,6 +219,7 @@ mfs_log_fssync_list (struct mfs_handle *mfshnd, struct log_entry_list *list, uns
 				break;
 			case ltCommit:
 			case ltFsSync:
+			case ltLogReplay:
 				break;
 		}
 	}
@@ -190,13 +236,27 @@ mfs_log_fssync_list (struct mfs_handle *mfshnd, struct log_entry_list *list, uns
 		entry->length = intswap16 (sizeof (*entry) - 2);
 		entry->bootcycles = intswap32 (mfshnd->bootcycle);
 		entry->bootsecs = intswap32 (++mfshnd->bootsecs);
+		entry->transtype = intswap32 (ltLogReplay);
+		entry++;
+		entry->length = intswap16 (sizeof (*entry) - 2);
+		entry->bootcycles = intswap32 (mfshnd->bootcycle);
+		entry->bootsecs = intswap32 (++mfshnd->bootsecs);
 		entry->transtype = intswap32 (ltFsSync);
 		
 		mfs_log_write (mfshnd, buf);
-		
-		mfshnd->vol_hdr.logstamp = intswap32 (logstamp);
-		mfshnd->vol_hdr.bootcycles = intswap32 (mfshnd->bootcycle);
-		mfshnd->vol_hdr.bootsecs = intswap32 (mfshnd->bootsecs);
+
+		if (mfshnd->is_64)
+		{
+			mfshnd->vol_hdr.v64.logstamp = intswap32 (logstamp);
+			mfshnd->vol_hdr.v64.bootcycles = intswap32 (mfshnd->bootcycle);
+			mfshnd->vol_hdr.v64.bootsecs = intswap32 (mfshnd->bootsecs);
+		}
+		else
+		{
+			mfshnd->vol_hdr.v32.logstamp = intswap32 (logstamp);
+			mfshnd->vol_hdr.v32.bootcycles = intswap32 (mfshnd->bootcycle);
+			mfshnd->vol_hdr.v32.bootsecs = intswap32 (mfshnd->bootsecs);
+		}
 		/* Increment it again so this transaction will be distinct from */
 		/* updates before the next transaction */
 		mfshnd->bootsecs++;

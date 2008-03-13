@@ -79,7 +79,7 @@ mfsvol_device_translate (struct volume_handle *hnd, char *dev)
 
 /***************************************************************************/
 /* Add a volume to the internal list of open volumes.  Open it with flags. */
-int
+uint64_t
 mfsvol_add_volume (struct volume_handle *hnd, char *path, int flags)
 {
 	struct volume_info *newvol;
@@ -161,7 +161,7 @@ mfsvol_add_volume (struct volume_handle *hnd, char *path, int flags)
 /*******************************************************/
 /* Return the volume info for the volume sector is in. */
 struct volume_info *
-mfsvol_get_volume (struct volume_handle *hnd, unsigned int sector)
+mfsvol_get_volume (struct volume_handle *hnd, uint64_t sector)
 {
 	struct volume_info *vol;
 
@@ -179,8 +179,8 @@ mfsvol_get_volume (struct volume_handle *hnd, unsigned int sector)
 
 /*************************************************/
 /* Return the size of volume starting at sector. */
-unsigned int
-mfsvol_volume_size (struct volume_handle *hnd, unsigned int sector)
+uint64_t
+mfsvol_volume_size (struct volume_handle *hnd, uint64_t sector)
 {
 	struct volume_info *vol;
 
@@ -203,11 +203,11 @@ mfsvol_volume_size (struct volume_handle *hnd, unsigned int sector)
 
 /**********************************************/
 /* Return the size of all loaded volume sets. */
-unsigned int
+uint64_t
 mfsvol_volume_set_size (struct volume_handle *hnd)
 {
 	struct volume_info *vol;
-	int total = 0;
+	uint64_t total = 0;
 
 	for (vol = hnd->volumes; vol; vol = vol->next)
 	{
@@ -221,7 +221,7 @@ mfsvol_volume_set_size (struct volume_handle *hnd)
 /* Verify that a sector is writable.  This should be done for all groups of */
 /* sectors to be written, since individual volumes can be opened RDONLY. */
 int
-mfsvol_is_writable (struct volume_handle *hnd, unsigned int sector)
+mfsvol_is_writable (struct volume_handle *hnd, uint64_t sector)
 {
 	struct volume_info *vol;
 
@@ -268,7 +268,7 @@ mfsvol_cleanup (struct volume_handle *hnd)
 /* This returns the first sector with data for the read, so the reader will */
 /* need to walk the list to get the rest. */
 struct volume_mem_data *
-mfsvol_locate_mem_data_for_read (struct volume_info *volume, unsigned int sector, int count)
+mfsvol_locate_mem_data_for_read (struct volume_info *volume, uint64_t sector, int count)
 {
 	struct volume_mem_data *block;
 	
@@ -290,11 +290,11 @@ mfsvol_locate_mem_data_for_read (struct volume_info *volume, unsigned int sector
 /* Locate a block in memory for writing. */
 /* This allocates a new block if needed, and will coalesce neighboring blocks. */
 struct volume_mem_data *
-mfsvol_locate_mem_data_for_write (struct volume_info *volume, unsigned int sector, int count)
+mfsvol_locate_mem_data_for_write (struct volume_info *volume, uint64_t sector, int count)
 {
 	struct volume_mem_data **block;
 	struct volume_mem_data *ret, *tmp;
-	unsigned long last_sector = sector + count;
+	uint64_t last_sector = sector + count;
 	
 	/* Find the first block that overlaps or butts up against the block to write */
 	for (block = &volume->mem_blocks; *block; block = &(*block)->next)
@@ -370,7 +370,7 @@ mfsvol_locate_mem_data_for_write (struct volume_info *volume, unsigned int secto
 /* Read data from the MFS volume set.  It must be in whole sectors, and must */
 /* not cross a volume boundry. */
 int
-mfsvol_read_data (struct volume_handle *hnd, void *buf, unsigned int sector, int count)
+mfsvol_read_data (struct volume_handle *hnd, void *buf, uint64_t sector, int count)
 {
 	struct volume_info *vol;
 	struct volume_mem_data *block;
@@ -482,7 +482,7 @@ hexdump (unsigned char *buf, unsigned int sector)
 /* Write data to the MFS volume set.  It must be in whole sectors, and must */
 /* not cross a volume boundry. */
 int
-mfsvol_write_data (struct volume_handle *hnd, void *buf, unsigned int sector, int count)
+mfsvol_write_data (struct volume_handle *hnd, void *buf, uint64_t sector, int count)
 {
 	struct volume_info *vol;
 
