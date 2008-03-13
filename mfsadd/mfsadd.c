@@ -32,13 +32,16 @@ mfsadd_usage (char *progname)
 }
 
 int
-mfsadd_scan_partitions (struct mfs_handle *mfs, int *used)
+mfsadd_scan_partitions (struct mfs_handle *mfs, int *used, char *seconddrive)
 {
-	char partitions[128];
+	char partitions[256];
 	char *loop = partitions;
+	int havebdrive = 0, havecdrive = 0;
 
-	strncpy (partitions, mfs_partition_list (mfs), 127);
-	partitions[127] = 0;
+	strncpy (partitions, mfs_partition_list (mfs), 255);
+	partitions[255] = 0;
+
+	*seconddrive = 0;
 
 	while (*loop)
 	{
@@ -57,13 +60,24 @@ mfsadd_scan_partitions (struct mfs_handle *mfs, int *used)
 		}
 		loop += 7;
 
-		if (*loop != 'a' && *loop != 'b')
+		switch (*loop)
 		{
+		case 'a':
+			drive = 0;
+			break;
+		case 'b':
+			drive = 1;
+			havebdrive = 1;
+			break;
+		case 'c':
+			drive = 1;
+			havecdrive = 1;
+			break;
+		default:
 			fprintf (stderr, "Non-standard drive in MFS - giving up.\n");
 			return -1;
 		}
 
-		drive = *loop - 'a';
 		loop++;
 
 		partition = strtoul (loop, &loop, 10);
@@ -82,6 +96,17 @@ mfsadd_scan_partitions (struct mfs_handle *mfs, int *used)
 
 		used[drive] |= 1 << partition;
 	}
+
+	if (havebdrive && havecdrive)
+	{
+		fprintf (stderr, "Don't know how to handle both internal and external expansion drives - giving up.\n");
+		return -1;
+	}
+
+	if (havebdrive)
+		*seconddrive = 'b';
+	else if (havecdrive)
+		*seconddrive = 'c';
 
 	return 0;
 }
@@ -196,10 +221,12 @@ mfsadd_main (int argc, char **argv)
 	int used[2] = {0, 0};
 	struct mfs_handle *mfs;
 	int changed[2] = {0, 0};
+	int usecdrive = 0;
+	char seconddrive = 0;
 
 	tivo_partition_direct ();
 
-	while ((opt = getopt (argc, argv, "xX:r:h")) > 0)
+	while ((opt = getopt (argc, argv, "xX:r:he")) > 0)
 	{
 		switch (opt)
 		{
@@ -228,6 +255,9 @@ mfsadd_main (int argc, char **argv)
 				fprintf (stderr, "%s: Value for -s must be between 1 and 4.\n", argv[0]);
 				return 1;
 			}
+			break;
+		case 'e':
+			usecdrive = 1;
 			break;
 		default:
 			mfsadd_usage (argv[0]);
@@ -402,8 +432,21 @@ mfsadd_main (int argc, char **argv)
 		return 1;
 	}
 
-	if (mfsadd_scan_partitions (mfs, used) < 0)
+	if (mfsadd_scan_partitions (mfs, used, &seconddrive) < 0)
 		return 1;
+
+	if (seconddrive == 'b')
+	{
+		if (usecdrive)
+		{
+			fprintf (stderr, "Can not add eSATA drive with -e when internal B drive already in use.\n");
+			return 1;
+		}
+	}
+	else if (seconddrive == 'c')
+	{
+		usecdrive = 1;
+	}
 
 	if (extendmfs)
 	{
@@ -505,8 +548,8 @@ mfsadd_main (int argc, char **argv)
 		int newsize;
 
 		fprintf (stderr, "Adding pair %s-%s...\n", pairs[loop], pairs[loop + 1]);
-		sprintf (app, "/dev/hd%c%d", 'a' + (pairnums[loop] >> 6), pairnums[loop] & 31);
-		sprintf (media, "/dev/hd%c%d", 'a' + (pairnums[loop + 1] >> 6), pairnums[loop + 1] & 31);
+		sprintf (app, "/dev/hd%c%d", 'a' + (pairnums[loop] >> 6) + usecdrive, pairnums[loop] & 31);
+		sprintf (media, "/dev/hd%c%d", 'a' + (pairnums[loop + 1] >> 6) + usecdrive, pairnums[loop + 1] & 31);
 		if (mfs_add_volume_pair (mfs, app, media, minalloc) < 0)
 		{
 			fprintf (stderr, "Adding %s-%s", pairs[loop], pairs[loop + 1]);
