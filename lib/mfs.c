@@ -332,6 +332,8 @@ mfs_cleanup (struct mfs_handle *mfshnd)
 	mfs_cleanup_zone_maps (mfshnd);
 	if (mfshnd->vols)
 		mfsvol_cleanup (mfshnd->vols);
+	if (mfshnd->current_log)
+		free (mfshnd->current_log);
 	free (mfshnd);
 }
 

@@ -7,7 +7,7 @@
 #include "fsid.h"
 
 #define MFS32_MAGIC	0xABBAFEED
-#define MFS64_MAGIC 0xEBBAFEED
+#define MFS64_MAGIC	0xEBBAFEED
 
 typedef struct volume_header_32_s
 {
@@ -103,7 +103,9 @@ struct mfs_handle
 	volume_header vol_hdr;
 	struct zone_map_head zones[ztMax];
 	struct zone_map *loaded_zones;
-	
+	struct log_hdr_s *current_log;
+
+	int inode_log_type;
 	int is_64;
 	
 	uint32_t bootcycle;
@@ -126,7 +128,7 @@ unsigned int mfs_check_crc (unsigned char *data, unsigned int size, unsigned int
 void mfs_update_crc (unsigned char *data, unsigned int size, unsigned int off);
 void data_swab (void *data, int size);
 zone_header *mfs_next_zone (struct mfs_handle *mfshdn, zone_header *cur);
-int mfs_zone_map_commit (struct mfs_handle *mfshnd);
+int mfs_zone_map_commit (struct mfs_handle *mfshnd, unsigned int logstamp);
 int mfs_zone_map_update (struct mfs_handle *mfshnd, uint64_t sector, uint64_t size, uint32_t state, uint32_t logstamp);
 uint32_t mfs_inode_count (struct mfs_handle *mfshnd);
 uint64_t mfs_inode_to_sector (struct mfs_handle *mfshnd, uint32_t inode);

@@ -114,6 +114,10 @@ struct log_entry_list
 unsigned int mfs_log_last_sync (struct mfs_handle *mfshnd);
 int mfs_log_read (struct mfs_handle *mfshnd, void *buf, unsigned int logstamp);
 int mfs_log_write (struct mfs_handle *mfshnd, void *buf);
+
+int mfs_log_zone_update (struct mfs_handle *mfshnd, unsigned int fsid, uint64_t sector, uint64_t size, int state, int flag);
+int mfs_log_inode_update (struct mfs_handle *mfshnd, mfs_inode *inode);
+int mfs_log_commit (struct mfs_handle *mfshnd);
 int mfs_log_fssync (struct mfs_handle *mfshnd);
 
 #endif /*LOG_H */

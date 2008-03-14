@@ -286,12 +286,10 @@ mfs_zone_map_update (struct mfs_handle *mfshnd, uint64_t sector, uint64_t size, 
 
 	if (mfshnd->is_64)
 	{
-		zone->map->z64.logstamp = intswap32 (logstamp);
 		mapbit = (sector - intswap64 (zone->map->z64.first)) / (minalloc << order);
 	}
 	else
 	{
-		zone->map->z32.logstamp = intswap32 (logstamp);
 		mapbit = (sector - intswap32 (zone->map->z32.first)) / (minalloc << order);
 	}
 
@@ -398,7 +396,7 @@ mfs_zone_map_update (struct mfs_handle *mfshnd, uint64_t sector, uint64_t size, 
 /************************************************************************/
 /* Write changed zone maps back to disk */
 int
-mfs_zone_map_commit (struct mfs_handle *mfshnd)
+mfs_zone_map_commit (struct mfs_handle *mfshnd, unsigned int logstamp)
 {
 	struct zone_map *zone;
 
@@ -412,6 +410,7 @@ mfs_zone_map_commit (struct mfs_handle *mfshnd)
 
 			if (mfshnd->is_64)
 			{
+				zone->map->z64.logstamp = intswap32 (logstamp);
 				towrite = intswap32 (zone->map->z64.length);
 				sector = intswap64 (zone->map->z64.sector);
 				sbackup = intswap64 (zone->map->z64.sbackup);
@@ -419,6 +418,7 @@ mfs_zone_map_commit (struct mfs_handle *mfshnd)
 			}
 			else
 			{
+				zone->map->z32.logstamp = intswap32 (logstamp);
 				towrite = intswap32 (zone->map->z32.length);
 				sector = intswap32 (zone->map->z32.sector);
 				sbackup = intswap32 (zone->map->z32.sbackup);
