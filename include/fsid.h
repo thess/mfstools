@@ -18,6 +18,9 @@ __attribute__ ((packed)) fsid_type;
 #define INODE_CHAINED	0x80000000	/* More than one fsid that hash to this inode follow */
 #define INODE_DATA	0x40000000	/* Data for this inode is in the inode header */
 
+#define MFS32_INODE_SIG 0x91231EBC
+#define MFS64_INODE_SIG 0xD1231EBC
+
 typedef struct mfs_inode_s
 {
 	unsigned int fsid;			/* This FSID */
@@ -37,12 +40,21 @@ typedef struct mfs_inode_s
 	unsigned int checksum;
 	unsigned int inode_flags;	/* It seems to be flags at least. */
 	unsigned int numblocks;		/* Number of data blocks. */
-	struct
+	union
 	{
-		unsigned int sector;
-		unsigned int count;
-	}
-	datablocks[0];
+		struct
+		{
+			unsigned int sector;
+			unsigned int count;
+		}
+		d32[0];
+		struct
+		{
+			uint64_t sector;
+			uint32_t count;
+		}
+		d64[0];
+	} datablocks;
 }
 mfs_inode;
 

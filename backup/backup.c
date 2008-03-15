@@ -24,8 +24,6 @@
 #include <linux/fs.h>
 #endif
 #include <ctype.h>
-/* For htonl() */
-#include <netinet/in.h>
 
 #include "mfs.h"
 #include "macpart.h"
@@ -564,7 +562,7 @@ backup_verify_zone_maps (struct backup_info *info)
 		fprintf (stderr, "Zone type %d at %ld\n", zone->type, zone->first);
 #endif
 
-		if (htonl (zone->first) >= volume_size)
+		if (intswap32 (zone->first) >= volume_size)
 		{
 			info->err_msg = "%s zone outside available volume";
 			switch (zone->type)

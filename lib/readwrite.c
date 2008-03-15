@@ -1,6 +1,9 @@
 #ifdef HAVE_CONFIG_H
 #include <config.h>
 #endif
+
+#define _LARGEFILE64_SOURCE
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -21,9 +24,6 @@
 #include <linux/unistd.h>
 #endif
 
-/* For htonl() */
-#include <netinet/in.h>
-
 /* #include "mfs.h" */
 #include "macpart.h"
 
@@ -42,9 +42,11 @@
 
 _syscall4 (static long, readsectors, unsigned int, fd, struct FsIovec *, buf, int, buf_len, struct FsIoRequest *, request) _syscall4 (static long, writesectors, unsigned int, fd, struct FsIovec *, buf, int, buf_len, struct FsIoRequest *, request)
 #endif
+#ifndef HAVE_LSEEK64
 #ifdef __NR__llseek
 static _syscall5 (int, _llseek, uint, fd, ulong, hi, ulong, lo, loff_t *, res, uint, wh);
-#define USE_LLSEEK
+#define USE__LLSEEK
+#endif
 #endif
 
 /*********************************************/
@@ -84,9 +86,9 @@ data_swab (void *data, int size)
 /* Read data from the MFS volume set.  It must be in whole sectors, and must */
 /* not cross a volume boundry. */
 int
-tivo_partition_read (tpFILE * file, void *buf, unsigned int sector, int count)
+tivo_partition_read (tpFILE * file, void *buf, uint64_t sector, int count)
 {
-#ifdef USE_LLSEEK
+#ifdef USE__LLSEEK
 	loff_t result;
 #endif
 	int retval;
@@ -129,14 +131,12 @@ tivo_partition_read (tpFILE * file, void *buf, unsigned int sector, int count)
 #endif
 
 /* A file, or not TiVo, use llseek and read. */
-#ifdef USE_LLSEEK
+#ifdef USE__LLSEEK
 	if (_llseek (_tivo_partition_fd (file), sector >> 23, sector << 9, &result, SEEK_SET) < 0)
-#else
-#if TARGET_OS_MAC
-	if (lseek (_tivo_partition_fd (file), (off_t)sector << 9, SEEK_SET) != (off_t)sector << 9)
-#else
+#elif HAVE_LSEEK64
 	if (lseek64 (_tivo_partition_fd (file), (off64_t)sector << 9, SEEK_SET) != (off64_t)sector << 9)
-#endif
+#else
+	if (lseek (_tivo_partition_fd (file), (off_t)sector << 9, SEEK_SET) != (off_t)sector << 9)
 #endif
 	{
 		return -1;
@@ -154,9 +154,9 @@ tivo_partition_read (tpFILE * file, void *buf, unsigned int sector, int count)
 /* Write data to the MFS volume set.  It must be in whole sectors, and must */
 /* not cross a volume boundry. */
 int
-tivo_partition_write (tpFILE * file, void *buf, unsigned int sector, int count)
+tivo_partition_write (tpFILE * file, void *buf, uint64_t sector, int count)
 {
-#ifdef USE_LLSEEK
+#ifdef USE__LLSEEK
 	loff_t result;
 #endif
 	int retval;
@@ -204,14 +204,12 @@ tivo_partition_write (tpFILE * file, void *buf, unsigned int sector, int count)
 #endif
 
 /* A file, or not TiVo, use llseek and write. */
-#ifdef USE_LLSEEK
+#ifdef USE__LLSEEK
 	if (_llseek (_tivo_partition_fd (file), sector >> 23, sector << 9, &result, SEEK_SET) < 0)
-#else
-#if TARGET_OS_MAC
-	if (lseek (_tivo_partition_fd (file), (off_t)sector << 9, SEEK_SET) != (off_t)sector << 9)
-#else
+#elif HAVE_LSEEK64
 	if (lseek64 (_tivo_partition_fd (file), (off64_t)sector << 9, SEEK_SET) != (off64_t)sector << 9)
-#endif
+#else
+	if (lseek (_tivo_partition_fd (file), (off_t)sector << 9, SEEK_SET) != (off_t)sector << 9)
 #endif
 	{
 		return -1;

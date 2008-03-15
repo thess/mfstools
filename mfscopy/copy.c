@@ -10,8 +10,6 @@
 #ifdef HAVE_ASM_TYPES_H
 #include <asm/types.h>
 #endif
-/* For htonl() */
-#include <netinet/in.h>
 #include <sys/param.h>
 
 #include "mfs.h"
@@ -94,10 +92,10 @@ display_backup_info (struct backup_info *info)
 
 	while ((hdr = mfs_next_zone (info->mfs, hdr)) != 0)
 	{
-		if (htonl (hdr->type) == ztMedia)
+		if (intswap32 (hdr->type) == ztMedia)
 		{
-			unsigned int size = htonl (hdr->size);
-			if (htonl (hdr->first) < backupmfs)
+			unsigned int size = intswap32 (hdr->size);
+			if (intswap32 (hdr->first) < backupmfs)
 				backuptot += size;
 			sizes[count++] = size;
 		}

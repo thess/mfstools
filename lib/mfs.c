@@ -21,10 +21,40 @@
 #include <linux/unistd.h>
 #endif
 
-/* For htonl() */
-#include <netinet/in.h>
-
 #include "mfs.h"
+
+/*************************************/
+/* Write the volume header back out. */
+int
+mfs_write_volume_header (struct mfs_handle *mfshnd)
+{
+	unsigned char buf[512];
+	memset (buf, 0, sizeof (buf));
+	
+	if (mfshnd->is_64)
+	{
+		MFS_update_crc (&mfshnd->vol_hdr.v64, sizeof (mfshnd->vol_hdr.v64), mfshnd->vol_hdr.v64.checksum);
+	}
+	else
+	{
+		MFS_update_crc (&mfshnd->vol_hdr.v32, sizeof (mfshnd->vol_hdr.v32), mfshnd->vol_hdr.v32.checksum);
+	}
+		
+	memcpy (buf, &mfshnd->vol_hdr, sizeof (mfshnd->vol_hdr));
+
+	if (mfsvol_write_data (mfshnd->vols, buf, 0, 1) != 512)
+	{
+		mfshnd->err_msg = "%s writing volume header";
+		mfshnd->err_arg1 = strerror (errno);
+		return -1;
+	}
+	if (mfsvol_write_data (mfshnd->vols, buf, mfsvol_volume_size (mfshnd->vols, 0) - 1, 1) != 512)
+	{
+		mfshnd->err_msg = "%s writing volume header";
+		mfshnd->err_arg1 = strerror (errno);
+		return -1;
+	}
+}
 
 /**************************************/
 /* Load and verify the volume header. */
@@ -48,7 +78,10 @@ mfs_load_volume_header (struct mfs_handle *mfshnd, int flags)
 	memcpy ((void *) &mfshnd->vol_hdr, buf, sizeof (mfshnd->vol_hdr));
 
 /* Verify the checksum. */
-	if (!MFS_check_crc (&mfshnd->vol_hdr, sizeof (mfshnd->vol_hdr), mfshnd->vol_hdr.checksum))
+	if (!(mfshnd->vol_hdr.v32.magic == intswap32 (MFS32_MAGIC)
+		&& MFS_check_crc (&mfshnd->vol_hdr.v32, sizeof (mfshnd->vol_hdr.v32), mfshnd->vol_hdr.v32.checksum)
+		|| mfshnd->vol_hdr.v64.magic == intswap32 (MFS64_MAGIC)
+		&& MFS_check_crc (&mfshnd->vol_hdr.v64, sizeof (mfshnd->vol_hdr.v64), mfshnd->vol_hdr.v64.checksum)))
 	{
 /* If the checksum doesn't match, try the backup. */
 		if (mfsvol_read_data (mfshnd->vols, buf, mfsvol_volume_size (mfshnd->vols, 0) - 1, 1) != 512)
@@ -60,7 +93,10 @@ mfs_load_volume_header (struct mfs_handle *mfshnd, int flags)
 
 		memcpy ((void *) &mfshnd->vol_hdr, buf, sizeof (mfshnd->vol_hdr));
 
-		if (!MFS_check_crc (&mfshnd->vol_hdr, sizeof (mfshnd->vol_hdr), mfshnd->vol_hdr.checksum))
+		if (!(mfshnd->vol_hdr.v32.magic == intswap32 (MFS32_MAGIC)
+			&& MFS_check_crc (&mfshnd->vol_hdr.v32, sizeof (mfshnd->vol_hdr.v32), mfshnd->vol_hdr.v32.checksum)
+			|| mfshnd->vol_hdr.v64.magic == intswap32 (MFS64_MAGIC)
+			&& MFS_check_crc (&mfshnd->vol_hdr.v64, sizeof (mfshnd->vol_hdr.v64), mfshnd->vol_hdr.v64.checksum)))
 		{
 /* Backup checksum doesn't match either.  It's the end of the world! */
 			mfshnd->err_msg = "Volume header corrupt";
@@ -68,8 +104,27 @@ mfs_load_volume_header (struct mfs_handle *mfshnd, int flags)
 		}
 	}
 
+	mfshnd->is_64 = mfshnd->vol_hdr.v64.magic == intswap32 (MFS64_MAGIC);
+
+	if (mfshnd->is_64)
+	{
+/* Increment the boot cycle number */
+		mfshnd->bootcycle = intswap32 (mfshnd->vol_hdr.v64.bootcycles) + 1;
+
 /* Load the partition list from MFS. */
-	volume_names = mfshnd->vol_hdr.partitionlist;
+		volume_names = mfshnd->vol_hdr.v64.partitionlist;
+	}
+	else
+	{
+		mfshnd->bootcycle = intswap32 (mfshnd->vol_hdr.v32.bootcycles) + 1;
+
+/* Load the partition list from MFS. */
+		volume_names = mfshnd->vol_hdr.v32.partitionlist;
+	}
+
+/* Fake out seconds, all that's important is that it moves forward */
+	mfshnd->bootsecs = 1;
+
 
 /* Skip the first volume since it's already loaded. */
 	if (*volume_names)
@@ -95,12 +150,25 @@ mfs_load_volume_header (struct mfs_handle *mfshnd, int flags)
 /* Count the total number of sectors in the volume set. */
 	total_sectors = mfsvol_volume_set_size (mfshnd->vols);
 
-/* If the sectors mismatch, report it.. But continue anyway. */
-	if (total_sectors != htonl (mfshnd->vol_hdr.total_sectors))
+	if (mfshnd->is_64)
 	{
-		mfshnd->err_msg = "Volume size (%u) mismatch with reported size (%u)";
-		mfshnd->err_arg1 = (void *)total_sectors;
-		mfshnd->err_arg2 = (void *)htonl (mfshnd->vol_hdr.total_sectors);
+/* If the sectors mismatch, report it.. But continue anyway. */
+		if (total_sectors != intswap64 (mfshnd->vol_hdr.v64.total_sectors))
+		{
+			mfshnd->err_msg = "Volume size (%u) mismatch with reported size (%u)";
+			mfshnd->err_arg1 = (void *)total_sectors;
+			mfshnd->err_arg2 = (void *)intswap64 (mfshnd->vol_hdr.v64.total_sectors);
+		}
+	}
+	else
+	{
+/* If the sectors mismatch, report it.. But continue anyway. */
+		if (total_sectors != intswap32 (mfshnd->vol_hdr.v32.total_sectors))
+		{
+			mfshnd->err_msg = "Volume size (%u) mismatch with reported size (%u)";
+			mfshnd->err_arg1 = (void *)total_sectors;
+			mfshnd->err_arg2 = (void *)intswap32 (mfshnd->vol_hdr.v32.total_sectors);
+		}
 	}
 
 	return total_sectors;
@@ -111,7 +179,14 @@ mfs_load_volume_header (struct mfs_handle *mfshnd, int flags)
 char *
 mfs_partition_list (struct mfs_handle *mfshnd)
 {
-	return mfshnd->vol_hdr.partitionlist;
+	if (mfshnd->is_64)
+	{
+		return mfshnd->vol_hdr.v64.partitionlist;
+	}
+	else
+	{
+		return mfshnd->vol_hdr.v32.partitionlist;
+	}
 }
 
 /***********************************************************/
@@ -257,6 +332,8 @@ mfs_cleanup (struct mfs_handle *mfshnd)
 	mfs_cleanup_zone_maps (mfshnd);
 	if (mfshnd->vols)
 		mfsvol_cleanup (mfshnd->vols);
+	if (mfshnd->current_log)
+		free (mfshnd->current_log);
 	free (mfshnd);
 }
 

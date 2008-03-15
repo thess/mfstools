@@ -1,3 +1,6 @@
+#ifndef BACKUP_H
+#define BACKUP_H
+
 struct backup_block
 {
 	unsigned int firstsector;
@@ -219,8 +222,9 @@ struct backup_head_v3
 #define BF_THRESHSIZE	0x00000010
 #define BF_THRESHTOT	0x00000020
 #define BF_STREAMTOT	0x00000040
-#define BF_NOBSWAP	0x00000080	/* Source isn't byte swapped. */
+#define BF_NOBSWAP		0x00000080	/* Source isn't byte swapped. */
 #define BF_TRUNCATED	0x00000100	/* Backup from incomplete volume. */
+#define BF_64			0x00000200	/* Backup is from a 64 bit system */
 #define BF_COMPLVL(f)	(((f) >> 12) & 0xf)
 #define BF_SETCOMP(l)	((((l) & 0xf) << 12) | BF_COMPRESSED)
 #define BF_FLAGS	0x0000ffff
@@ -232,14 +236,6 @@ struct backup_head_v3
 #define RF_NOFILL	0x00200000	/* Leave room for more partitions. */
 #define RF_SWAPV1	0x00400000	/* Use version 1 swap signature. */
 #define RF_FLAGS	0xffff0000
-
-#ifndef EXTERNINLINE
-#if DEBUG
-#define EXTERNINLINE static inline
-#else
-#define EXTERNINLINE extern inline
-#endif
-#endif
 
 struct backup_info *init_backup (char *device, char *device2, int flags);
 void backup_set_thresh (struct backup_info *info, unsigned int thresh);
@@ -263,3 +259,4 @@ void restore_perror (struct backup_info *info, char *str);
 int restore_strerror (struct backup_info *info, char *str);
 int restore_has_error (struct backup_info *info);
 void restore_clearerror (struct backup_info *info);
+#endif

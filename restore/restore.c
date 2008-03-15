@@ -25,8 +25,6 @@
 #include <sys/param.h>
 #include <string.h>
 #include <sys/ioctl.h>
-/* For htonl() and htons() */
-#include <netinet/in.h>
 
 #include "mfs.h"
 #include "macpart.h"
@@ -2105,8 +2103,8 @@ restore_make_swap (struct backup_info *info)
 		} *hdr = (void *)swaphdr;
 
 		memcpy ((char *)swaphdr + sizeof (swaphdr) - strlen (swapspacev1), swapspacev1, strlen (swapspacev1));
-		hdr->version = htonl (1);
-		hdr->last_page = htonl (size / (SWAP_PAGESZ / 512) - 1);
+		hdr->version = intswap32 (1);
+		hdr->last_page = intswap32 (size / (SWAP_PAGESZ / 512) - 1);
 		hdr->nr_badpages = 0;
 	}
 	else
@@ -2122,10 +2120,10 @@ restore_make_swap (struct backup_info *info)
 
 		for (loop2 = 0x1; loop2 > 0 && size >= SWAP_PAGESZ / 512; size -= SWAP_PAGESZ / 512, loop2 <<= 1)
 		{
-			swaphdr[loop] |= htonl (loop2);
+			swaphdr[loop] |= intswap32 (loop2);
 		}
 
-		swaphdr[0] &= ~htonl (1);
+		swaphdr[0] &= ~intswap32 (1);
 	}
 
 	loop = tivo_partition_write (file, swaphdr, 0, sizeof (swaphdr) / 512);
@@ -2162,15 +2160,15 @@ restore_fudge_inodes (struct backup_info *info)
 				int loop2;
 				int changed = 0;
 
-				for (loop2 = 0; loop2 < htonl (inode->numblocks); loop2++)
+				for (loop2 = 0; loop2 < intswap32 (inode->numblocks); loop2++)
 				{
-					if (htonl (inode->datablocks[loop2].sector) >= total)
+					if (intswap32 (inode->datablocks[loop2].sector) >= total)
 					{
 						inode->blockused = 0;
 						changed = 1;
-						inode->numblocks = htonl (htonl (inode->numblocks) - 1);
-						if (loop2 < htonl (inode->numblocks))
-							memmove (&inode->datablocks[loop2], &inode->datablocks[loop2 + 1], sizeof (*inode->datablocks) * (htonl (inode->numblocks) - loop2));
+						inode->numblocks = intswap32 (intswap32 (inode->numblocks) - 1);
+						if (loop2 < intswap32 (inode->numblocks))
+							memmove (&inode->datablocks[loop2], &inode->datablocks[loop2 + 1], sizeof (*inode->datablocks) * (intswap32 (inode->numblocks) - loop2));
 						loop2--;
 					}
 				}
@@ -2194,26 +2192,27 @@ int
 restore_fudge_log (char *trans, unsigned int volsize)
 {
 	log_entry_all *cur = (log_entry_all *)trans;
-	if (htons (cur->log.length) < sizeof (log_entry) - 2)
+	if (intswap16 (cur->log.length) < sizeof (log_entry) - 2)
 	{
 		return 0;
 	}
 
-	switch (htonl (cur->log.transtype))
+	switch (intswap32 (cur->log.transtype))
 	{
 	case ltMapUpdate:
-		if (htons (cur->log.length) < sizeof (log_map_update) - 2)
+		if (intswap16 (cur->log.length) < sizeof (log_map_update) - 2)
 		{
 			return 0;
 		}
 
-		if (htonl (cur->zonemap.sector) >= volsize)
+		if (intswap32 (cur->zonemap.sector) >= volsize)
 		{
-			return htons (cur->log.length) + 2;
+			return intswap16 (cur->log.length) + 2;
 		}
 		break;
 	case ltInodeUpdate:
-		if (htons (cur->log.length) < sizeof (log_inode_update) - 2)
+	case ltInodeUpdate2:
+		if (intswap16 (cur->log.length) < sizeof (log_inode_update) - 2)
 		{
 			return 0;
 		}
@@ -2223,20 +2222,20 @@ restore_fudge_log (char *trans, unsigned int volsize)
 			return 0;
 		}
 
-		if (htons (cur->log.length) >= htonl (cur->inode.datasize) + sizeof (log_inode_update) - 2)
+		if (intswap16 (cur->log.length) >= intswap32 (cur->inode.datasize) + sizeof (log_inode_update) - 2)
 		{
 			int loc, spot;
 			unsigned int shrunk = 0;
 			unsigned int bsize, dsize, dused, curblks;
 
-			bsize = htonl (cur->inode.blocksize) / 512;
-			dsize = htonl (cur->inode.size) * bsize;
-			dused = htonl (cur->inode.blockused) * bsize;
+			bsize = intswap32 (cur->inode.blocksize) / 512;
+			dsize = intswap32 (cur->inode.size) * bsize;
+			dused = intswap32 (cur->inode.blockused) * bsize;
 			curblks = 0;
 
-			for (loc = 0, spot = 0; loc < htonl (cur->inode.datasize) / sizeof (cur->inode.datablocks[0]); loc++)
+			for (loc = 0, spot = 0; loc < intswap32 (cur->inode.datasize) / sizeof (cur->inode.datablocks[0]); loc++)
 			{
-				if (htonl (cur->inode.datablocks[loc].sector) < volsize)
+				if (intswap32 (cur->inode.datablocks[loc].sector) < volsize)
 				{
 					if (shrunk)
 					{
@@ -2244,7 +2243,7 @@ restore_fudge_log (char *trans, unsigned int volsize)
 					}
 					spot++;
 				} else {
-					unsigned int count = htonl (cur->inode.datablocks[loc].count);
+					unsigned int count = intswap32 (cur->inode.datablocks[loc].count);
 					shrunk += sizeof (cur->inode.datablocks[0]);
 					if (dused > curblks)
 					{
@@ -2260,15 +2259,15 @@ restore_fudge_log (char *trans, unsigned int volsize)
 					dsize -= count;
 				}
 
-				curblks = htonl (cur->inode.datablocks[loc].count);
+				curblks = intswap32 (cur->inode.datablocks[loc].count);
 			}
 
 			if (shrunk)
 			{
-				cur->log.length = htons (htons (cur->log.length) - shrunk);
-				cur->inode.size = htonl (dsize / bsize);
-				cur->inode.blockused = htonl (dused / bsize);
-				cur->inode.datasize = htonl (htonl (cur->inode.datasize) - shrunk);
+				cur->log.length = intswap16 (intswap16 (cur->log.length) - shrunk);
+				cur->inode.size = intswap32 (dsize / bsize);
+				cur->inode.blockused = intswap32 (dused / bsize);
+				cur->inode.datasize = intswap32 (intswap32 (cur->inode.datasize) - shrunk);
 			}
 			return shrunk;
 		}
@@ -2296,11 +2295,11 @@ restore_fudge_transactions (struct backup_info *info)
 
 	curlog = mfs_log_last_sync (info->mfs);
 
-	hdrs[0]->logstamp = hdrs[1]->logstamp = htonl (curlog - 2);
+	hdrs[0]->logstamp = hdrs[1]->logstamp = intswap32 (curlog - 2);
 
 	while ((result = mfs_log_read (info->mfs, bufs[bufno], curlog)) > 0)
 	{
-		unsigned int size = htonl (hdrs[bufno]->size);
+		unsigned int size = intswap32 (hdrs[bufno]->size);
 		unsigned int start;
 		log_entry *cur;
 
@@ -2317,31 +2316,31 @@ restore_fudge_transactions (struct backup_info *info)
 			continue;
 		}
 
-		if (htonl (hdrs[bufno]->first) > 0 &&
-		  htonl (hdrs[bufno ^ 1]->logstamp) == curlog - 1)
+		if (intswap32 (hdrs[bufno]->first) > 0 &&
+		  intswap32 (hdrs[bufno ^ 1]->logstamp) == curlog - 1)
 		{
-			unsigned int size2 = htonl (hdrs[bufno ^ 1]->size);
+			unsigned int size2 = intswap32 (hdrs[bufno ^ 1]->size);
 
-			start = htonl (hdrs[bufno ^ 1]->first);
+			start = intswap32 (hdrs[bufno ^ 1]->first);
 			cur = (log_entry *)(bufs[bufno ^ 1] + start + 16);
 
-			while (htons (cur->length) + 2 < size2 - start) {
-				start += htons (cur->length) + 2;
+			while (intswap16 (cur->length) + 2 < size2 - start) {
+				start += intswap16 (cur->length) + 2;
 				cur = (log_entry *)(bufs[bufno ^ 1] + start + 16);
 			}
 
-			if (size2 - start + htonl (hdrs[bufno]->first) == htons (cur->length) + 2)
+			if (size2 - start + intswap32 (hdrs[bufno]->first) == intswap16 (cur->length) + 2)
 			{
 				char tmp[1024];
 				int shrunk;
 
 				memcpy (tmp, cur, size2 - start);
-				memcpy (tmp + size2 - start, bufs[bufno] + 16, htonl (hdrs[bufno]->first));
+				memcpy (tmp + size2 - start, bufs[bufno] + 16, intswap32 (hdrs[bufno]->first));
 
 				shrunk = restore_fudge_log (tmp, volsize);
 				if (shrunk)
 				{
-					unsigned short newsize = htons (cur->length) - shrunk + 2;
+					unsigned short newsize = intswap16 (cur->length) - shrunk + 2;
 					if (newsize > size2 - start)
 					{
 						memcpy (cur, tmp, size2 - start);
@@ -2350,7 +2349,7 @@ restore_fudge_transactions (struct backup_info *info)
 					else
 					{
 						size2 = start + newsize;
-						hdrs[bufno ^ 1]->size = htonl (size2);
+						hdrs[bufno ^ 1]->size = intswap32 (size2);
 						if (newsize > 0)
 							memcpy (cur, tmp, newsize);
 						bzero ((char *)cur + newsize, 0x1f0 - size2);
@@ -2359,20 +2358,20 @@ restore_fudge_transactions (struct backup_info *info)
 							perror ("mfs_log_write");
 							return -1;
 						}
-						shrunk = htonl (hdrs[bufno]->first);
+						shrunk = intswap32 (hdrs[bufno]->first);
 					}
-					memmove (bufs[bufno] + htonl (hdrs[bufno]->first) - shrunk + 16, bufs[bufno] + htonl (hdrs[bufno]->first) + 16, size - htonl (hdrs[bufno]->first));
-					hdrs[bufno]->first = htonl (htonl (hdrs[bufno]->first) - shrunk);
+					memmove (bufs[bufno] + intswap32 (hdrs[bufno]->first) - shrunk + 16, bufs[bufno] + intswap32 (hdrs[bufno]->first) + 16, size - intswap32 (hdrs[bufno]->first));
+					hdrs[bufno]->first = intswap32 (intswap32 (hdrs[bufno]->first) - shrunk);
 					size -= shrunk;
 				}
 			}
 		}
 
-		start = htonl (hdrs[bufno]->first);
+		start = intswap32 (hdrs[bufno]->first);
 		cur = (log_entry *)(bufs[bufno] + start + 16);
-		while (htons (cur->length) + 2 + start <= size)
+		while (intswap16 (cur->length) + 2 + start <= size)
 		{
-			int oldsize = htons (cur->length) + 2;
+			int oldsize = intswap16 (cur->length) + 2;
 			int shrunk;
 
 			shrunk = restore_fudge_log ((char *)cur, volsize);
@@ -2388,10 +2387,10 @@ restore_fudge_transactions (struct backup_info *info)
 			cur = (log_entry *)(bufs[bufno] + start + 16);
 		}
 
-		if (htonl (hdrs[bufno]->size) != size)
+		if (intswap32 (hdrs[bufno]->size) != size)
 		{
-			bzero (bufs[bufno] + size + 16, htonl (hdrs[bufno]->size) - size);
-			hdrs[bufno]->size = htonl (size);
+			bzero (bufs[bufno] + size + 16, intswap32 (hdrs[bufno]->size) - size);
+			hdrs[bufno]->size = intswap32 (size);
 			if (mfs_log_write (info->mfs, bufs[bufno]) != 512)
 			{
 				perror ("mfs_log_write");
@@ -2434,7 +2433,7 @@ restore_fixup_vol_list (struct backup_info *info)
 		return -1;
 	}
 
-	vol.hdr.total_sectors = htonl (mfsvol_volume_set_size (info->vols));
+	vol.hdr.total_sectors = intswap32 (mfsvol_volume_set_size (info->vols));
 
 	MFS_update_crc (&vol.hdr, sizeof (vol.hdr), vol.hdr.checksum);
 
@@ -2468,24 +2467,24 @@ restore_fixup_zone_maps(struct backup_info *info)
 		return -1;
 	}
 
-	cur = malloc (htonl (vol.hdr.zonemap.length) * 512);
+	cur = malloc (intswap32 (vol.hdr.zonemap.length) * 512);
 	if (!cur)
 	{
 		info->err_msg = "Memory exhausted";
 		return -1;
 	}
 
-	if (mfsvol_read_data (info->vols, (void *)cur, htonl (vol.hdr.zonemap.sector), htonl (vol.hdr.zonemap.length)) != htonl (vol.hdr.zonemap.length) * 512)
+	if (mfsvol_read_data (info->vols, (void *)cur, intswap32 (vol.hdr.zonemap.sector), intswap32 (vol.hdr.zonemap.length)) != intswap32 (vol.hdr.zonemap.length) * 512)
 	{
 		free (cur);
 		info->err_msg = "Error truncating MFS volume";
 		return -1;
 	}
 
-	while (cur->next.sector && htonl (cur->next.sector) < tot)
+	while (cur->next.sector && intswap32 (cur->next.sector) < tot)
 	{
-		unsigned int sector = htonl (cur->next.sector);
-		unsigned int length = htonl (cur->next.length);
+		unsigned int sector = intswap32 (cur->next.sector);
+		unsigned int length = intswap32 (cur->next.length);
 
 		cur = realloc (cur, length * 512);
 
@@ -2510,9 +2509,9 @@ restore_fixup_zone_maps(struct backup_info *info)
 		cur->next.size = 0;
 		cur->next.min = 0;
 
-		MFS_update_crc (cur, htonl (cur->length) * 512, cur->checksum);
+		MFS_update_crc (cur, intswap32 (cur->length) * 512, cur->checksum);
 
-		if (mfsvol_write_data (info->vols, (void *)cur, htonl (cur->sector), htonl (cur->length)) != htonl (cur->length) * 512 || mfsvol_write_data (info->vols, (void *)cur, htonl (cur->sbackup), htonl (cur->length)) != htonl (cur->length) * 512)
+		if (mfsvol_write_data (info->vols, (void *)cur, intswap32 (cur->sector), intswap32 (cur->length)) != intswap32 (cur->length) * 512 || mfsvol_write_data (info->vols, (void *)cur, intswap32 (cur->sbackup), intswap32 (cur->length)) != intswap32 (cur->length) * 512)
 		{
 			info->err_msg = "Error truncating MFS volume";
 			free (cur);
