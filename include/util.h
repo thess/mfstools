@@ -1,6 +1,10 @@
 #ifndef UTIL_H
 #define UTIL_H
 
+#if HAVE_STDDEF_H
+#include <stddef.h>
+#endif
+
 #if HAVE_BYTEORDER_H
 #include <byteorder.h>
 #endif
@@ -48,6 +52,10 @@ intswap64 (uint64_t n)
 	return n;
 }
 
+#endif
+
+#ifndef offsetof
+#define offsetof(struc,field) ((size_t)(&((struc *)0)->field))
 #endif
 
 #define CRC32_RESIDUAL 0xdebb20e3

@@ -321,15 +321,15 @@ mfs_log_inode_update (struct mfs_handle *mfshnd, mfs_inode *inode)
 			}
 			else
 			{
-				datasize = intswap32 (inode->numblocks) * sizeof (inode->datablocks.d64[0]);
+				datasize = intswap32 (inode->numblocks) * sizeof (inode->datablocks.d32[0]);
 			}
 		}
 	}
 
-	entry = alloca (sizeof (*entry) + datasize);
+	entry = alloca (offsetof (log_inode_update, datablocks) + datasize);
 
 	/* Generic log stuff */
-	entry->log.length = intswap16 (sizeof (*entry) + datasize - 2);
+	entry->log.length = intswap16 (offsetof (log_inode_update, datablocks) + datasize - 2);
 	entry->log.unk1 = 0;
 	entry->log.bootcycles = intswap32 (mfshnd->bootcycle);
 	entry->log.bootsecs = intswap32 (mfshnd->bootsecs);
@@ -613,7 +613,7 @@ mfs_log_load_list (struct mfs_handle *mfshnd, unsigned int start, unsigned int *
 			if (partremaining > 2)
 			{
 				/* Only allocate if there is going to be actual data */
-				cur = calloc (partremaining + sizeof (cur->next) + sizeof (cur->logstamp), 1);
+				cur = calloc (partremaining + offsetof (struct log_entry_list, entry), 1);
 				cur->logstamp = start;
 			}
 		}
@@ -678,7 +678,7 @@ mfs_log_load_list (struct mfs_handle *mfshnd, unsigned int start, unsigned int *
 				if (partremaining > 2)
 				{
 					/* Only allocate if there is going to be actual data */
-					cur = calloc (partremaining + sizeof (cur->next) + sizeof (cur->logstamp), 1);
+					cur = calloc (partremaining + offsetof (struct log_entry_list, entry), 1);
 					cur->logstamp = start;
 				}
 			}

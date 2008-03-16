@@ -43,6 +43,17 @@ Endian32_Swap (u_int32_t var)
 }
 #endif
 
+#if !HAVE_ENDIAN64_SWAP
+static inline u_int64_t
+Endian64_Swap (u_int64_t var)
+{
+	var = (var >> 32) | (var << 32);
+	var = ((var >> 16) & INT64_C(0x0000FFFF0000FFFF)) | ((var & INT64_C(0x0000FFFF0000FFFF)) << 16);
+	var = ((var >> 8) & INT64_C(0x00FF00FF00FF00FF)) | ((var & INT64_C(0x00FF00FF00FF00FF)) << 8);
+	return var;
+}
+#endif
+
 /*************************************************/
 /* Initializes the backup structure for restore. */
 struct backup_info *
