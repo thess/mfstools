@@ -498,13 +498,13 @@ mfs_log_fssync_list (struct mfs_handle *mfshnd, struct log_entry_list *list, uns
 		switch (intswap32 (cur->entry.log.transtype))
 		{
 			case ltMapUpdate:
-				if (mfs_zone_map_update (mfshnd, intswap32 (cur->entry.zonemap_32.sector), intswap32 (cur->entry.zonemap_32.size), intswap32 (cur->entry.zonemap_32.remove), logstamp) < 1)
+				if (mfs_zone_map_update (mfshnd, intswap32 (cur->entry.zonemap_32.sector), intswap32 (cur->entry.zonemap_32.size), intswap32 (cur->entry.zonemap_32.remove), cur->logstamp) < 1)
 				{
 					return 0;
 				}
 				break;
 			case ltMapUpdate64:
-				if (mfs_zone_map_update (mfshnd, intswap64 (cur->entry.zonemap_64.sector), intswap64 (cur->entry.zonemap_64.size), intswap32 (cur->entry.zonemap_64.remove), logstamp) < 1)
+				if (mfs_zone_map_update (mfshnd, intswap64 (cur->entry.zonemap_64.sector), intswap64 (cur->entry.zonemap_64.size), intswap32 (cur->entry.zonemap_64.remove), cur->logstamp) < 1)
 				{
 					return 0;
 				}
@@ -614,6 +614,7 @@ mfs_log_load_list (struct mfs_handle *mfshnd, unsigned int start, unsigned int *
 			{
 				/* Only allocate if there is going to be actual data */
 				cur = calloc (partremaining + sizeof (cur->next) + sizeof (cur->logstamp), 1);
+				cur->logstamp = start;
 			}
 		}
 		else if (partremaining < intswap32 (curlog->first) || curlog->first == 0)
@@ -678,6 +679,7 @@ mfs_log_load_list (struct mfs_handle *mfshnd, unsigned int start, unsigned int *
 				{
 					/* Only allocate if there is going to be actual data */
 					cur = calloc (partremaining + sizeof (cur->next) + sizeof (cur->logstamp), 1);
+					cur->logstamp = start;
 				}
 			}
 		}

@@ -372,11 +372,11 @@ mfs_zone_map_update (struct mfs_handle *mfshnd, uint64_t sector, uint64_t size, 
 		/* Clear the bit to mark it allocated */
 		if (mfshnd->is_64)
 		{
-			zone->map->z64.free = intswap64 (intswap64 (zone->map->z64.free) + size);
+			zone->map->z64.free = intswap64 (intswap64 (zone->map->z64.free) - size);
 		}
 		else
 		{
-			zone->map->z32.free = intswap32 (intswap32 (zone->map->z32.free) + size);
+			zone->map->z32.free = intswap32 (intswap32 (zone->map->z32.free) - size);
 		}
 		mfs_zone_map_bit_state_clear (zone->bitmaps[order], mapbit);
 		zone->bitmaps[order]->freeblocks = intswap32 (intswap32 (zone->bitmaps[order]->freeblocks) - 1);
