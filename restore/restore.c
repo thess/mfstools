@@ -592,22 +592,44 @@ restore_state_volume_header_v3 (struct backup_info *info, void *data, unsigned s
 	memcpy (&vol, data, 512);
 
 /* Fixup the partition list */
-	bzero (vol.hdr.partitionlist, sizeof (vol.hdr.partitionlist));
-
-	for (loop = 0; loop < info->nmfs; loop++)
+	if (info->back_flags & BF_64)
 	{
-		sprintf (vol.hdr.partitionlist + strlen (vol.hdr.partitionlist), "%s/dev/hd%c%d", loop > 0? " ": "", 'a' + info->mfsparts[loop].devno, info->mfsparts[loop].partno);
-	}
+		bzero (vol.hdr.v64.partitionlist, sizeof (vol.hdr.v64.partitionlist));
 
-	if (strlen (vol.hdr.partitionlist) + 1 > sizeof (vol.hdr.partitionlist))
+		for (loop = 0; loop < info->nmfs; loop++)
+		{
+			sprintf (vol.hdr.v64.partitionlist + strlen (vol.hdr.v64.partitionlist), "%s/dev/hd%c%d", loop > 0? " ": "", 'a' + info->mfsparts[loop].devno, info->mfsparts[loop].partno);
+		}
+
+		if (strlen (vol.hdr.v64.partitionlist) + 1 > sizeof (vol.hdr.v64.partitionlist))
+		{
+			info->err_msg = "Partition list too long";
+			return -1;
+		}
+
+		vol.hdr.v64.total_sectors = intswap64 (mfsvol_volume_set_size (info->vols));
+
+		MFS_update_crc (&vol.hdr.v64, sizeof (vol.hdr.v64), vol.hdr.v64.checksum);
+	}
+	else
 	{
-		info->err_msg = "Partition list too long";
-		return -1;
+		bzero (vol.hdr.v32.partitionlist, sizeof (vol.hdr.v32.partitionlist));
+
+		for (loop = 0; loop < info->nmfs; loop++)
+		{
+			sprintf (vol.hdr.v32.partitionlist + strlen (vol.hdr.v32.partitionlist), "%s/dev/hd%c%d", loop > 0? " ": "", 'a' + info->mfsparts[loop].devno, info->mfsparts[loop].partno);
+		}
+
+		if (strlen (vol.hdr.v32.partitionlist) + 1 > sizeof (vol.hdr.v32.partitionlist))
+		{
+			info->err_msg = "Partition list too long";
+			return -1;
+		}
+
+		vol.hdr.v32.total_sectors = intswap32 (mfsvol_volume_set_size (info->vols));
+
+		MFS_update_crc (&vol.hdr.v32, sizeof (vol.hdr.v32), vol.hdr.v32.checksum);
 	}
-
-	vol.hdr.total_sectors = htonl (mfsvol_volume_set_size (info->vols));
-
-	MFS_update_crc (&vol.hdr, sizeof (vol.hdr), vol.hdr.checksum);
 
 	if (mfsvol_write_data (info->vols, &vol, 0, 1) != 512)
 	{
@@ -639,7 +661,11 @@ restore_state_volume_header_v3 (struct backup_info *info, void *data, unsigned s
 /* Initialize MFS at this point */
 	info->mfs = mfs_init (info->devs[0].devname, info->ndevs > 1? info->devs[1].devname: NULL, O_RDWR);
 
-	if (!info->mfs || !MFS_check_crc (&info->mfs->vol_hdr, sizeof (info->mfs->vol_hdr), info->mfs->vol_hdr.checksum))
+	if (!info->mfs ||
+		(info->back_flags & BF_64) && !mfs_is_64bit (info->mfs) ||
+		!(info->back_flags & BF_64) && mfs_is_64bit (info->mfs) ||
+		mfs_is_64bit (info->mfs) && !MFS_check_crc (&info->mfs->vol_hdr.v64, sizeof (info->mfs->vol_hdr.v64), info->mfs->vol_hdr.v64.checksum) ||
+		!mfs_is_64bit (info->mfs) && !MFS_check_crc (&info->mfs->vol_hdr.v32, sizeof (info->mfs->vol_hdr.v32), info->mfs->vol_hdr.v32.checksum))
 	{
 		if (!info->mfs || !mfs_has_error (info->mfs))
 		{
@@ -666,7 +692,22 @@ enum backup_state_ret
 restore_state_transaction_log_v3 (struct backup_info *info, void *data, unsigned
 size, unsigned *consumed)
 {
-	unsigned tocopy = htonl (info->mfs->vol_hdr.lognsectors) - info->state_val2;
+	unsigned tocopy;
+	unsigned lognsectors;
+	uint64_t logstart;
+
+	if (mfs_is_64bit (info->mfs))
+	{
+		lognsectors = intswap32 (info->mfs->vol_hdr.v64.lognsectors);
+		logstart = intswap64 (info->mfs->vol_hdr.v64.logstart);
+	}
+	else
+	{
+		lognsectors = intswap32 (info->mfs->vol_hdr.v32.lognsectors);
+		logstart = intswap32 (info->mfs->vol_hdr.v32.logstart);
+	}
+
+	tocopy = lognsectors - info->state_val2;
 
 	if (size == 0)
 	{
@@ -679,7 +720,7 @@ size, unsigned *consumed)
 		tocopy = size;
 	}
 
-	if (mfs_write_data (info->mfs, data, htonl (info->mfs->vol_hdr.logstart) + info->state_val2, tocopy) < 0)
+	if (mfs_write_data (info->mfs, data, logstart + info->state_val2, tocopy) < 0)
 	{
 		info->err_msg = "Error writing MFS transaction log";
 		return bsError;
@@ -688,7 +729,7 @@ size, unsigned *consumed)
 	*consumed = tocopy;
 	info->state_val2 += tocopy;
 
-	if (info->state_val2 < htonl (info->mfs->vol_hdr.lognsectors))
+	if (info->state_val2 < lognsectors)
 		return bsMoreData;
 
 	return bsNextState;
@@ -705,7 +746,22 @@ enum backup_state_ret
 restore_state_unk_region_v3 (struct backup_info *info, void *data, unsigned
 size, unsigned *consumed)
 {
-	unsigned tocopy = htonl (info->mfs->vol_hdr.unksectors) - info->state_val2;
+	unsigned tocopy;
+	unsigned unknsectors;
+	uint64_t unkstart;
+
+	if (mfs_is_64bit (info->mfs))
+	{
+		unknsectors = intswap32 (info->mfs->vol_hdr.v64.unknsectors);
+		unkstart = intswap64 (info->mfs->vol_hdr.v64.unkstart);
+	}
+	else
+	{
+		unknsectors = intswap32 (info->mfs->vol_hdr.v32.unksectors);
+		unkstart = intswap32 (info->mfs->vol_hdr.v32.unkstart);
+	}
+
+	tocopy = unknsectors - info->state_val2;
 
 	if (size == 0)
 	{
@@ -718,7 +774,7 @@ size, unsigned *consumed)
 		tocopy = size;
 	}
 
-	if (mfs_write_data (info->mfs, data, htonl (info->mfs->vol_hdr.unkstart) + info->state_val2, tocopy) < 0)
+	if (mfs_write_data (info->mfs, data, unkstart + info->state_val2, tocopy) < 0)
 	{
 		info->err_msg = "Error writing MFS data";
 		return bsError;
@@ -727,7 +783,7 @@ size, unsigned *consumed)
 	*consumed = tocopy;
 	info->state_val2 += tocopy;
 
-	if (info->state_val2 < htonl (info->mfs->vol_hdr.unksectors))
+	if (info->state_val2 < unknsectors)
 		return bsMoreData;
 
 	return bsNextState;
@@ -748,6 +804,11 @@ restore_state_zone_maps_v3 (struct backup_info *info, void *data, unsigned size,
 	void *copy_ptr = data;
 	unsigned realoffset = info->state_val2;
 	unsigned realcopy;
+	unsigned curzone_length;
+	unsigned hdrsize;
+	uint64_t nextsector;
+	uint64_t cursector;
+	uint64_t curbackup;
 
 	if (size == 0)
 	{
@@ -764,7 +825,24 @@ restore_state_zone_maps_v3 (struct backup_info *info, void *data, unsigned size,
 		cur_zone = info->state_ptr1;
 	}
 
-	tocopy = htonl (cur_zone->length) - info->state_val2;
+	if (mfs_is_64bit (info->mfs))
+	{
+		curzone_length = intswap32 (cur_zone->z64.length);
+		cursector = intswap64 (cur_zone->z64.sector);
+		curbackup = intswap64 (cur_zone->z64.sbackup);
+		nextsector = intswap64 (cur_zone->z64.next_sector);
+		hdrsize = sizeof (cur_zone->z64);
+	}
+	else
+	{
+		curzone_length = intswap32 (cur_zone->z32.length);
+		cursector = intswap32 (cur_zone->z32.sector);
+		curbackup = intswap32 (cur_zone->z32.sbackup);
+		nextsector = intswap32 (cur_zone->z32.next.sector);
+		hdrsize = sizeof (cur_zone->z32);
+	}
+
+	tocopy = curzone_length - info->state_val2;
 
 	if (tocopy > size && info->state_val2 == 0)
 	{
@@ -772,7 +850,7 @@ restore_state_zone_maps_v3 (struct backup_info *info, void *data, unsigned size,
 // for the header for the next pass at this zone.
 		if (!info->state_ptr1)
 		{
-			info->state_ptr1 = malloc (sizeof (*cur_zone));
+			info->state_ptr1 = malloc (hdrsize);
 			if (!info->state_ptr1)
 			{
 				info->err_msg = "Memory exhausted";
@@ -780,13 +858,13 @@ restore_state_zone_maps_v3 (struct backup_info *info, void *data, unsigned size,
 			}
 		}
 
-		memcpy (info->state_ptr1, cur_zone, sizeof (*cur_zone));
+		memcpy (info->state_ptr1, cur_zone, hdrsize);
 	}
 
 	realcopy = tocopy;
 
 // Special case: Next zone is beyond the end of the volume.
-	if (htonl (cur_zone->next.sector) >= mfs_volume_set_size (info->mfs))
+	if (nextsector >= mfs_volume_set_size (info->mfs))
 	{
 		if (!(info->back_flags & BF_SHRINK))
 		{
@@ -798,7 +876,7 @@ restore_state_zone_maps_v3 (struct backup_info *info, void *data, unsigned size,
 
 // Allocate storage for the full zone in memory, so it can be updated 
 		if (info->state_val2 == 0)
-			info->state_ptr1 = realloc (info->state_ptr1, htonl (cur_zone->length) * 512);
+			info->state_ptr1 = realloc (info->state_ptr1, curzone_length * 512);
 		if (!info->state_ptr1)
 		{
 			info->err_msg = "Memory exhausted";
@@ -811,7 +889,7 @@ restore_state_zone_maps_v3 (struct backup_info *info, void *data, unsigned size,
 		memcpy ((char *)cur_zone + info->state_val2 * 512, data, tocopy * 512);
 
 // Still more data.
-		if (tocopy + info->state_val2 < htonl (cur_zone->length))
+		if (tocopy + info->state_val2 < curzone_length)
 		{
 			*consumed = tocopy;
 			info->state_val2 += tocopy;
@@ -821,7 +899,8 @@ restore_state_zone_maps_v3 (struct backup_info *info, void *data, unsigned size,
 
 // Since the checksum is about to be recalculated, make sure it's not garbage
 // to begin with.
-		if (!MFS_check_crc ((unsigned char *)cur_zone, htonl (cur_zone->length) * 512, cur_zone->checksum))
+		if (mfs_is_64bit (info->mfs) && !MFS_check_crc ((unsigned char *)cur_zone, curzone_length * 512, cur_zone->z64.checksum) ||
+			!mfs_is_64bit (info->mfs) && !MFS_check_crc ((unsigned char *)cur_zone, curzone_length * 512, cur_zone->z32.checksum))
 		{
 // The zone was saves from the MFS status memory, so the checksum was verified
 // when the backup was taken.  Something was corrupted somewhere.
@@ -830,18 +909,31 @@ restore_state_zone_maps_v3 (struct backup_info *info, void *data, unsigned size,
 			return bsError;
 		}
 
-		memset (&cur_zone->next, 0, sizeof (cur_zone->next));
-		cur_zone->next.sbackup = htonl (0xDEADBEEF);
+		if (mfs_is_64bit (info->mfs))
+		{
+			cur_zone->z64.next_sector = 0;
+			cur_zone->z64.next_sbackup = UINT64_C(0xAAAAAAAAAAAAAAAA);
+			cur_zone->z64.next_length = 0;
+			cur_zone->z64.next_min = 0;
+			cur_zone->z64.next_size = 0;
+			MFS_update_crc (cur_zone, curzone_length * 512, cur_zone->z64.checksum);
+		}
+		else
+		{
+			memset (&cur_zone->z32.next, 0, sizeof (cur_zone->z32.next));
+			cur_zone->z32.next.sbackup = 0xAAAAAAAA;
+			MFS_update_crc (cur_zone, curzone_length * 512, cur_zone->z32.checksum);
+		}
 
-		MFS_update_crc (cur_zone, htonl (cur_zone->length) * 512, cur_zone->checksum);
+		nextsector = 0;
 
 // Set special case overrides.
-		realcopy = htonl (cur_zone->length);
+		realcopy = curzone_length;
 		realoffset = 0;
 		copy_ptr = info->state_ptr1;
 	}
 
-	if (mfs_write_data (info->mfs, copy_ptr, htonl (cur_zone->sector) + realoffset, realcopy) < 0)
+	if (mfs_write_data (info->mfs, copy_ptr, cursector + realoffset, realcopy) < 0)
 	{
 		info->err_msg = "Error writing MFS zone";
 		if (info->state_ptr1)
@@ -849,7 +941,7 @@ restore_state_zone_maps_v3 (struct backup_info *info, void *data, unsigned size,
 		return bsError;
 	}
 
-	if (mfs_write_data (info->mfs, copy_ptr, htonl (cur_zone->sbackup) + realoffset, realcopy) < 0)
+	if (mfs_write_data (info->mfs, copy_ptr, curbackup + realoffset, realcopy) < 0)
 	{
 		info->err_msg = "Error writing MFS zone";
 		if (info->state_ptr1)
@@ -862,12 +954,12 @@ restore_state_zone_maps_v3 (struct backup_info *info, void *data, unsigned size,
 	*consumed = tocopy;
 	info->state_val2 += tocopy;
 
-	if (info->state_val2 < htonl (cur_zone->length))
+	if (info->state_val2 < curzone_length)
 	{
 		return bsMoreData;
 	}
 
-	if (cur_zone->next.sector == 0)
+	if (nextsector == 0)
 	{
 		if (info->state_ptr1)
 			free (info->state_ptr1);
@@ -926,8 +1018,8 @@ restore_state_app_inodes_v3 (struct backup_info *info, void *data, unsigned size
 		inode = info->state_ptr1;
 	}
 
-	if (inode->type != tyStream && inode->refcount > 0 && inode->numblocks > 0 && !(inode->inode_flags & htonl (INODE_DATA)))
-		tocopy = 1 + (htonl (inode->size) + 511) / 512 - (info->state_val2);
+	if (inode->type != tyStream && inode->refcount > 0 && inode->numblocks > 0 && !(inode->inode_flags & intswap32 (INODE_DATA)))
+		tocopy = 1 + (intswap32 (inode->size) + 511) / 512 - (info->state_val2);
 
 	copied = tocopy;
 
@@ -1011,12 +1103,12 @@ restore_state_media_inodes_v3 (struct backup_info *info, void *data, unsigned si
 
 /* Check if total size or used size is requested for backup */
 	if (info->back_flags & BF_STREAMTOT)
-		tocopy = htonl (inode->size);
+		tocopy = intswap32 (inode->size);
 	else
-		tocopy = htonl (inode->blockused);
+		tocopy = intswap32 (inode->blockused);
 
 /* tocopy is currently in blocksize chunks, convert it to disk sectors */
-	tocopy *= htonl (inode->blocksize) / 512;
+	tocopy *= intswap32 (inode->blocksize) / 512;
 
 	tocopy -= info->state_val2;
 
@@ -1030,7 +1122,7 @@ restore_state_media_inodes_v3 (struct backup_info *info, void *data, unsigned si
 	if (mfs_write_inode_data_part (info->mfs, inode, data, info->state_val2, copied) < 0)
 	{
 		info->err_msg = "Error reading from tyStream id %d";
-		info->err_arg1 = (void *)htonl (inode->fsid);
+		info->err_arg1 = (void *)intswap32 (inode->fsid);
 		free (inode);
 		return bsError;
 	}
@@ -2141,7 +2233,8 @@ restore_make_swap (struct backup_info *info)
 int
 restore_fudge_inodes (struct backup_info *info)
 {
-	unsigned int loop, count, total;
+	unsigned int loop, count;
+	uint64_t total;
 
 	if (!(info->back_flags & BF_SHRINK))
 		return 0;
@@ -2160,16 +2253,34 @@ restore_fudge_inodes (struct backup_info *info)
 				int loop2;
 				int changed = 0;
 
-				for (loop2 = 0; loop2 < intswap32 (inode->numblocks); loop2++)
+				if (mfs_is_64bit (info->mfs))
 				{
-					if (intswap32 (inode->datablocks[loop2].sector) >= total)
+					for (loop2 = 0; loop2 < intswap32 (inode->numblocks); loop2++)
 					{
-						inode->blockused = 0;
-						changed = 1;
-						inode->numblocks = intswap32 (intswap32 (inode->numblocks) - 1);
-						if (loop2 < intswap32 (inode->numblocks))
-							memmove (&inode->datablocks[loop2], &inode->datablocks[loop2 + 1], sizeof (*inode->datablocks) * (intswap32 (inode->numblocks) - loop2));
-						loop2--;
+						if (intswap64 (inode->datablocks.d64[loop2].sector) >= total)
+						{
+							inode->blockused = 0;
+							changed = 1;
+							inode->numblocks = intswap32 (intswap32 (inode->numblocks) - 1);
+							if (loop2 < intswap32 (inode->numblocks))
+								memmove (&inode->datablocks.d64[loop2], &inode->datablocks.d64[loop2 + 1], sizeof (*inode->datablocks.d64) * (intswap32 (inode->numblocks) - loop2));
+							loop2--;
+						}
+					}
+				}
+				else
+				{
+					for (loop2 = 0; loop2 < intswap32 (inode->numblocks); loop2++)
+					{
+						if (intswap32 (inode->datablocks.d32[loop2].sector) >= total)
+						{
+							inode->blockused = 0;
+							changed = 1;
+							inode->numblocks = intswap32 (intswap32 (inode->numblocks) - 1);
+							if (loop2 < intswap32 (inode->numblocks))
+								memmove (&inode->datablocks.d32[loop2], &inode->datablocks.d32[loop2 + 1], sizeof (*inode->datablocks.d32) * (intswap32 (inode->numblocks) - loop2));
+							loop2--;
+						}
 					}
 				}
 
@@ -2189,7 +2300,7 @@ restore_fudge_inodes (struct backup_info *info)
 }
 
 int
-restore_fudge_log (char *trans, unsigned int volsize)
+restore_fudge_log (int is_64bit, char *trans, uint64_t volsize)
 {
 	log_entry_all *cur = (log_entry_all *)trans;
 	if (intswap16 (cur->log.length) < sizeof (log_entry) - 2)
@@ -2200,12 +2311,23 @@ restore_fudge_log (char *trans, unsigned int volsize)
 	switch (intswap32 (cur->log.transtype))
 	{
 	case ltMapUpdate:
-		if (intswap16 (cur->log.length) < sizeof (log_map_update) - 2)
+		if (intswap16 (cur->log.length) < sizeof (log_map_update_32) - 2)
 		{
 			return 0;
 		}
 
-		if (intswap32 (cur->zonemap.sector) >= volsize)
+		if (intswap32 (cur->zonemap_32.sector) >= volsize)
+		{
+			return intswap16 (cur->log.length) + 2;
+		}
+		break;
+	case ltMapUpdate64:
+		if (intswap16 (cur->log.length) < sizeof (log_map_update_64) - 2)
+		{
+			return 0;
+		}
+
+		if (intswap64 (cur->zonemap_64.sector) >= volsize)
 		{
 			return intswap16 (cur->log.length) + 2;
 		}
@@ -2233,33 +2355,67 @@ restore_fudge_log (char *trans, unsigned int volsize)
 			dused = intswap32 (cur->inode.blockused) * bsize;
 			curblks = 0;
 
-			for (loc = 0, spot = 0; loc < intswap32 (cur->inode.datasize) / sizeof (cur->inode.datablocks[0]); loc++)
+			if (is_64bit)
 			{
-				if (intswap32 (cur->inode.datablocks[loc].sector) < volsize)
+				for (loc = 0, spot = 0; loc < intswap32 (cur->inode.datasize) / sizeof (cur->inode.datablocks.d64[0]); loc++)
 				{
-					if (shrunk)
+					if (intswap64 (cur->inode.datablocks.d64[loc].sector) < volsize)
 					{
-						cur->inode.datablocks[spot] = cur->inode.datablocks[loc];
-					}
-					spot++;
-				} else {
-					unsigned int count = intswap32 (cur->inode.datablocks[loc].count);
-					shrunk += sizeof (cur->inode.datablocks[0]);
-					if (dused > curblks)
-					{
-						if (dused > curblks + count)
+						if (shrunk)
 						{
-							dused -= count;
+							cur->inode.datablocks.d64[spot] = cur->inode.datablocks.d64[loc];
 						}
-						else
+						spot++;
+					} else {
+						unsigned int count = intswap32 (cur->inode.datablocks.d64[loc].count);
+						shrunk += sizeof (cur->inode.datablocks.d64[0]);
+						if (dused > curblks)
 						{
-							dused = curblks;
+							if (dused > curblks + count)
+							{
+								dused -= count;
+							}
+							else
+							{
+								dused = curblks;
+							}
 						}
+						dsize -= count;
 					}
-					dsize -= count;
-				}
 
-				curblks = intswap32 (cur->inode.datablocks[loc].count);
+					curblks = intswap32 (cur->inode.datablocks.d64[loc].count);
+				}
+			}
+			else
+			{
+				for (loc = 0, spot = 0; loc < intswap32 (cur->inode.datasize) / sizeof (cur->inode.datablocks.d32[0]); loc++)
+				{
+					if (intswap32 (cur->inode.datablocks.d32[loc].sector) < volsize)
+					{
+						if (shrunk)
+						{
+							cur->inode.datablocks.d32[spot] = cur->inode.datablocks.d32[loc];
+						}
+						spot++;
+					} else {
+						unsigned int count = intswap32 (cur->inode.datablocks.d32[loc].count);
+						shrunk += sizeof (cur->inode.datablocks.d32[0]);
+						if (dused > curblks)
+						{
+							if (dused > curblks + count)
+							{
+								dused -= count;
+							}
+							else
+							{
+								dused = curblks;
+							}
+						}
+						dsize -= count;
+					}
+
+					curblks = intswap32 (cur->inode.datablocks.d32[loc].count);
+				}
 			}
 
 			if (shrunk)
@@ -2280,13 +2436,16 @@ restore_fudge_log (char *trans, unsigned int volsize)
 int
 restore_fudge_transactions (struct backup_info *info)
 {
-	unsigned int curlog, volsize;
+	unsigned int curlog;
+	uint64_t volsize;
 
 	int result;
 
 	char bufs[2][512];
 	log_hdr *hdrs[2] = {(log_hdr *)bufs[0], (log_hdr *)bufs[1]};
 	int bufno = 1;
+
+	int is_64bit = mfs_is_64bit (info->mfs);
 
 	if (!(info->back_flags & BF_SHRINK))
 		return 0;
@@ -2337,7 +2496,7 @@ restore_fudge_transactions (struct backup_info *info)
 				memcpy (tmp, cur, size2 - start);
 				memcpy (tmp + size2 - start, bufs[bufno] + 16, intswap32 (hdrs[bufno]->first));
 
-				shrunk = restore_fudge_log (tmp, volsize);
+				shrunk = restore_fudge_log (is_64bit, tmp, volsize);
 				if (shrunk)
 				{
 					unsigned short newsize = intswap16 (cur->length) - shrunk + 2;
@@ -2374,7 +2533,7 @@ restore_fudge_transactions (struct backup_info *info)
 			int oldsize = intswap16 (cur->length) + 2;
 			int shrunk;
 
-			shrunk = restore_fudge_log ((char *)cur, volsize);
+			shrunk = restore_fudge_log (is_64bit, (char *)cur, volsize);
 
 			if (shrunk)
 			{
@@ -2420,22 +2579,44 @@ restore_fixup_vol_list (struct backup_info *info)
 		return -1;
 	}
 
-	bzero (vol.hdr.partitionlist, sizeof (vol.hdr.partitionlist));
-
-	for (loop = 0; loop < info->nmfs; loop++)
+	if (info->back_flags & BF_64)
 	{
-		sprintf (vol.hdr.partitionlist + strlen (vol.hdr.partitionlist), "%s/dev/hd%c%d", loop > 0? " ": "", 'a' + info->mfsparts[loop].devno, info->mfsparts[loop].partno);
-	}
+		bzero (vol.hdr.v64.partitionlist, sizeof (vol.hdr.v64.partitionlist));
 
-	if (strlen (vol.hdr.partitionlist) + 1 > sizeof (vol.hdr.partitionlist))
+		for (loop = 0; loop < info->nmfs; loop++)
+		{
+			sprintf (vol.hdr.v64.partitionlist + strlen (vol.hdr.v64.partitionlist), "%s/dev/hd%c%d", loop > 0? " ": "", 'a' + info->mfsparts[loop].devno, info->mfsparts[loop].partno);
+		}
+
+		if (strlen (vol.hdr.v64.partitionlist) + 1 > sizeof (vol.hdr.v64.partitionlist))
+		{
+			info->err_msg = "Partition list too long";
+			return -1;
+		}
+
+		vol.hdr.v64.total_sectors = intswap64 (mfsvol_volume_set_size (info->vols));
+
+		MFS_update_crc (&vol.hdr.v64, sizeof (vol.hdr.v64), vol.hdr.v64.checksum);
+	}
+	else
 	{
-		info->err_msg = "Partition list too long";
-		return -1;
+		bzero (vol.hdr.v32.partitionlist, sizeof (vol.hdr.v32.partitionlist));
+
+		for (loop = 0; loop < info->nmfs; loop++)
+		{
+			sprintf (vol.hdr.v32.partitionlist + strlen (vol.hdr.v32.partitionlist), "%s/dev/hd%c%d", loop > 0? " ": "", 'a' + info->mfsparts[loop].devno, info->mfsparts[loop].partno);
+		}
+
+		if (strlen (vol.hdr.v32.partitionlist) + 1 > sizeof (vol.hdr.v32.partitionlist))
+		{
+			info->err_msg = "Partition list too long";
+			return -1;
+		}
+
+		vol.hdr.v32.total_sectors = intswap32 (mfsvol_volume_set_size (info->vols));
+
+		MFS_update_crc (&vol.hdr.v32, sizeof (vol.hdr.v32), vol.hdr.v32.checksum);
 	}
-
-	vol.hdr.total_sectors = intswap32 (mfsvol_volume_set_size (info->vols));
-
-	MFS_update_crc (&vol.hdr, sizeof (vol.hdr), vol.hdr.checksum);
 
 	if (mfsvol_write_data (info->vols, (void *)&vol, 0, 1) != 512 || mfsvol_write_data (info->vols, (void *)&vol, mfsvol_volume_size (info->vols, 0) - 1, 1) != 512)
 	{
@@ -2449,12 +2630,17 @@ restore_fixup_vol_list (struct backup_info *info)
 int
 restore_fixup_zone_maps(struct backup_info *info)
 {
-	unsigned int tot;
+	uint64_t tot;
 	union {
 		volume_header hdr;
 		char pad[512];
 	} vol;
 	zone_header *cur;
+
+	uint64_t cursector, sbackup, nextsector;
+
+	unsigned length;
+	int didtruncate = 0;
 
 	if (!(info->back_flags & BF_SHRINK))
 		return 0;
@@ -2467,51 +2653,111 @@ restore_fixup_zone_maps(struct backup_info *info)
 		return -1;
 	}
 
-	cur = malloc (intswap32 (vol.hdr.zonemap.length) * 512);
+	cur = malloc (512);
 	if (!cur)
 	{
 		info->err_msg = "Memory exhausted";
 		return -1;
 	}
 
-	if (mfsvol_read_data (info->vols, (void *)cur, intswap32 (vol.hdr.zonemap.sector), intswap32 (vol.hdr.zonemap.length)) != intswap32 (vol.hdr.zonemap.length) * 512)
+	if (info->back_flags & BF_64)
+	{
+		cursector = intswap64 (vol.hdr.v64.zonemap.sector);
+	}
+	else
+	{
+		cursector = intswap32 (vol.hdr.v32.zonemap.sector);
+	}
+
+	if (mfsvol_read_data (info->vols, (void *)cur, cursector, 1) != 512)
 	{
 		free (cur);
 		info->err_msg = "Error truncating MFS volume";
 		return -1;
 	}
 
-	while (cur->next.sector && intswap32 (cur->next.sector) < tot)
+	if (info->back_flags & BF_64)
 	{
-		unsigned int sector = intswap32 (cur->next.sector);
-		unsigned int length = intswap32 (cur->next.length);
+		nextsector = intswap64 (cur->z64.next_sector);
+		length = intswap32 (cur->z64.length);
+	}
+	else
+	{
+		nextsector = intswap32 (cur->z32.next.sector);
+		length = intswap32 (cur->z32.length);
+	}
 
-		cur = realloc (cur, length * 512);
+	while (nextsector && nextsector < tot)
+	{
+		cursector = nextsector;
 
-		if (!cur)
-		{
-			info->err_msg = "Memory exhausted";
-			return -1;
-		}
-
-		if (mfsvol_read_data (info->vols, (void *)cur, sector, length) != length * 512)
+		if (mfsvol_read_data (info->vols, (void *)cur, cursector, 1) != 512)
 		{
 			info->err_msg = "Error truncating MFS volume";
 			free (cur);
 			return -1;
 		}
+
+		if (info->back_flags & BF_64)
+		{
+			nextsector = intswap64 (cur->z64.next_sector);
+			length = intswap32 (cur->z64.length);
+		}
+		else
+		{
+			nextsector = intswap32 (cur->z32.next.sector);
+			length = intswap32 (cur->z32.length);
+		}
 	}
 
-	if (cur->next.sector)
+	cur = realloc (cur, length * 512);
+	if (!cur)
 	{
-		cur->next.sector = 0;
-		cur->next.length = 0;
-		cur->next.size = 0;
-		cur->next.min = 0;
+		info->err_msg = "Memory exhausted";
+		return -1;
+	}
 
-		MFS_update_crc (cur, intswap32 (cur->length) * 512, cur->checksum);
+	if (mfsvol_read_data (info->vols, (void *)cur, cursector, length) != length * 512)
+	{
+		info->err_msg = "Error truncating MFS volume";
+		free (cur);
+		return -1;
+	}
 
-		if (mfsvol_write_data (info->vols, (void *)cur, intswap32 (cur->sector), intswap32 (cur->length)) != intswap32 (cur->length) * 512 || mfsvol_write_data (info->vols, (void *)cur, intswap32 (cur->sbackup), intswap32 (cur->length)) != intswap32 (cur->length) * 512)
+	if (info->back_flags & BF_64)
+	{
+		if (cur->z64.next_sector)
+		{
+			cur->z64.next_sector = 0;
+			cur->z64.next_length = 0;
+			cur->z64.next_size = 0;
+			cur->z64.next_min = 0;
+
+			sbackup = intswap64 (cur->z64.sbackup);
+
+			MFS_update_crc (cur, length * 512, cur->z64.checksum);
+			didtruncate = 1;
+		}
+	}
+	else
+	{
+		if (cur->z32.next.sector)
+		{
+			cur->z32.next.sector = 0;
+			cur->z32.next.length = 0;
+			cur->z32.next.size = 0;
+			cur->z32.next.min = 0;
+
+			sbackup = intswap32 (cur->z32.sbackup);
+
+			MFS_update_crc (cur, length * 512, cur->z32.checksum);
+			didtruncate = 1;
+		}
+	}
+
+	if (didtruncate)
+	{
+		if (mfsvol_write_data (info->vols, (void *)cur, cursector, length) != length * 512 || mfsvol_write_data (info->vols, (void *)cur, sbackup, length) != length * 512)
 		{
 			info->err_msg = "Error truncating MFS volume";
 			free (cur);
