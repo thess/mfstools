@@ -46,7 +46,7 @@ copy_usage (char *progname)
 }
 
 static unsigned int
-get_percent (unsigned int current, unsigned int max)
+get_percent (uint64_t current, uint64_t max)
 {
 	unsigned int prcnt;
 	if (max <= 0x7fffffff / 10000)
@@ -65,8 +65,8 @@ get_percent (unsigned int current, unsigned int max)
 	return prcnt;
 }
 
-static unsigned int
-sectors_no_reserved (unsigned int sectors)
+static uint64_t
+sectors_no_reserved (uint64_t sectors)
 {
 	if (sectors < 14 * 1024 * 1024 * 2)
 		return sectors;
@@ -79,11 +79,11 @@ static void
 display_backup_info (struct backup_info *info)
 {
 	zone_header *hdr = 0;
-	unsigned int sizes[32];
+	uint64_t sizes[32];
 	int count = 0;
 	int loop;
-	unsigned int backuptot = 0;
-	unsigned int backupmfs = 0;
+	uint64_t backuptot = 0;
+	uint64_t backupmfs = 0;
 
 	for (loop = 0; loop < info->nmfs; loop++)
 	{
@@ -92,10 +92,27 @@ display_backup_info (struct backup_info *info)
 
 	while ((hdr = mfs_next_zone (info->mfs, hdr)) != 0)
 	{
-		if (intswap32 (hdr->type) == ztMedia)
+		unsigned int zonetype;
+		uint64_t zonesize;
+		uint64_t zonefirst;
+
+		if (mfs_is_64bit (info->mfs))
 		{
-			unsigned int size = intswap32 (hdr->size);
-			if (intswap32 (hdr->first) < backupmfs)
+			zonetype = intswap32 (hdr->z64.type);
+			zonesize = intswap64 (hdr->z64.size);
+			zonefirst = intswap64 (hdr->z64.first);
+		}
+		else
+		{
+			zonetype = intswap32 (hdr->z32.type);
+			zonesize = intswap32 (hdr->z32.size);
+			zonefirst = intswap32 (hdr->z32.first);
+		}
+
+		if (zonetype == ztMedia)
+		{
+			unsigned int size = zonesize;
+			if (zonefirst < backupmfs)
 				backuptot += size;
 			sizes[count++] = size;
 		}

@@ -58,9 +58,9 @@ backup_scan_inodes (struct backup_info *info)
 {
 	unsigned int loop, loop2, loop3;
 	int ninodes = mfs_inode_count (info->mfs);
-	unsigned int highest = 0;
+	uint64_t highest = 0;
 
-	unsigned int appsectors = 0, mediasectors = 0;
+	uint64_t appsectors = 0, mediasectors = 0;
 #if DEBUG
 	unsigned int mediainodes = 0, appinodes = 0;
 #endif
@@ -90,9 +90,9 @@ backup_scan_inodes (struct backup_info *info)
 			unsigned int streamsize;
 
 			if (info->back_flags & (BF_THRESHTOT | BF_STREAMTOT))
-				streamsize = htonl (inode->blocksize) / 512 * htonl (inode->size);
+				streamsize = intswap32 (inode->blocksize) / 512 * intswap32 (inode->size);
 			else
-				streamsize = htonl (inode->blocksize) / 512 * htonl (inode->blockused);
+				streamsize = intswap32 (inode->blocksize) / 512 * intswap32 (inode->blockused);
 
 /* Ignore streams with no allocated data. */
 			if (streamsize == 0)
@@ -107,7 +107,7 @@ backup_scan_inodes (struct backup_info *info)
 				continue;
 			}
 /* Ignore streams bigger than the threshhold. (fsID) */
-			if (!(info->back_flags & BF_THRESHSIZE) && htonl (inode->fsid) > info->thresh)
+			if (!(info->back_flags & BF_THRESHSIZE) && intswap32 (inode->fsid) > info->thresh)
 			{
 				free (inode);
 				continue;
@@ -115,7 +115,7 @@ backup_scan_inodes (struct backup_info *info)
 
 /* If the total size is only for comparison, get the used size now. */
 			if ((info->back_flags & (BF_THRESHTOT | BF_STREAMTOT)) == BF_THRESHTOT)
-				streamsize = htonl (inode->blocksize) / 512 * htonl (inode->blockused);
+				streamsize = intswap32 (inode->blocksize) / 512 * intswap32 (inode->blockused);
 
 /* Count the inode's sectors in the total. */
 			mediasectors += streamsize;
@@ -133,13 +133,13 @@ backup_scan_inodes (struct backup_info *info)
 			}
 
 #if DEBUG
-			fprintf (stderr, "Inode %d (%d) added\n", htonl (inode->inode), htonl (inode->fsid));
+			fprintf (stderr, "Inode %d (%d) added\n", intswap32 (inode->inode), intswap32 (inode->fsid));
 #endif
 		}
-		else if (inode->refcount != 0 && inode->type != tyStream && htonl (inode->size) > 512 - offsetof (mfs_inode, datablocks) && inode->numblocks > 0)
+		else if (inode->refcount != 0 && inode->type != tyStream && intswap32 (inode->size) > 512 - offsetof (mfs_inode, datablocks) && inode->numblocks > 0)
 		{
 /* Count the space used by non-stream inodes */
-			appsectors += ((htonl (inode->size) + 511) & ~511) >> 9;
+			appsectors += ((intswap32 (inode->size) + 511) & ~511) >> 9;
 #if DEBUG
 			appinodes++;
 #endif
@@ -147,10 +147,21 @@ backup_scan_inodes (struct backup_info *info)
 		}
 
 /* Either an application data inode or a stream inode being backed up. */
-		for (loop2 = 0; loop2 < htonl (inode->numblocks); loop2++)
+		for (loop2 = 0; loop2 < intswap32 (inode->numblocks); loop2++)
 		{
-			unsigned int thiscount = htonl (inode->datablocks[loop2].count);
-			unsigned int thissector = htonl (inode->datablocks[loop2].sector);
+			uint64_t thiscount;
+			unsigned int thissector;
+
+			if (mfs_is_64bit (info->mfs))
+			{
+				thiscount = intswap32 (inode->datablocks.d64[loop2].count);
+				thissector = intswap64 (inode->datablocks.d64[loop2].sector);
+			}
+			else
+			{
+				thiscount = intswap32 (inode->datablocks.d32[loop2].count);
+				thissector = intswap32 (inode->datablocks.d32[loop2].sector);
+			}
 
 			if (highest < thiscount + thissector)
 			{
@@ -164,7 +175,7 @@ backup_scan_inodes (struct backup_info *info)
 // Make sure all needed data is present.
 	if (info->back_flags & BF_TRUNCATED)
 	{
-		unsigned set_size = mfs_volume_set_size (info->mfs);
+		uint64_t set_size = mfs_volume_set_size (info->mfs);
 		if (highest > set_size)
 		{
 			info->err_msg = "Required data at %ld beyond end of the device (%ld)";
@@ -475,17 +486,42 @@ backup_info_count_misc (struct backup_info *info)
 	info->nsectors++;
 // Checksum
 	info->nsectors++;
+	if (mfs_is_64bit (info->mfs))
+	{
 // Transaction log
-	info->nsectors += htonl (info->mfs->vol_hdr.lognsectors);
+		info->nsectors += intswap32 (info->mfs->vol_hdr.v64.lognsectors);
 // ??? region
-	info->nsectors += htonl (info->mfs->vol_hdr.unksectors);
+		info->nsectors += intswap32 (info->mfs->vol_hdr.v64.unknsectors);
+	}
+	else
+	{
+// Transaction log
+		info->nsectors += intswap32 (info->mfs->vol_hdr.v32.lognsectors);
+// ??? region
+		info->nsectors += intswap32 (info->mfs->vol_hdr.v32.unksectors);
+	}
+
 // Zone maps
 	while ((zone = mfs_next_zone (info->mfs, zone)) != NULL)
 	{
-		if (info->shrink_to && htonl (zone->sector) > info->shrink_to)
+		uint64_t zonesector;
+		unsigned int zonelength;
+
+		if (mfs_is_64bit (info->mfs))
+		{
+			zonesector = intswap64 (zone->z64.sector);
+			zonelength = intswap32 (zone->z64.length);
+		}
+		else
+		{
+			zonesector = intswap32 (zone->z32.sector);
+			zonelength = intswap32 (zone->z32.length);
+		}
+
+		if (info->shrink_to && zonesector > info->shrink_to)
 			break;
 
-		info->nsectors += htonl (zone->length);
+		info->nsectors += zonelength;
 	}
 }
 
@@ -514,6 +550,11 @@ init_backup (char *device, char *device2, int flags)
 	info->mfs = mfs_init (device, device2, O_RDONLY);
  
  	info->back_flags = flags;
+
+	if (info->mfs && mfs_is_64bit (info->mfs))
+	{
+		info->back_flags |= BF_64;
+	}
 
 	info->thresh = 2000;
 
@@ -545,27 +586,41 @@ backup_set_thresh (struct backup_info *info, unsigned int thresh)
 int
 backup_verify_zone_maps (struct backup_info *info)
 {
-	unsigned volume_size = mfs_volume_set_size (info->mfs);
+	uint64_t volume_size = mfs_volume_set_size (info->mfs);
 	zone_header *zone;
 
 #if DEBUG
-	fprintf (stderr, "Volume set size %ld\n", volume_size);
+	fprintf (stderr, "Volume set size %lld\n", volume_size);
 #endif
 
 	for (zone = mfs_next_zone (info->mfs, NULL); zone; zone = mfs_next_zone (info->mfs, zone))
 	{
+		unsigned int zonetype;
+		uint64_t zonefirst;
+
+		if (mfs_is_64bit (info->mfs))
+		{
+			zonetype = intswap32 (zone->z64.type);
+			zonefirst = intswap64 (zone->z64.first);
+		}
+		else
+		{
+			zonetype = intswap32 (zone->z32.type);
+			zonefirst = intswap32 (zone->z32.first);
+		}
+
 		// Media zones will be accounted for later.
-		if (zone->type == ztMedia)
+		if (zonetype == ztMedia)
 			continue;
 
 #if DEBUG
-		fprintf (stderr, "Zone type %d at %ld\n", zone->type, zone->first);
+		fprintf (stderr, "Zone type %d at %lld\n", zonetype, zonefirst);
 #endif
 
-		if (intswap32 (zone->first) >= volume_size)
+		if (zonefirst >= volume_size)
 		{
 			info->err_msg = "%s zone outside available volume";
-			switch (zone->type)
+			switch (zonetype)
 			{
 			case ztInode:
 				info->err_arg1 = "Inode";
@@ -945,7 +1000,22 @@ backup_state_volume_header_v3 (struct backup_info *info, void *data, unsigned si
 enum backup_state_ret
 backup_state_transaction_log_v3 (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
 {
-	unsigned tocopy = htonl (info->mfs->vol_hdr.lognsectors) - info->state_val1;
+	unsigned tocopy;
+	uint64_t logstart;
+	unsigned lognsectors;
+
+	if (mfs_is_64bit (info->mfs))
+	{
+		logstart = intswap64 (info->mfs->vol_hdr.v64.logstart);
+		lognsectors = intswap32 (info->mfs->vol_hdr.v64.lognsectors);
+	}
+	else
+	{
+		logstart = intswap32 (info->mfs->vol_hdr.v32.logstart);
+		lognsectors = intswap32 (info->mfs->vol_hdr.v32.lognsectors);
+	}
+
+	tocopy = lognsectors - info->state_val1;
 
 	if (size == 0)
 	{
@@ -958,7 +1028,7 @@ backup_state_transaction_log_v3 (struct backup_info *info, void *data, unsigned 
 		tocopy = size;
 	}
 
-	if (mfs_read_data (info->mfs, data, htonl (info->mfs->vol_hdr.logstart) + info->state_val1, tocopy) < 0)
+	if (mfs_read_data (info->mfs, data, logstart + info->state_val1, tocopy) < 0)
 	{
 		info->err_msg = "Error reading MFS transaction log";
 		return bsError;
@@ -967,7 +1037,7 @@ backup_state_transaction_log_v3 (struct backup_info *info, void *data, unsigned 
 	*consumed = tocopy;
 	info->state_val1 += tocopy;
 
-	if (info->state_val1 < htonl (info->mfs->vol_hdr.lognsectors))
+	if (info->state_val1 < lognsectors)
 		return bsMoreData;
 
 	return bsNextState;
@@ -983,7 +1053,22 @@ backup_state_transaction_log_v3 (struct backup_info *info, void *data, unsigned 
 enum backup_state_ret
 backup_state_unk_region_v3 (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
 {
-	unsigned tocopy = htonl (info->mfs->vol_hdr.unksectors) - info->state_val1;
+	unsigned tocopy;
+	uint64_t unkstart;
+	uint32_t unksectors;
+
+	if (mfs_is_64bit (info->mfs))
+	{
+		unkstart = intswap64 (info->mfs->vol_hdr.v64.unkstart);
+		unksectors = intswap32 (info->mfs->vol_hdr.v64.unknsectors);
+	}
+	else
+	{
+		unkstart = intswap32 (info->mfs->vol_hdr.v32.unkstart);
+		unksectors = intswap32 (info->mfs->vol_hdr.v32.unksectors);
+	}
+
+	tocopy = unksectors - info->state_val1;
 
 	if (size == 0)
 	{
@@ -996,7 +1081,7 @@ backup_state_unk_region_v3 (struct backup_info *info, void *data, unsigned size,
 		tocopy = size;
 	}
 
-	if (mfs_read_data (info->mfs, data, htonl (info->mfs->vol_hdr.unkstart) + info->state_val1, tocopy) < 0)
+	if (mfs_read_data (info->mfs, data, unkstart + info->state_val1, tocopy) < 0)
 	{
 		info->err_msg = "Error reading MFS data";
 		return bsError;
@@ -1005,7 +1090,7 @@ backup_state_unk_region_v3 (struct backup_info *info, void *data, unsigned size,
 	*consumed = tocopy;
 	info->state_val1 += tocopy;
 
-	if (info->state_val1 < htonl (info->mfs->vol_hdr.unksectors))
+	if (info->state_val1 < unksectors)
 		return bsMoreData;
 
 	return bsNextState;
@@ -1022,6 +1107,7 @@ backup_state_zone_maps_v3 (struct backup_info *info, void *data, unsigned size, 
 {
 	unsigned tocopy;
 	zone_header *cur_zone = info->state_ptr1;
+	unsigned int zonelength;
 
 	if (size == 0)
 	{
@@ -1031,6 +1117,7 @@ backup_state_zone_maps_v3 (struct backup_info *info, void *data, unsigned size, 
 
 	if (info->state_val1 == 0)
 	{
+		uint64_t zonesector;
 		cur_zone = mfs_next_zone (info->mfs, cur_zone);
 
 		if (!cur_zone)
@@ -1038,7 +1125,16 @@ backup_state_zone_maps_v3 (struct backup_info *info, void *data, unsigned size, 
 			return bsNextState;
 		}
 
-		if (info->shrink_to > 0 && info->shrink_to < htonl (cur_zone->sector))
+		if (mfs_is_64bit (info->mfs))
+		{
+			zonesector = intswap64 (cur_zone->z64.sector);
+		}
+		else
+		{
+			zonesector = intswap32 (cur_zone->z32.sector);
+		}
+
+		if (info->shrink_to > 0 && info->shrink_to < zonesector)
 		{
 /* The restore will be able to figure out the next zone is beyond the end of */
 /* the shrunken volume. */
@@ -1048,7 +1144,16 @@ backup_state_zone_maps_v3 (struct backup_info *info, void *data, unsigned size, 
 		info->state_ptr1 = cur_zone;
 	}
 
-	tocopy = htonl (cur_zone->length) - info->state_val1;
+	if (mfs_is_64bit (info->mfs))
+	{
+		zonelength = intswap32 (cur_zone->z64.length);
+	}
+	else
+	{
+		zonelength = intswap32 (cur_zone->z32.length);
+	}
+
+	tocopy = zonelength - info->state_val1;
 
 	if (tocopy > size)
 	{
@@ -1060,7 +1165,7 @@ backup_state_zone_maps_v3 (struct backup_info *info, void *data, unsigned size, 
 	*consumed = tocopy;
 	info->state_val1 += tocopy;
 
-	if (info->state_val1 >= htonl (cur_zone->length))
+	if (info->state_val1 >= zonelength)
 	{
 		info->state_val1 = 0;
 	}
@@ -1103,10 +1208,10 @@ backup_state_app_inodes_v3 (struct backup_info *info, void *data, unsigned size,
 /* initialization values being "good" */
 /* Trying to recover instead of aborting for the sake of drive failure */
 /* recovery. */
-		if (info->state_val1 != htonl (inode->inode))
+		if (info->state_val1 != intswap32 (inode->inode))
 		{
 			fprintf (stderr, "Inode %d uninitialized\n", info->state_val1);
-			inode->inode = htonl (info->state_val1);
+			inode->inode = intswap32 (info->state_val1);
 			inode->refcount = 0;
 			inode->numblocks = 0;
 			inode->fsid = 0;
@@ -1115,12 +1220,19 @@ backup_state_app_inodes_v3 (struct backup_info *info, void *data, unsigned size,
 		}
 
 		inode_size = offsetof (mfs_inode, datablocks);
-		inode_size += htonl (inode->numblocks) * sizeof (inode->datablocks[0]);
+		if (mfs_is_64bit (info->mfs))
+		{
+			inode_size += intswap32 (inode->numblocks) * sizeof (inode->datablocks.d64[0]);
+		}
+		else
+		{
+			inode_size += intswap32 (inode->numblocks) * sizeof (inode->datablocks.d32[0]);
+		}
 
 /* Data in inode. */
-		if (inode->type != tyStream && (inode->inode_flags & htonl (INODE_DATA)))
+		if (inode->type != tyStream && (inode->inode_flags & intswap32 (INODE_DATA)))
 		{
-			inode_size += htonl (inode->size);
+			inode_size += intswap32 (inode->size);
 			if (inode_size > 512)
 				inode_size = 512;
 		}
@@ -1143,8 +1255,8 @@ backup_state_app_inodes_v3 (struct backup_info *info, void *data, unsigned size,
 		inode = info->state_ptr1;
 	}
 
-	if (inode->type != tyStream && inode->refcount > 0 && inode->numblocks > 0 && !(inode->inode_flags & htonl (INODE_DATA)))
-		tocopy = htonl (inode->size) - (info->state_val2 - 1) * 512;
+	if (inode->type != tyStream && inode->refcount > 0 && inode->numblocks > 0 && !(inode->inode_flags & intswap32 (INODE_DATA)))
+		tocopy = intswap32 (inode->size) - (info->state_val2 - 1) * 512;
 
 	copied = tocopy;
 
@@ -1226,12 +1338,12 @@ backup_state_media_inodes_v3 (struct backup_info *info, void *data, unsigned siz
 
 /* Check if total size or used size is requested for backup */
 	if (info->back_flags & BF_STREAMTOT)
-		tocopy = htonl (inode->size);
+		tocopy = intswap32 (inode->size);
 	else
-		tocopy = htonl (inode->blockused);
+		tocopy = intswap32 (inode->blockused);
 
 /* tocopy is currently in blocksize chunks, convert it to disk sectors */
-	tocopy *= htonl (inode->blocksize) / 512;
+	tocopy *= intswap32 (inode->blocksize) / 512;
 
 	tocopy -= info->state_val2;
 
@@ -1245,7 +1357,7 @@ backup_state_media_inodes_v3 (struct backup_info *info, void *data, unsigned siz
 	if (mfs_read_inode_data_part (info->mfs, inode, data, info->state_val2, copied) < 0)
 	{
 		info->err_msg = "Error reading from tyStream id %d";
-		info->err_arg1 = (void *)htonl (inode->fsid);
+		info->err_arg1 = (void *)intswap32 (inode->fsid);
 		free (inode);
 		return bsError;
 	}
