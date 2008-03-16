@@ -54,7 +54,7 @@ struct {
 	{"add", mfsadd_main, "Add partitions to your TiVo MFS volume."},
 #endif
 #if BUILD_MFSCK
-	{"ck", mfsadd_main, "Perform a simple consistency check on MFS."},
+	{"ck", mfsck_main, "Perform a simple consistency check on MFS."},
 #endif
 #if BUILD_MLS
 	{"mls", mls_main, "List files in the MFS volume."},
