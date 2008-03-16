@@ -32,6 +32,9 @@ extern int mfsd_main (int, char **);
 #if BUILD_MFSINFO
 extern int mfsinfo_main (int, char **);
 #endif
+#if BUILD_MFSCK
+extern int mfsck_main (int, char **);
+#endif
 
 struct {
 	char *name;
@@ -49,6 +52,9 @@ struct {
 #endif
 #if BUILD_MFSADD
 	{"add", mfsadd_main, "Add partitions to your TiVo MFS volume."},
+#endif
+#if BUILD_MFSCK
+	{"ck", mfsadd_main, "Perform a simple consistency check on MFS."},
 #endif
 #if BUILD_MLS
 	{"mls", mls_main, "List files in the MFS volume."},
