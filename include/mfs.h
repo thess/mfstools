@@ -159,5 +159,6 @@ void mfs_clearerror (struct mfs_handle *mfshnd);
 #define mfs_enable_memwrite(mfshnd) mfsvol_enable_memwrite ((mfshnd)->vols)
 #define mfs_discard_memwrite(mfshnd) mfsvol_discard_memwrite ((mfshnd)->vols)
 #define mfs_is_64bit(mfshnd) ((mfshnd)->is_64)
+#define mfs_volume_header(mfshnd) (&(mfshnd)->vol_hdr)
 
 #endif	/* MFS_H */

@@ -22,6 +22,16 @@ AM_CONDITIONAL(BUILD_MFSADD, test x$build_mfsadd = xtrue)
 AH_TEMPLATE([BUILD_MFSADD],
 	[Build the mfsadd standalone utility or mfstool utility.])
   
+AC_ARG_ENABLE(mfsck,
+[  --disable-mfsck	Don't build mfsck],
+[case "${enableval}" in
+  yes) build_mfsck=true; AC_DEFINE(BUILD_MFSCK) ;;
+  no)  build_mfsck=false ;;
+esac],[build_mfsck=true; AC_DEFINE(BUILD_MFSCK)])
+AM_CONDITIONAL(BUILD_MFSCK, test x$build_mfsck = xtrue)
+AH_TEMPLATE([BUILD_MFSCK],
+	[Build the mfsck standalone utility or mfstool utility.])
+  
 AC_ARG_ENABLE(mls,
 [  --disable-mls	Don't build mls],
 [case "${enableval}" in
@@ -140,6 +150,7 @@ AC_OUTPUT(
 Makefile
 lib/Makefile
 mfsadd/Makefile
+mfsck/Makefile
 mls/Makefile
 mfsd/Makefile
 backup/Makefile
