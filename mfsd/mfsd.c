@@ -702,7 +702,7 @@ dump_zone_map_64 (uint64_t sector, unsigned char *buf, unsigned int bufsize)
 		printf ("Next zone:                Sector: %09llx        Backup: %09llx\n", intswap64 (zone->next_sector), intswap64 (zone->next_sbackup));
 		printf ("   Length: %08x         Size: %08x    Block size: %08x\n", intswap32 (zone->next_length), intswap32 (zone->next_size), intswap32 (zone->next_min));
 		printf ("First    : %09llx        Last: %09llx\n", intswap64 (zone->first), intswap64 (zone->last));
-		printf (" Size    : %08x         Free: %08x\n", intswap32 (zone->size), intswap32 (zone->free));
+		printf (" Size    : %09llx        Free: %09llx\n", intswap64 (zone->size), intswap64 (zone->free));
 	}
 	else
 	{
@@ -711,7 +711,7 @@ dump_zone_map_64 (uint64_t sector, unsigned char *buf, unsigned int bufsize)
 		printf ("Next zone:                Sector: %-13lld    Backup: %lld\n", intswap64 (zone->next_sector), intswap64 (zone->next_sbackup));
 		printf ("   Length: %-13d    Size: %-13dBlock size: %d\n", intswap32 (zone->next_length), intswap32 (zone->next_size), intswap32 (zone->next_min));
 		printf ("First    : %-13lld    Last: %lld\n", intswap64 (zone->first), intswap64 (zone->last));
-		printf (" Size    : %-13d    Free: %d\n", intswap32 (zone->size), intswap32 (zone->free));
+		printf (" Size    : %-13lld    Free: %lld\n", intswap64 (zone->size), intswap64 (zone->free));
 	}
 	printf ("Logstamp : %-13dChecksum: %08x           Zero: %d\n", intswap32 (zone->logstamp), intswap32 (zone->checksum), intswap32 (zone->zero));
 	printf ("Bitmaps: %-13dfsmem base: %08x\n", intswap32 (zone->num), fsmem_base);

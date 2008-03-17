@@ -347,6 +347,9 @@ scan_zone_maps (struct mfs_handle *mfs, zone_bitmap **ckbitmaps)
 			{
 				unsigned int bits;
 				unsigned int curbit;
+				/* Just track the last bit in this int for reporting what can */
+				/* be combined in the bitmap */
+				unsigned int lastbit = -1;
 
 				/* If no bits found here, skip to the next int */
 				if (!ints[curint])
@@ -360,20 +363,26 @@ scan_zone_maps (struct mfs_handle *mfs, zone_bitmap **ckbitmaps)
 					{
 						int bitno = curint * 32 + curbit;
 
+						if ((curbit & 1) && lastbit == curbit - 1)
+						{
+							printf ("Zone %d bitmap %d bits %d-%d (%lld-%lld) has blocks that could be combined\n", zoneno, loop, bitno - 1, bitno, (bitno - 1) * blocksize + (*bitmaploop)->first, (bitno + 1) * blocksize - 1 + (*bitmaploop)->first);
+						}
+						lastbit = curbit;
+
 						/* Clear it so the loop can break out early */
 						bits &= ~(1 << (31 - curbit));
 
 						/* Make sure it is within the bitmap */
 						if (bitno >= size)
 						{
-							printf ("Zone %d bitmap %d has free space beyond the zone - bit %d (%lld-%lld)\n", zoneno, loop, bitno, bitno * blocksize, (bitno + 1) * blocksize - 1);
+							printf ("Zone %d bitmap %d has free space beyond the zone - bit %d (%lld-%lld)\n", zoneno, loop, bitno, bitno * blocksize + (*bitmaploop)->first, (bitno + 1) * blocksize - 1 + (*bitmaploop)->first);
 							continue;
 						}
 
 						/* Make sure the bit wasn't already set */
 						if (!scan_bit_range (*bitmaploop, bitno << loop, ((bitno + 1) << loop) - 1, 0))
 						{
-							printf ("Zone %d bitmap %d bit %d (%lld-%lld) overlaps with previous bitmap\n", zoneno, loop, bitno, bitno * blocksize, (bitno + 1) * blocksize - 1);
+							printf ("Zone %d bitmap %d bit %d (%lld-%lld) overlaps with previous bitmap\n", zoneno, loop, bitno, bitno * blocksize + (*bitmaploop)->first, (bitno + 1) * blocksize - 1 + (*bitmaploop)->first);
 						}
 
 						/* Track this bitmap's bit */
@@ -399,7 +408,7 @@ scan_zone_maps (struct mfs_handle *mfs, zone_bitmap **ckbitmaps)
 		totalfree += foundfree;
 	}
 
-	printf ("Total: %lld free sectors in %d chunks across %d zone maps\n", totalfree, totalbits, zoneno);
+	printf ("Total: %lld free sectors in %d chunks across %d zone maps\n", totalfree, totalbits, zoneno + 1);
 }
 
 void
