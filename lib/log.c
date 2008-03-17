@@ -124,24 +124,23 @@ mfs_log_add_entry (struct mfs_handle *mfshnd, log_entry *entry)
 
 		/* Copy the partial data */
 		memcpy ((unsigned char *)(mfshnd->current_log + 1) + intswap32 (mfshnd->current_log->size), (unsigned char *)entry + copystart, 512 - intswap32 (mfshnd->current_log->size) - sizeof (log_hdr));
+		copystart += 512 - sizeof (log_hdr) - intswap32 (mfshnd->current_log->size);
 		mfshnd->current_log->size = intswap32 (512 - sizeof (log_hdr));
 
 		/* Write the (now full) log entry */
 		mfs_log_write_current_log (mfshnd);
 
-		/* Record that part has been written */
-		copystart += 512 - sizeof (log_hdr) - intswap32 (mfshnd->current_log->size);
 		if (intswap16 (entry->length) - copystart > 512 - sizeof (log_hdr))
 		{
 			mfshnd->current_log->first = intswap32 (512 - sizeof (log_hdr));
 		}
 		else
 		{
-			mfshnd->current_log->first = intswap32 (intswap16 (entry->length) - copystart);
+			mfshnd->current_log->first = intswap32 (intswap16 (entry->length) + 2 - copystart);
 		}
 	}
 
-	if (copystart < intswap16 (entry->length))
+	if (copystart < intswap16 (entry->length) + 2)
 	{
 		memcpy ((unsigned char *)(mfshnd->current_log + 1) + intswap32 (mfshnd->current_log->size), (unsigned char *)entry + copystart, intswap16 (entry->length) + 2 - copystart);
 		mfshnd->current_log->size = intswap32 (intswap32 (mfshnd->current_log->size) + intswap16 (entry->length) + 2 - copystart);
@@ -292,8 +291,8 @@ mfs_log_inode_update (struct mfs_handle *mfshnd, mfs_inode *inode)
 	/* Get the fsid for log entries, just in case it's not in the inode block anymore (IE a free) */
 	if (inode->fsid)
 		fsid = intswap32 (inode->fsid);
-	else if (oldinode && inode->fsid)
-		fsid = intswap32 (inode->fsid);
+	else if (oldinode && oldinode->fsid)
+		fsid = intswap32 (oldinode->fsid);
 
 	if (oldinode)
 	{
@@ -340,8 +339,8 @@ mfs_log_inode_update (struct mfs_handle *mfshnd, mfs_inode *inode)
 	/* Copy the inode */
 	entry->fsid = inode->fsid;
 	entry->refcount = inode->refcount;
-	entry->bootcycles = mfshnd->bootcycle;
-	entry->bootsecs = mfshnd->bootsecs;
+	entry->bootcycles = intswap32 (mfshnd->bootcycle);
+	entry->bootsecs = intswap32 (mfshnd->bootsecs);
 	entry->inode = inode->inode;
 	entry->unk3 = inode->unk3;
 	entry->size = inode->size;
@@ -778,6 +777,19 @@ mfs_log_fssync (struct mfs_handle *mfshnd)
 		}
 
 		return ret;
+	}
+	else
+	{
+		if (!mfshnd->current_log)
+		{
+			mfshnd->current_log = calloc (512, 1);
+			/* +1 is the fssync, +2 is the first uncommitted log entry */
+			mfshnd->current_log->logstamp = intswap32 (mfs_log_last_sync (mfshnd) + 2);
+			mfshnd->current_log->crc = 0xdeadf00d;
+			mfshnd->current_log->size = 0;
+			mfshnd->current_log->first = 0;
+			mfs_log_find_inode_log_type (mfshnd, mfs_log_last_sync (mfshnd));
+		}
 	}
 
 	return 1;
