@@ -226,8 +226,8 @@ mfs_zone_map_update (struct mfs_handle *mfshnd, uint64_t sector, uint64_t size, 
 		return 0;
 	}
 	
-	if (mfshnd->is_64 && (intswap64 (zone->map->z64.first) - sector) % size ||
-		!mfshnd->is_64 && (intswap32 (zone->map->z32.first) - sector) % size)
+	if (mfshnd->is_64 && (sector - intswap64 (zone->map->z64.first)) % size ||
+		!mfshnd->is_64 && (sector - intswap32 (zone->map->z32.first)) % size)
 	{
 		mfshnd->err_msg = "Sector %u size %d not aligned with zone map";
 		mfshnd->err_arg1 = (void *)sector;

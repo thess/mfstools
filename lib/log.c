@@ -130,7 +130,7 @@ mfs_log_add_entry (struct mfs_handle *mfshnd, log_entry *entry)
 		/* Write the (now full) log entry */
 		mfs_log_write_current_log (mfshnd);
 
-		if (intswap16 (entry->length) - copystart > 512 - sizeof (log_hdr))
+		if (intswap16 (entry->length) + 2 - copystart > 512 - sizeof (log_hdr))
 		{
 			mfshnd->current_log->first = intswap32 (512 - sizeof (log_hdr));
 		}
@@ -606,6 +606,30 @@ mfs_log_load_list (struct mfs_handle *mfshnd, unsigned int start, unsigned int *
 
 		if (!cur)
 		{
+			/* If it started with a partial, read it that way */
+			if (curlog->first)
+			{
+				if (*list)
+				{
+					/* Not the first entry and we missed something - that's bad */
+					mfshnd->err_msg = "Error reading from log entry %d";
+					mfshnd->err_arg1 = (void *)start;
+					while (*list)
+					{
+						cur = *list;
+						*list = (*list)->next;
+						free (cur);
+					}
+					return 0;
+				}
+
+				curstart = intswap32 (curlog->first);
+				if (curstart >= intswap32 (curlog->size))
+				{
+					continue;
+				}
+			}
+
 			/* Start a new log entry */
 			partread = 0;
 			partremaining = intswap16 (*(unsigned short *)(buf + curstart + sizeof (log_hdr))) + 2;
