@@ -569,7 +569,7 @@ mfs_log_fssync_list (struct mfs_handle *mfshnd, struct log_entry_list *list)
 				break;
 			case ltFsSync:
 				/* Record the last log sync, but replay the whole list anyway */
-				mfshnd->lastlogsync = intswap32 (cur->logstamp);
+				mfshnd->lastlogsync = cur->logstamp;
 				break;
 			case ltInodeUpdate:
 				mfshnd->inode_log_type = ltInodeUpdate;
@@ -592,7 +592,7 @@ mfs_log_fssync_list (struct mfs_handle *mfshnd, struct log_entry_list *list)
 			struct log_entry_list *next = cur->next;
 			cur->next = NULL;
 
-			ret = mfs_log_commit_list (mfshnd, list, intswap32 (cur->logstamp));
+			ret = mfs_log_commit_list (mfshnd, list, cur->logstamp);
 			cur->next = next;
 			list = next;
 
