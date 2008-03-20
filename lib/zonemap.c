@@ -115,6 +115,58 @@ mfs_inode_to_sector (struct mfs_handle *mfshnd, unsigned int inode)
 	return 0;
 }
 
+static inline struct zone_map *
+mfs_zone_for_block (struct mfs_handle *mfshnd, uint64_t sector, uint64_t size)
+{
+	struct zone_map *zone;
+
+	if (mfshnd->is_64)
+	{
+	/* Find the zone to update based on the start sector */
+		for (zone = mfshnd->loaded_zones; zone; zone = zone->next_loaded)
+		{
+			if (sector >= intswap64 (zone->map->z64.first) && sector <= intswap64 (zone->map->z64.last))
+				break;
+		}
+	}
+	else
+	{
+	/* Find the zone to update based on the start sector */
+		for (zone = mfshnd->loaded_zones; zone; zone = zone->next_loaded)
+		{
+			if (sector >= intswap32 (zone->map->z32.first) && sector <= intswap32 (zone->map->z32.last))
+				break;
+		}
+	}
+
+	if (!zone)
+	{
+		mfshnd->err_msg = "Sector %u out of bounds for zone map";
+		mfshnd->err_arg1 = (void *)sector;
+		return NULL;
+	}
+
+	if (mfshnd->is_64 && sector + size - 1 > intswap64 (zone->map->z64.last) ||
+		!mfshnd->is_64 && sector + size - 1 > intswap32 (zone->map->z32.last))
+	{
+		mfshnd->err_msg = "Sector %u size %d crosses zone map boundry";
+		mfshnd->err_arg1 = (void *)sector;
+		mfshnd->err_arg2 = (void *)(uint32_t)size;
+		return NULL;
+	}
+	
+	if (mfshnd->is_64 && (sector - intswap64 (zone->map->z64.first)) % size ||
+		!mfshnd->is_64 && (sector - intswap32 (zone->map->z32.first)) % size)
+	{
+		mfshnd->err_msg = "Sector %u size %d not aligned with zone map";
+		mfshnd->err_arg1 = (void *)sector;
+		mfshnd->err_arg2 = (void *)(uint32_t)size;
+		return NULL;
+	}
+
+	return zone;
+}
+
 /************************************************************************/
 /* Return the state of a bit in a bitmap */
 static int
@@ -177,6 +229,65 @@ mfs_zone_map_bit_state_clear (bitmap_header *bitmap, unsigned int bit)
 }
 
 /************************************************************************/
+/* Get the current state of a specifc block in the zone map */
+/* This checks only for the explicit size, not that the block could be part */
+/* of a larger free block, for example. */
+int
+mfs_zone_map_block_state (struct mfs_handle *mfshnd, uint64_t sector, uint64_t size)
+{
+	int bitno;
+	int order;
+	unsigned int minalloc;
+	unsigned int numbitmaps;
+	uint64_t first;
+
+	struct zone_map *zone = mfs_zone_for_block (mfshnd, sector, size);
+	if (!zone)
+		return -1;
+
+	if (mfshnd->is_64)
+	{
+		minalloc = intswap32 (zone->map->z64.min);
+		numbitmaps = intswap32 (zone->map->z64.num);
+		first = intswap64 (zone->map->z64.first);
+	}
+	else
+	{
+		minalloc = intswap32 (zone->map->z32.min);
+		numbitmaps = intswap32 (zone->map->z32.num);
+		first = intswap32 (zone->map->z32.first);
+	}
+
+	/* Find which level of bitmaps this block is on */
+	for (order = 0; order < numbitmaps; order++)
+	{
+		if ((minalloc << order) >= size)
+			break;
+	}
+
+	/* One last set of sanity checks on the size */
+	if (order >= numbitmaps)
+	{
+		/* Should be caught by above check that it crosses the zone map boundry */
+		mfshnd->err_msg = "Sector %u size %d too large for zone map";
+		mfshnd->err_arg1 = (void *)sector;
+		mfshnd->err_arg2 = (void *)(uint32_t)size;
+		return -1;
+	}
+
+	if (((uint64_t)minalloc << order) != size)
+	{
+		mfshnd->err_msg = "Sector %u size %d not multiple of zone map allocation";
+		mfshnd->err_arg1 = (void *)sector;
+		mfshnd->err_arg2 = (void *)(uint32_t)size;
+		return -1;
+	}
+
+	/* Return the current state as 1 or 0 */
+	return mfs_zone_map_bit_state_get (zone->bitmaps[order], ((sector - first) >> order) / minalloc)? 1: 0;
+}
+
+/************************************************************************/
 /* Allocate or free a block out of the bitmap */
 int
 mfs_zone_map_update (struct mfs_handle *mfshnd, uint64_t sector, uint64_t size, unsigned int state, unsigned int logstamp)
@@ -190,50 +301,9 @@ mfs_zone_map_update (struct mfs_handle *mfshnd, uint64_t sector, uint64_t size, 
 	unsigned int minalloc;
 	unsigned int numbitmaps;
 
-	if (mfshnd->is_64)
-	{
-	/* Find the zone to update based on the start sector */
-		for (zone = mfshnd->loaded_zones; zone; zone = zone->next_loaded)
-		{
-			if (sector >= intswap64 (zone->map->z64.first) && sector <= intswap64 (zone->map->z64.last))
-				break;
-		}
-	}
-	else
-	{
-	/* Find the zone to update based on the start sector */
-		for (zone = mfshnd->loaded_zones; zone; zone = zone->next_loaded)
-		{
-			if (sector >= intswap32 (zone->map->z32.first) && sector <= intswap32 (zone->map->z32.last))
-				break;
-		}
-	}
-	
+	zone = mfs_zone_for_block (mfshnd, sector, size);
 	if (!zone)
-	{
-		mfshnd->err_msg = "Sector %u out of bounds for zone map update in logstamp %d";
-		mfshnd->err_arg1 = (void *)sector;
-		mfshnd->err_arg2 = (void *)logstamp;
 		return 0;
-	}
-
-	if (mfshnd->is_64 && sector + size - 1 > intswap64 (zone->map->z64.last) ||
-		!mfshnd->is_64 && sector + size - 1 > intswap32 (zone->map->z32.last))
-	{
-		mfshnd->err_msg = "Sector %u size %d crosses zone map boundry";
-		mfshnd->err_arg1 = (void *)sector;
-		mfshnd->err_arg2 = (void *)(uint32_t)size;
-		return 0;
-	}
-	
-	if (mfshnd->is_64 && (sector - intswap64 (zone->map->z64.first)) % size ||
-		!mfshnd->is_64 && (sector - intswap32 (zone->map->z32.first)) % size)
-	{
-		mfshnd->err_msg = "Sector %u size %d not aligned with zone map";
-		mfshnd->err_arg1 = (void *)sector;
-		mfshnd->err_arg2 = (void *)(uint32_t)size;
-		return 0;
-	}
 
 	/* Check the logstamp to see if this has already been updated...  */
 	/* Sure, there could be some integer wrap... */
@@ -262,7 +332,7 @@ mfs_zone_map_update (struct mfs_handle *mfshnd, uint64_t sector, uint64_t size, 
 	/* Find which level of bitmaps this block is on */
 	for (order = 0; order < numbitmaps; order++)
 	{
-		if ((minalloc << order) >= size)
+		if (((uint64_t)minalloc << order) >= size)
 			break;
 	}
 
@@ -276,7 +346,7 @@ mfs_zone_map_update (struct mfs_handle *mfshnd, uint64_t sector, uint64_t size, 
 		return 0;
 	}
 
-	if ((minalloc << order) != size)
+	if (((uint64_t)minalloc << order) != size)
 	{
 		mfshnd->err_msg = "Sector %u size %d not multiple of zone map allocation";
 		mfshnd->err_arg1 = (void *)sector;
@@ -286,11 +356,11 @@ mfs_zone_map_update (struct mfs_handle *mfshnd, uint64_t sector, uint64_t size, 
 
 	if (mfshnd->is_64)
 	{
-		mapbit = (sector - intswap64 (zone->map->z64.first)) / (minalloc << order);
+		mapbit = (sector - intswap64 (zone->map->z64.first)) / ((uint64_t)minalloc << order);
 	}
 	else
 	{
-		mapbit = (sector - intswap32 (zone->map->z32.first)) / (minalloc << order);
+		mapbit = (sector - intswap32 (zone->map->z32.first)) / ((uint64_t)minalloc << order);
 	}
 
 	/* Find the first free bit */
@@ -324,7 +394,7 @@ mfs_zone_map_update (struct mfs_handle *mfshnd, uint64_t sector, uint64_t size, 
 		}
 		mfs_zone_map_bit_state_set (zone->bitmaps[order], mapbit);
 		zone->bitmaps[order]->freeblocks = intswap32 (intswap32 (zone->bitmaps[order]->freeblocks) + 1);
-		
+
 		/* Coalesce neighboring free bits into larger blocks */
 		while (order + 1 < numbitmaps &&
 			mfs_zone_map_bit_state_get (zone->bitmaps[order], mapbit ^ 1))
@@ -505,7 +575,7 @@ mfs_new_zone_map (struct mfs_handle *mfshnd, uint64_t sector, uint64_t backup, u
 	unsigned int *curofs;
 
 /* Truncate the size to the nearest allocation sized block. */
-	size = size & ~(minalloc - 1);
+	size = size & ~((uint64_t)minalloc - 1);
 
 /* Find the last loaded zone. */
 	for (cur = mfshnd->loaded_zones; cur->next_loaded; cur = cur->next_loaded);

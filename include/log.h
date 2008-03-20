@@ -39,7 +39,7 @@ typedef struct log_map_update_64_s
 	unsigned int pad;	/* Padded with AAAAAAAA */
 	uint64_t sector;
 	uint64_t size;
-	unsigned char flag;	/* 0 or 1, no clue on the meaning */
+	unsigned char flag;	/* Set to 1 if the block being allocated was not marked free at the beginning of the current transaction */
 	unsigned char pad2;
 	unsigned short pad3;
 	unsigned int pad4;
@@ -115,7 +115,7 @@ unsigned int mfs_log_last_sync (struct mfs_handle *mfshnd);
 int mfs_log_read (struct mfs_handle *mfshnd, void *buf, unsigned int logstamp);
 int mfs_log_write (struct mfs_handle *mfshnd, void *buf);
 
-int mfs_log_zone_update (struct mfs_handle *mfshnd, unsigned int fsid, uint64_t sector, uint64_t size, int state, int flag);
+int mfs_log_zone_update (struct mfs_handle *mfshnd, unsigned int fsid, uint64_t sector, uint64_t size, int state);
 int mfs_log_inode_update (struct mfs_handle *mfshnd, mfs_inode *inode);
 int mfs_log_commit (struct mfs_handle *mfshnd);
 int mfs_log_fssync (struct mfs_handle *mfshnd);

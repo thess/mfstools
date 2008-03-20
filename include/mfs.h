@@ -107,9 +107,11 @@ struct mfs_handle
 
 	int inode_log_type;
 	int is_64;
-	
+
 	uint32_t bootcycle;
 	uint32_t bootsecs;
+	uint32_t lastlogsync;
+	uint32_t lastlogcommit;
 
 	char *err_msg;
 	void *err_arg1;
@@ -130,6 +132,7 @@ void data_swab (void *data, int size);
 zone_header *mfs_next_zone (struct mfs_handle *mfshdn, zone_header *cur);
 int mfs_zone_map_commit (struct mfs_handle *mfshnd, unsigned int logstamp);
 int mfs_zone_map_update (struct mfs_handle *mfshnd, uint64_t sector, uint64_t size, uint32_t state, uint32_t logstamp);
+int mfs_zone_map_block_state (struct mfs_handle *mfshnd, uint64_t sector, uint64_t size);
 uint32_t mfs_inode_count (struct mfs_handle *mfshnd);
 uint64_t mfs_inode_to_sector (struct mfs_handle *mfshnd, uint32_t inode);
 mfs_inode *mfs_read_inode (struct mfs_handle *mfshnd, uint32_t inode);
