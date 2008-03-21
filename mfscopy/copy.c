@@ -394,7 +394,7 @@ copy_main (int argc, char **argv)
 	if (expand > 0)
 		rflags |= RF_NOFILL;
 
-	info_b = init_backup (source_a, source_b, bflags);
+	info_b = init_backup_v1 (source_a, source_b, bflags);
 
 	// Try to continue anyway despite error.
 	if (bflags & BF_TRUNCATED && backup_has_error (info_b))

@@ -38,7 +38,10 @@ enum backup_state_ret {
 /* The pointer in state_ptr1 is also set to NULL at every state change. */
 /* The value shared_val1 is shared between states. */
 enum backup_state {
-	bsBegin = 0,
+	bsScanMFS = 0,
+		// --- no state val used
+			// No data consumed, just scans MFS for what should be backed up
+	bsBegin,
 		// shared_val1 initialized to sizeof backup header padded to 8 bytes.
 			// Write backup header
 /* Backup description collection */
@@ -117,6 +120,7 @@ struct backup_info;
 typedef enum backup_state_ret (*backup_state_handler[bsMax]) (struct backup_info *, void *, unsigned, unsigned *);
 
 /* Backup engines */
+extern backup_state_handler backup_v1;
 extern backup_state_handler backup_v3;
 /* Restore engines */
 extern backup_state_handler restore_v1;
@@ -237,7 +241,8 @@ struct backup_head_v3
 #define RF_SWAPV1	0x00400000	/* Use version 1 swap signature. */
 #define RF_FLAGS	0xffff0000
 
-struct backup_info *init_backup (char *device, char *device2, int flags);
+struct backup_info *init_backup_v1 (char *device, char *device2, int flags);
+struct backup_info *init_backup_v3 (char *device, char *device2, int flags);
 void backup_set_thresh (struct backup_info *info, unsigned int thresh);
 void backup_check_truncated (struct backup_info *info);
 int backup_start (struct backup_info *info);

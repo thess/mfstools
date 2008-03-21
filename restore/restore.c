@@ -71,6 +71,8 @@ init_restore (unsigned int flags)
 	}
 
 	info->state_machine = &restore_v1;
+	while (info->state < bsMax && (*info->state_machine)[info->state] == NULL)
+		info->state++;
 
 	info->nsectors = 1;
 	info->back_flags = flags;
@@ -107,7 +109,7 @@ restore_set_bswap (struct backup_info *info, int bswap)
 enum backup_state_ret
 restore_read_header (struct backup_info *info, void *data, unsigned size, unsigned *consumed, void *dest, unsigned total, unsigned datasize)
 {
-	unsigned count = total - info->state_val1;
+	unsigned count = total * datasize - info->state_val1;
 
 	if (size == 0)
 	{
@@ -116,19 +118,19 @@ restore_read_header (struct backup_info *info, void *data, unsigned size, unsign
 	}
 
 /* Copy as much as possible */
-	if (count * datasize + info->shared_val1 > size * 512)
+	if (count + info->shared_val1 > size * 512)
 	{
-		count = (size * 512 - info->shared_val1) / datasize;
+		count = size * 512 - info->shared_val1;
 	}
 
-	memcpy ((char *)dest + datasize * info->state_val1, (char *)data + info->shared_val1, count * datasize);
+	memcpy ((char *)dest + info->state_val1, (char *)data + info->shared_val1, count);
 
 	info->state_val1 += count;
-	info->shared_val1 += count * datasize + 7;
+	info->shared_val1 += count;
 	*consumed = info->shared_val1 / 512;
-	info->shared_val1 &= 512 - 8;
+	info->shared_val1 &= 511;
 
-	if (info->state_val1 < total)
+	if (info->state_val1 < total * datasize)
 		return bsMoreData;
 
 	return bsNextState;
@@ -139,9 +141,9 @@ restore_read_header (struct backup_info *info, void *data, unsigned size, unsign
 /* state_val1 = --unused-- */
 /* state_val2 = --unused-- */
 /* state_ptr1 = --unused-- */
-/* shared_val1 = next offset to use in block */
+/* shared_val1 = next offset to use in block (Always 0 for v1) */
 enum backup_state_ret
-restore_state_begin (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
+restore_state_begin_v1 (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
 {
 	struct backup_head *head = data;
 
@@ -301,7 +303,7 @@ restore_state_begin_v3 (struct backup_info *info, void *data, unsigned size, uns
 
 /***********************************/
 /* Read partition info from backup */
-/* state_val1 = index of last copied partition */
+/* state_val1 = offset of last copied partition */
 /* state_val2 = --unused-- */
 /* state_ptr1 = --unused-- */
 /* shared_val1 = next offset to use in block */
@@ -313,7 +315,7 @@ restore_state_partition_info (struct backup_info *info, void *data, unsigned siz
 
 /**********************************/
 /* Read block list from v1 backup */
-/* state_val1 = index of last copied block */
+/* state_val1 = offset of last copied block */
 /* state_val2 = --unused-- */
 /* state_ptr1 = --unused-- */
 /* shared_val1 = next offset to use in block */
@@ -325,7 +327,7 @@ restore_state_block_info_v1 (struct backup_info *info, void *data, unsigned size
 
 /**********************************/
 /* Read inode list from v3 backup */
-/* state_val1 = index of last copied inode */
+/* state_val1 = offset of last copied inode */
 /* state_val2 = --unused-- */
 /* state_ptr1 = --unused-- */
 /* shared_val1 = next offset to use in block */
@@ -337,7 +339,7 @@ restore_state_inode_info_v3 (struct backup_info *info, void *data, unsigned size
 
 /************************/
 /* Read MFS volume list */
-/* state_val1 = index of last copied MFS partition */
+/* state_val1 = offset of last copied MFS partition */
 /* state_val2 = --unused-- */
 /* state_ptr1 = --unused-- */
 /* shared_val1 = next offset to use in block */
@@ -1254,7 +1256,8 @@ restore_state_complete_v3 (struct backup_info *info, void *data, unsigned size, 
 }
 
 backup_state_handler restore_v1 = {
-	restore_state_begin,					// bsBegin
+	NULL,									// bsScanMFS
+	restore_state_begin_v1,					// bsBegin
 	restore_state_partition_info,			// bsInfoPartition
 	restore_state_block_info_v1,			// bsInfoBlocks
 	NULL,									// bsInfoInodes
@@ -1274,6 +1277,7 @@ backup_state_handler restore_v1 = {
 };
 
 backup_state_handler restore_v3 = {
+	NULL,									// bsScanMFS
 	restore_state_begin_v3,					// bsBegin
 	restore_state_partition_info,			// bsInfoPartition
 	NULL,									// bsInfoBlocks

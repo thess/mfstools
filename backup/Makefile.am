@@ -20,7 +20,7 @@ endif
 bin_PROGRAMS = $(MFSAPPS)
 noinst_LIBRARIES = $(MFSTOOLS)
 
-backup_SOURCES = backmain.c backup.c
+backup_SOURCES = backmain.c backup.c backupv1.c backupv3.c
 backup_LDFLAGS = -Wl,--defsym,main=backup_main
 
-libbackup_a_SOURCES = backmain.c backup.c
+libbackup_a_SOURCES = backmain.c backup.c backupv1.c backupv3.c

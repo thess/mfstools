@@ -27,6 +27,7 @@ backup_usage (char *progname)
 	fprintf (stderr, " -1 .. -9  Compress backup, quick (-1) through best (-9)\n");
 	fprintf (stderr, " -v        Do not include /var in backup\n");
 	fprintf (stderr, " -s        Shrink MFS in backup\n");
+	fprintf (stderr, " -F format Backup using a specific backup format (v1, v3, winmfs)\n");
 	fprintf (stderr, " -q        Do not display progress\n");
 	fprintf (stderr, " -qq       Do not display anything but error messages\n");
 	fprintf (stderr, " -f max    Backup only fsids below max\n");
@@ -130,6 +131,8 @@ display_backup_info (struct backup_info *info)
 	}
 }
 
+enum backupformat { bfV1, bfV3, bfWinMFS };
+
 int
 backup_main (int argc, char **argv)
 {
@@ -143,9 +146,11 @@ backup_main (int argc, char **argv)
 	int quiet = 0;
 	int compressed = 0;
 
+	enum backupformat selectedformat = bfV3;
+
 	tivo_partition_direct ();
 
-	while ((loop = getopt (argc, argv, "ho:123456789vsf:l:tTaqE")) > 0)
+	while ((loop = getopt (argc, argv, "ho:123456789vsf:l:tTaqEF:")) > 0)
 	{
 		switch (loop)
 		{
@@ -181,6 +186,19 @@ backup_main (int argc, char **argv)
 			if (*tmp)
 			{
 				fprintf (stderr, "%s: Non integer argument to -f\n", argv[0]);
+				return 1;
+			}
+			break;
+		case 'F':
+			if (!strcasecmp (optarg, "v1"))
+				selectedformat = bfV1;
+			else if (!strcasecmp (optarg, "v3"))
+				selectedformat = bfV1;
+			else if (!strcasecmp (optarg, "winmfs"))
+				selectedformat = bfWinMFS;
+			else
+			{
+				fprintf (stderr, "%s: Argument to -F must be one of V1, V3, or WinMFS\n", argv[0]);
 				return 1;
 			}
 			break;
@@ -245,7 +263,18 @@ backup_main (int argc, char **argv)
 		return 1;
 	}
 
-	info = init_backup (drive, drive2, flags);
+	switch (selectedformat)
+	{
+	case bfV1:
+		info = init_backup_v1 (drive, drive2, flags);
+		break;
+	case bfV3:
+		info = init_backup_v3 (drive, drive2, flags);
+		break;
+	case bfWinMFS:
+		fprintf (stderr, "%s: Backup in WinMFS format not yet supported\n", argv[0]);
+		return 1;
+	}
 	if (!info)
 	{
 		fprintf (stderr, "%s: Backup failed to startup.  Make sure you specified the right\ndevices, and that the drives are not locked.\n", argv[0]);
