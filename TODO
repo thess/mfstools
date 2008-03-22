@@ -1,7 +1,7 @@
 Version 3.0
 MFS Lib
 *DONE*  Ability to open a truncated MFS volume (Bad 2nd drive case)
-  Function to manipulate MFS allocation bitmap (Allocate new space)
+*DONE*  Function to manipulate MFS allocation bitmap (Allocate new space)
 *DONE*  Remove dependency on environment variables
 
 *DONE*Backup format
@@ -37,7 +37,7 @@ Restore
 
 Misc bug fixes
 *DONE*  Swap size
-  Mfsadd to drives larger than 256gb (Need to investigate)
+*DONE*  Mfsadd to drives larger than 256gb (Need to investigate)
   Better handling of error cases
 *DONE*  Better reporting of error cases
 
@@ -53,7 +53,6 @@ TBK3 backup strategy:
     Raw partitions
   MFS
     Volume Header
-    Header allocated space (Transaction log and ? following log)
     Zone maps (In order linked)
     Inodes (Only allocated (Maybe), only one copy)
     Streams
