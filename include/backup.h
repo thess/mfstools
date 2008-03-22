@@ -55,11 +55,6 @@ enum backup_state {
 		// shared_val1 as offset within current block of last MFS block,
 		//     padded to 8 bytes.
 			// List follows immediately after partition list
-	bsInfoInodes,
-		// state_val1 as current inode index.
-		// shared_val1 as offset within current block of last inode,
-		//     padded to 8 bytes.
-			// List follows immediately after partition list
 	bsInfoMFSPartitions,
 		// state_val1 as current MFS partition index.
 		// shared_val1 as offset within current block of last MFS partition,
@@ -97,17 +92,12 @@ enum backup_state {
 		// shared_ptr1 as pointer to current zone map in memory
 		// state_val1 as offset within current zone map
 			// Zone maps, implicitly stopping at the end of the volume
-	bsAppInodes,
+	bsInodes,
 		// state_val1 as current inode number.
 		// state_val2 as offset within current inode.
 		// state_ptr1 as pointer to current inode structure.
-			// For each inode, inode meta-data followed immediately by inode
-			// data (Data only for non tyStream inosed with non-zero refcount)
-	bsMediaInodes,
-		// state_val1 as current inode index.
-		// state_val2 as offset within current inode.
-		// state_ptr1 as pointer to current inode structure.
-			// Each stream to be backed up read straight from MFS
+			// For each inode, inode meta-data followed by inode data in the
+			// next 512 byte aligned block
 	bsComplete,
 		// --- no state val usage
 			// 512 bytes with CRC at the end
@@ -134,9 +124,9 @@ struct backup_info
 
 /* Backup state machine */
 	enum backup_state state;
-	unsigned state_val1;
-	unsigned state_val2;
-	unsigned shared_val1;
+	uint64_t state_val1;
+	uint64_t state_val2;
+	uint64_t shared_val1;
 	void *state_ptr1;
 
 	backup_state_handler *state_machine;

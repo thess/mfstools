@@ -808,7 +808,6 @@ backup_state_handler backup_v1 = {
 	&backup_state_begin_v1,					// bsBegin
 	&backup_state_info_partitions,			// bsInfoPartition
 	&backup_state_info_blocks_v1,			// bsInfoBlocks
-	NULL,									// bsInfoInodes
 	&backup_state_info_mfs_partitions,		// bsInfoMFSPartitions
 	&backup_state_info_end,					// bsInfoEnd
 	&backup_state_boot_block,				// bsBootBlock
@@ -819,7 +818,6 @@ backup_state_handler backup_v1 = {
 	NULL,									// bsTransactionLog
 	NULL,									// bsUnkRegion
 	NULL,									// bsZoneMaps
-	NULL,									// bsAppInodes
-	NULL,									// bsMediaInodes
+	NULL,									// bsInodes
 	NULL									// bsComplete
 };

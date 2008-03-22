@@ -28,7 +28,7 @@ typedef struct volume_header_32_s
 	uint32_t logstamp;
 	uint32_t unkstart;		/* Not sure what it's used for */
 	uint32_t unksectors;	/* But definately an allocated area */
-	uint32_t offc0;
+	uint32_t unkstamp;
 	zone_map_ptr_32 zonemap;
 	uint32_t next_fsid;		/* Incrementing value for the next fsid to create */
 								/* Following two used in transaction log */
@@ -136,6 +136,7 @@ int mfs_zone_map_block_state (struct mfs_handle *mfshnd, uint64_t sector, uint64
 uint32_t mfs_inode_count (struct mfs_handle *mfshnd);
 uint64_t mfs_inode_to_sector (struct mfs_handle *mfshnd, uint32_t inode);
 mfs_inode *mfs_read_inode (struct mfs_handle *mfshnd, uint32_t inode);
+int mfs_read_inode_to_buf (struct mfs_handle *mfshnd, unsigned int inode, mfs_inode *inode_buf);
 mfs_inode *mfs_read_inode_by_fsid (struct mfs_handle *mfshnd, uint32_t fsid);
 mfs_inode *mfs_find_inode_for_fsid (struct mfs_handle *mfshnd, uint32_t fsid);
 int mfs_write_inode (struct mfs_handle *mfshnd, mfs_inode *inode);

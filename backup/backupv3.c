@@ -31,22 +31,51 @@
 
 /**************************************************************/
 /* Add an inode to the list, allocating more space if needed. */
+/* Keep the list in order of fsid*/
 static int
-backup_inode_list_add (unsigned **list, unsigned *allocated, unsigned *total, unsigned val)
+backup_inode_list_add (unsigned **listinode, unsigned **listfsid, unsigned *allocated, unsigned *total, unsigned inodeval, unsigned fsidval)
 {
+	int insertposmin = 0;
+	int insertposmax = *total;
+
 /* No space, (re)allocate space. */
 	if (*allocated <= *total)
 	{
 		*allocated += 32;
-		*list = realloc (*list, *allocated * sizeof (val));
+		*listfsid = realloc (*listfsid, *allocated * sizeof (*listfsid));
+		*listinode = realloc (*listinode, *allocated * sizeof (*listinode));
 	}
 
 /* Allocation error. */
-	if (!*list)
+	if (!*listfsid || !*listinode)
 		return -1;
 
-/* Append the value to the end of the list. */
-	(*list)[(*total)++] = val;
+/* Search for the location this id fits in the list */
+	while (insertposmin != insertposmax)
+	{
+		int curpos = (insertposmin + insertposmax) >> 1;
+		int curval = (*listfsid)[curpos];
+		if (curval < fsidval)
+		{
+			insertposmin = curpos + 1;
+		}
+		else
+		{
+			insertposmax = curpos;
+		}
+	}
+
+/* Move all following entries after the entry */
+	if (insertposmin < *total)
+	{
+		memmove (*listfsid + insertposmin + 1, *listfsid + insertposmin, (*total - insertposmin) * sizeof (**listfsid));
+		memmove (*listinode + insertposmin + 1, *listinode + insertposmin, (*total - insertposmin) * sizeof (**listinode));
+	}
+
+	/* Add to the list size and insert the new entry */
+	(*listinode)[insertposmin] = inodeval;
+	(*listfsid)[insertposmin] = fsidval;
+	(*total)++;
 
 	return 0;
 }
@@ -59,6 +88,8 @@ backup_scan_inodes (struct backup_info *info)
 	unsigned int loop, loop2, loop3;
 	int ninodes = mfs_inode_count (info->mfs);
 	uint64_t highest = 0;
+	unsigned char inodebuf[512];
+	unsigned *fsids = NULL;
 
 	uint64_t appsectors = 0, mediasectors = 0;
 #if DEBUG
@@ -67,10 +98,14 @@ backup_scan_inodes (struct backup_info *info)
 
 	unsigned allocated = 0;
 
+	info->inodes = NULL;
+
 /* Add inodes. */
 	for (loop = 0; loop < ninodes; loop++)
 	{
-		mfs_inode *inode = mfs_read_inode (info->mfs, loop);
+		mfs_inode *inode = (mfs_inode *)inodebuf;
+
+		int ret = mfs_read_inode_to_buf (info->mfs, loop, inode);
 
 		if (mfs_has_error (info->mfs))
 		{
@@ -81,11 +116,30 @@ backup_scan_inodes (struct backup_info *info)
 		}
 
 /* Don't think this should ever happen. */
-		if (!inode)
+		if (ret <= 0)
 			continue;
 
+/* Skip any inodes that are unallocated */
+		if (!inode->fsid || !inode->refcount)
+		{
+			continue;
+		}
+
+/* Add the inode to the list, even if the data won't be backed up. */
+		if (backup_inode_list_add (&info->inodes, &fsids, &allocated, &info->ninodes, loop, intswap32 (inode->fsid)) < 0)
+		{
+			info->err_msg = "Memory exhausted (Inode scan %d)";
+			info->err_arg1 = (void *)loop;
+			if (info->inodes)
+				free (info->inodes);
+			if (fsids)
+				free (fsids);
+			info->inodes = NULL;
+			return ~0;
+		}
+
 /* If it a stream, treat it specially. */
-		if (inode->type == tyStream && inode->refcount > 0)
+		if (inode->type == tyStream)
 		{
 			unsigned int streamsize;
 
@@ -94,22 +148,17 @@ backup_scan_inodes (struct backup_info *info)
 			else
 				streamsize = intswap32 (inode->blocksize) / 512 * intswap32 (inode->blockused);
 
-/* Ignore streams with no allocated data. */
-			if (streamsize == 0)
+/* Ignore streams with no allocated data, or bigger than the threshhold. */
+			if (streamsize == 0 || 
+				(info->back_flags & BF_THRESHSIZE) && streamsize > info->thresh ||
+				!(info->back_flags & BF_THRESHSIZE) && intswap32 (inode->fsid) > info->thresh)
 			{
-				free (inode);
-				continue;
-			}
-/* Ignore streams bigger than the threshhold. (Size) */
-			if ((info->back_flags & BF_THRESHSIZE) && streamsize > info->thresh)
-			{
-				free (inode);
-				continue;
-			}
-/* Ignore streams bigger than the threshhold. (fsID) */
-			if (!(info->back_flags & BF_THRESHSIZE) && intswap32 (inode->fsid) > info->thresh)
-			{
-				free (inode);
+				/* Clear out the data in the inode and write it back to */
+				/* memory for backup to read later */
+				inode->size = 0;
+				inode->blockused = 0;
+				inode->numblocks = 0;
+				mfs_write_inode (info->mfs, inode);
 				continue;
 			}
 
@@ -123,23 +172,14 @@ backup_scan_inodes (struct backup_info *info)
 			mediainodes++;
 #endif
 
-/* Add the inode to the list. */
-			if (backup_inode_list_add (&info->inodes, &allocated, &info->ninodes, loop) < 0)
-			{
-				info->err_msg = "Memory exhausted (Inode scan %d)";
-				info->err_arg1 = (void *)loop;
-				free (inode);
-				return ~0;
-			}
-
 #if DEBUG
 			fprintf (stderr, "Inode %d (%d) added\n", intswap32 (inode->inode), intswap32 (inode->fsid));
 #endif
 		}
-		else if (inode->refcount != 0 && inode->type != tyStream && intswap32 (inode->size) > 512 - offsetof (mfs_inode, datablocks) && inode->numblocks > 0)
+		else if (inode->type != tyStream && !(inode->inode_flags & intswap32 (INODE_DATA)))
 		{
 /* Count the space used by non-stream inodes */
-			appsectors += ((intswap32 (inode->size) + 511) & ~511) >> 9;
+			appsectors += (intswap32 (inode->size) + 511) / 512;
 #if DEBUG
 			appinodes++;
 #endif
@@ -168,8 +208,6 @@ backup_scan_inodes (struct backup_info *info)
 				highest = thiscount + thissector;
 			}
 		}
-
-		free (inode);
 	}
 
 // Make sure all needed data is present.
@@ -182,6 +220,11 @@ backup_scan_inodes (struct backup_info *info)
 			info->err_arg1 = (void *)highest;
 			info->err_arg2 = (void *)set_size;
 
+			if (info->inodes)
+				free (info->inodes);
+			if (fsids)
+				free (fsids);
+			info->inodes = NULL;
 			return ~0;
 		}
 	}
@@ -191,12 +234,14 @@ backup_scan_inodes (struct backup_info *info)
 		info->shrink_to = highest;
 
 #if DEBUG
-	fprintf (stderr, "Backing up %d media sectors (%d inodes), %d app sectors (%d inodes) and %d inode sectors\n", mediasectors, mediainodes, appsectors, appinodes, ninodes);
+	fprintf (stderr, "Backing up %lld media sectors (%d inodes), %lld app sectors (%d inodes) and %d inode sectors\n", mediasectors, mediainodes, appsectors, appinodes, info->ninodes);
 #endif
 
 /* Count the space for the inodes themselves */
-	info->nsectors += ninodes + appsectors + mediasectors;
+	info->nsectors += info->ninodes + appsectors + mediasectors;
 
+	if (fsids)
+		free (fsids);
 	return info->ninodes;
 }
 
@@ -213,20 +258,6 @@ backup_info_count_misc (struct backup_info *info)
 	info->nsectors++;
 // Checksum
 	info->nsectors++;
-	if (mfs_is_64bit (info->mfs))
-	{
-// Transaction log
-		info->nsectors += intswap32 (info->mfs->vol_hdr.v64.lognsectors);
-// ??? region
-		info->nsectors += intswap32 (info->mfs->vol_hdr.v64.unknsectors);
-	}
-	else
-	{
-// Transaction log
-		info->nsectors += intswap32 (info->mfs->vol_hdr.v32.lognsectors);
-// ??? region
-		info->nsectors += intswap32 (info->mfs->vol_hdr.v32.unksectors);
-	}
 
 // Zone maps
 	while ((zone = mfs_next_zone (info->mfs, zone)) != NULL)
@@ -339,7 +370,7 @@ backup_state_scan_mfs_v3 (struct backup_info *info, void *data, unsigned size, u
 		return bsError;
 	}
 
-	info->nsectors += (info->ninodes * sizeof (unsigned long) + info->nparts * sizeof (struct backup_partition) + info->nmfs * sizeof (struct backup_partition) + sizeof (struct backup_head_v3) + 511) / 512;
+	info->nsectors += (info->nparts * sizeof (struct backup_partition) + info->nmfs * sizeof (struct backup_partition) + sizeof (struct backup_head_v3) + 511) / 512;
 
 	return bsNextState;
 }
@@ -383,42 +414,6 @@ backup_state_begin_v3 (struct backup_info *info, void *data, unsigned size, unsi
 enum backup_state_ret
 backup_state_info_partitions (struct backup_info *info, void *data, unsigned size, unsigned *consumed);
 /* Defined in backup.c */
-
-/*****************************/
-/* Add inode list to backup. */
-/* state_val1 = index of last copied inode */
-/* state_val2 = --unused-- */
-/* state_ptr1 = --unused-- */
-/* shared_val1 = next offset to use in block */
-enum backup_state_ret
-backup_state_info_inodes_v3 (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
-{
-	unsigned count = info->ninodes * sizeof (unsigned) - info->state_val1;
-
-	if (size == 0)
-	{
-		info->err_msg = "Internal error: Backup buffer full";
-		return bsError;
-	}
-
-/* Copy as much as possible */
-	if (count + info->shared_val1 > size * 512)
-	{
-		count = size * 512 - info->shared_val1;
-	}
-
-	memcpy ((char *)data + info->shared_val1, (char *)info->inodes + info->state_val1, count);
-
-	info->state_val1 += count;
-	info->shared_val1 += count;
-	*consumed = info->shared_val1 / 512;
-	info->shared_val1 &= 511;
-
-	if (info->state_val1 < info->ninodes * sizeof (unsigned))
-		return bsMoreData;
-
-	return bsNextState;
-}
 
 /*************************************/
 /* Add MFS partition info to backup. */
@@ -479,111 +474,6 @@ backup_state_volume_header_v3 (struct backup_info *info, void *data, unsigned si
 	memset ((char *)data + sizeof (info->mfs->vol_hdr), 0, 512 - sizeof (info->mfs->vol_hdr));
 
 	*consumed = 1;
-
-	return bsNextState;
-}
-
-/******************************/
-/* Backup the transaction log */
-/* state_val1 = offset within transaction log */
-/* state_val2 = --unused-- */
-/* state_ptr1 = --unused-- */
-/* shared_val1 = --unused-- */
-enum backup_state_ret
-backup_state_transaction_log_v3 (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
-{
-	unsigned tocopy;
-	uint64_t logstart;
-	unsigned lognsectors;
-
-	if (mfs_is_64bit (info->mfs))
-	{
-		logstart = intswap64 (info->mfs->vol_hdr.v64.logstart);
-		lognsectors = intswap32 (info->mfs->vol_hdr.v64.lognsectors);
-	}
-	else
-	{
-		logstart = intswap32 (info->mfs->vol_hdr.v32.logstart);
-		lognsectors = intswap32 (info->mfs->vol_hdr.v32.lognsectors);
-	}
-
-	tocopy = lognsectors - info->state_val1;
-
-	if (size == 0)
-	{
-		info->err_msg = "Internal error: Backup buffer full";
-		return bsError;
-	}
-
-	if (tocopy > size)
-	{
-		tocopy = size;
-	}
-
-	if (mfs_read_data (info->mfs, data, logstart + info->state_val1, tocopy) < 0)
-	{
-		info->err_msg = "Error reading MFS transaction log";
-		return bsError;
-	}
-
-	*consumed = tocopy;
-	info->state_val1 += tocopy;
-
-	if (info->state_val1 < lognsectors)
-		return bsMoreData;
-
-	return bsNextState;
-}
-
-/***********************************************************************/
-/* Backup the unknown region referenced in the volume header after the */
-/* transaction log */
-/* state_val1 = offset within region */
-/* state_val2 = --unused-- */
-/* state_ptr1 = --unused-- */
-/* shared_val1 = --unused-- */
-enum backup_state_ret
-backup_state_unk_region_v3 (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
-{
-	unsigned tocopy;
-	uint64_t unkstart;
-	uint32_t unksectors;
-
-	if (mfs_is_64bit (info->mfs))
-	{
-		unkstart = intswap64 (info->mfs->vol_hdr.v64.unkstart);
-		unksectors = intswap32 (info->mfs->vol_hdr.v64.unknsectors);
-	}
-	else
-	{
-		unkstart = intswap32 (info->mfs->vol_hdr.v32.unkstart);
-		unksectors = intswap32 (info->mfs->vol_hdr.v32.unksectors);
-	}
-
-	tocopy = unksectors - info->state_val1;
-
-	if (size == 0)
-	{
-		info->err_msg = "Internal error: Backup buffer full";
-		return bsError;
-	}
-
-	if (tocopy > size)
-	{
-		tocopy = size;
-	}
-
-	if (mfs_read_data (info->mfs, data, unkstart + info->state_val1, tocopy) < 0)
-	{
-		info->err_msg = "Error reading MFS data";
-		return bsError;
-	}
-
-	*consumed = tocopy;
-	info->state_val1 += tocopy;
-
-	if (info->state_val1 < unksectors)
-		return bsMoreData;
 
 	return bsNextState;
 }
@@ -668,14 +558,13 @@ backup_state_zone_maps_v3 (struct backup_info *info, void *data, unsigned size, 
 /*****************************/
 /* Backup application inodes */
 /* Write inode sector, followed by date for non tyStream inodes. */
-/* state_val1 = current inode number */
-/* state_val2 = offset within zone map */
+/* state_val1 = current inode index */
+/* state_val2 = offset of data in current inode */
 /* state_ptr1 = current inode structure */
 /* shared_val1 = --unused-- */
 enum backup_state_ret
-backup_state_app_inodes_v3 (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
+backup_state_inodes_v3 (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
 {
-	unsigned tocopy = 0, copied;
 	mfs_inode *inode;
 
 	if (size == 0)
@@ -684,189 +573,129 @@ backup_state_app_inodes_v3 (struct backup_info *info, void *data, unsigned size,
 		return bsError;
 	}
 
-	if (info->state_val2 == 0)
+	while (info->state_val1 < info->ninodes && size > 0)
 	{
-		unsigned inode_size;
+		uint64_t datasize;
+
+		if (!info->state_ptr1)
+		{
+			mfs_inode *tmpinode;
+/* Load the next inode to backup */
+			uint64_t inode_size;
 
 /* Fetch the next inode */
-		inode = mfs_read_inode (info->mfs, info->state_val1);
+			inode = mfs_read_inode (info->mfs, info->inodes[info->state_val1]);
 
-		if (!inode)
-		{
-			return bsError;
-		}
+			if (!inode)
+			{
+				return bsError;
+			}
 
-/* Hopefully this will never happen because I'm not 100% confident in the */
-/* initialization values being "good" */
-/* Trying to recover instead of aborting for the sake of drive failure */
-/* recovery. */
-		if (info->state_val1 != intswap32 (inode->inode))
-		{
-			fprintf (stderr, "Inode %d uninitialized\n", info->state_val1);
-			inode->inode = intswap32 (info->state_val1);
-			inode->refcount = 0;
-			inode->numblocks = 0;
-			inode->fsid = 0;
-			inode->size = 0;
-/* Don't bother updating the CRC, restore will do that */
-		}
+			inode_size = offsetof (mfs_inode, datablocks);
 
-		inode_size = offsetof (mfs_inode, datablocks);
-		if (mfs_is_64bit (info->mfs))
-		{
-			inode_size += intswap32 (inode->numblocks) * sizeof (inode->datablocks.d64[0]);
+/* Data in inode. */
+			if (inode->type != tyStream && (inode->inode_flags & intswap32 (INODE_DATA)))
+			{
+				inode_size += intswap32 (inode->size);
+				if (inode_size > 512)
+					inode_size = 512;
+			}
+
+/* Zeros compress easier, so might as well eliminate any unneeded data. */
+			memcpy (data, inode, inode_size);
+			if (inode_size < 512)
+				memset ((char *)data + inode_size, 0, 512 - inode_size);
+
+/* Clear out a few values from the backed up structure */
+/* All these values will be re-assigned on restore */
+			tmpinode = (mfs_inode *)data;
+			tmpinode->inode = ~0;
+			tmpinode->bootcycles = 0;
+			tmpinode->bootsecs = 0;
+			tmpinode->sig = 0;
+			tmpinode->checksum = 0;
+			tmpinode->inode_flags &= intswap32 (INODE_DATA);
+			tmpinode->numblocks = 0;
+
+			data = (char *)data + 512;
+			--size;
+			++*consumed;
+
+			info->state_val2 = 0;
+			info->state_ptr1 = inode;
 		}
 		else
 		{
-			inode_size += intswap32 (inode->numblocks) * sizeof (inode->datablocks.d32[0]);
+			inode = info->state_ptr1;
 		}
 
-/* Data in inode. */
-		if (inode->type != tyStream && (inode->inode_flags & intswap32 (INODE_DATA)))
+		if (inode->type == tyStream)
 		{
-			inode_size += intswap32 (inode->size);
-			if (inode_size > 512)
-				inode_size = 512;
+			if (info->back_flags & BF_STREAMTOT)
+				datasize = intswap32 (inode->size);
+			else
+				datasize = intswap32 (inode->blockused);
+			datasize *= intswap32 (inode->blocksize);
 		}
-
-/* Zeros compress easier, so might as well eliminate any unneeded data. */
-		memcpy (data, inode, inode_size);
-		if (inode_size < 512)
-			memset ((char *)data + inode_size, 0, 512 - inode_size);
-
-		data = (char *)data + 512;
-		--size;
-		++*consumed;
-
-/* Start at offset 1 */
-		info->state_val2++;
-		info->state_ptr1 = inode;
-	}
-	else
-	{
-		inode = info->state_ptr1;
-	}
-
-	if (inode->type != tyStream && inode->refcount > 0 && inode->numblocks > 0 && !(inode->inode_flags & intswap32 (INODE_DATA)))
-		tocopy = intswap32 (inode->size) - (info->state_val2 - 1) * 512;
-
-	copied = tocopy;
-
-	if (copied > size * 512)
-	{
-		copied = size * 512;
-	}
-
-/* If there was no data to copy, or only enough room for the inode itself, */
-/* tocopy could be 0. */
-	if (copied > 0)
-	{
-		if (mfs_read_inode_data_part (info->mfs, inode, data, info->state_val2 - 1, (copied + 511) / 512) < 0)
+		else
 		{
-			info->err_msg = "Error reading inode %d";
-			info->err_arg1 = (void *)info->state_val1;
-			free (inode);
-			return bsError;
+			if (!(inode->inode_flags & intswap32 (INODE_DATA)))
+			{
+				datasize = intswap32 (inode->size);
+			}
+			else
+			{
+				datasize = 0;
+			}
 		}
+
+		while (info->state_val2 * 512 < datasize)
+		{
+			uint64_t tocopy = datasize - info->state_val2 * 512;
+			if ((tocopy + 511) / 512 > size)
+				tocopy = size * 512;
+
+			if (!tocopy)
+				return bsMoreData;
+
+			if (mfs_read_inode_data_part (info->mfs, inode, data, info->state_val2, (tocopy + 511) / 512) < 0)
+			{
+				info->err_msg = "Error reading inode %d";
+				info->err_arg1 = (void *)(uint32_t)info->state_val1;
+				free (inode);
+				return bsError;
+			}
 
 /* Once again, zeros compress well, so zero out any garbage data. */
-		if ((copied & 511) > 0)
-		{
-			memset ((char *)data + copied, 0, 512 - (copied & 511));
-		}
-	}
+			if ((tocopy & 511) > 0)
+			{
+				memset ((char *)data + tocopy, 0, 512 - (tocopy & 511));
+			}
 
-	*consumed += (copied + 511) / 512;
-	info->state_val2 += (copied + 511) / 512;
-
-/* If the entire data was copied, go to the next inode */
-	if (copied == tocopy)
-	{
-		info->state_val1++;
-		info->state_val2 = 0;
-		free (inode);
-	}
-
-	if (info->state_val1 < mfs_inode_count (info->mfs))
-		return bsMoreData;
-
-	return bsNextState;
-}
-
-/***************************/
-/* Backup the media inodes */
-/* state_val1 = currend inode (index) */
-/* state_val2 = offset within current inode */
-/* state_ptr1 = pointer to current inode */
-/* shared_val1 = --unused-- */
-enum backup_state_ret
-backup_state_media_inodes_v3 (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
-{
-	mfs_inode *inode;
-	unsigned tocopy, copied;
-
-	if (size == 0)
-	{
-		info->err_msg = "Internal error: Backup buffer full";
-		return bsError;
-	}
-
-	if (info->state_val2 == 0)
-	{
-/* Fetch the next inode */
-		inode = mfs_read_inode (info->mfs, info->inodes [info->state_val1]);
-
-		if (!inode)
-		{
-			return bsError;
+/* Update the sizes */
+			tocopy = (tocopy + 511) / 512;
+			data = (char *)data + tocopy * 512;
+			size -= tocopy;
+			info->state_val2 += tocopy;
+			*consumed += tocopy;
+			if (inode->type != tyStream)
+				info->shared_val1 += tocopy;
 		}
 
-		info->state_ptr1 = inode;
-	}
-	else
-	{
-		inode = info->state_ptr1;
-	}
-
-/* Check if total size or used size is requested for backup */
-	if (info->back_flags & BF_STREAMTOT)
-		tocopy = intswap32 (inode->size);
-	else
-		tocopy = intswap32 (inode->blockused);
-
-/* tocopy is currently in blocksize chunks, convert it to disk sectors */
-	tocopy *= intswap32 (inode->blocksize) / 512;
-
-	tocopy -= info->state_val2;
-
-	copied = tocopy;
-
-	if (copied > size)
-	{
-		copied = size;
-	}
-
-	if (mfs_read_inode_data_part (info->mfs, inode, data, info->state_val2, copied) < 0)
-	{
-		info->err_msg = "Error reading from tyStream id %d";
-		info->err_arg1 = (void *)intswap32 (inode->fsid);
+/* If it exits this loop, it means this inode is done, move onto the next */
 		free (inode);
-		return bsError;
-	}
-
-	*consumed = copied;
-	info->state_val2 += copied;
-
-	if (copied == tocopy)
-	{
-		free (inode);
+		info->state_ptr1 = NULL;
 		info->state_val1++;
 		info->state_val2 = 0;
 	}
+
+/* If it exits this loop, it means all the inodes are done, */
+/*  or it's out of data */
 
 	if (info->state_val1 < info->ninodes)
 		return bsMoreData;
 
+	info->shared_val1 = 0;
 	return bsNextState;
 }
 
@@ -912,7 +741,6 @@ backup_state_handler backup_v3 = {
 	&backup_state_begin_v3,					// bsBegin
 	&backup_state_info_partitions,			// bsInfoPartition
 	NULL,									// bsInfoBlocks
-	&backup_state_info_inodes_v3,			// bsInfoInodes
 	&backup_state_info_mfs_partitions,		// bsInfoMFSPartitions
 	&backup_state_info_end,					// bsInfoEnd
 	&backup_state_boot_block,				// bsBootBlock
@@ -920,10 +748,9 @@ backup_state_handler backup_v3 = {
 	NULL,									// bsMFSInit
 	NULL,									// bsBlocks
 	&backup_state_volume_header_v3,			// bsVolumeHeader
-	&backup_state_transaction_log_v3,		// bsTransactionLog
-	&backup_state_unk_region_v3,			// bsUnkRegion
+	NULL,									// bsTransactionLog
+	NULL,									// bsUnkRegion
 	&backup_state_zone_maps_v3,				// bsZoneMaps
-	&backup_state_app_inodes_v3,			// bsAppInodes
-	&backup_state_media_inodes_v3,			// bsMediaInodes
+	&backup_state_inodes_v3,				// bsInodes
 	&backup_state_complete_v3				// bsComplete
 };

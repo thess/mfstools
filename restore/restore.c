@@ -325,18 +325,6 @@ restore_state_block_info_v1 (struct backup_info *info, void *data, unsigned size
 	return restore_read_header (info, data, size, consumed, info->blocks, info->nblocks, sizeof (struct backup_block));
 }
 
-/**********************************/
-/* Read inode list from v3 backup */
-/* state_val1 = offset of last copied inode */
-/* state_val2 = --unused-- */
-/* state_ptr1 = --unused-- */
-/* shared_val1 = next offset to use in block */
-enum backup_state_ret
-restore_state_inode_info_v3 (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
-{
-	return restore_read_header (info, data, size, consumed, info->inodes, info->ninodes, sizeof (u_int32_t));
-}
-
 /************************/
 /* Read MFS volume list */
 /* state_val1 = offset of last copied MFS partition */
@@ -698,52 +686,83 @@ restore_state_volume_header_v3 (struct backup_info *info, void *data, unsigned s
 /*******************************/
 /* Restore the transaction log */
 /* state_val1 = --unused-- */
-/* state_val2 = offset within transaction log */
-/* state_ptr1 = pointer to previous log entry */
+/* state_val2 = --unused-- */
+/* state_ptr1 = --unused-- */
 /* shared_val1 = --unused-- */
 enum backup_state_ret
 restore_state_transaction_log_v3 (struct backup_info *info, void *data, unsigned
 size, unsigned *consumed)
 {
-	unsigned tocopy;
 	unsigned lognsectors;
 	uint64_t logstart;
+	unsigned logstamp;
+	unsigned char buf[2048];
+	log_hdr *hdr, *hdr2;
+	int loop;
 
 	if (mfs_is_64bit (info->mfs))
 	{
 		lognsectors = intswap32 (info->mfs->vol_hdr.v64.lognsectors);
 		logstart = intswap64 (info->mfs->vol_hdr.v64.logstart);
+		logstamp = intswap32 (info->mfs->vol_hdr.v64.logstamp);
 	}
 	else
 	{
 		lognsectors = intswap32 (info->mfs->vol_hdr.v32.lognsectors);
 		logstart = intswap32 (info->mfs->vol_hdr.v32.logstart);
+		logstamp = intswap32 (info->mfs->vol_hdr.v32.logstamp);
 	}
 
-	tocopy = lognsectors - info->state_val2;
+	memset (buf, 0, sizeof (buf));
 
-	if (size == 0)
+	/* Start by making the buffer look like a blank entry */
+	hdr = (log_hdr *)buf;
+	hdr->logstamp = 0xffffffff;
+	MFS_update_crc (hdr, 512, hdr->crc);
+	/* Copy the blank entry to the rest of the buffer */
+	hdr2 = (log_hdr *)(buf + 512);
+	hdr2->logstamp = 0xffffffff;
+	hdr2->crc = hdr->crc;
+	hdr2 = (log_hdr *)(buf + 1024);
+	hdr2->logstamp = 0xffffffff;
+	hdr2->crc = hdr->crc;
+	hdr2 = (log_hdr *)(buf + 1536);
+	hdr2->logstamp = 0xffffffff;
+	hdr2->crc = hdr->crc;
+
+	for (loop = 0; loop < lognsectors; loop += 4)
 	{
-		info->err_msg = "Internal error: Restore buffer empty";
-		return bsError;
+		int tocopy = 4;
+
+		if (lognsectors - loop < 4)
+			tocopy = lognsectors - loop;
+
+		if (loop / 4 == logstamp / 4)
+		{
+			hdr = (log_hdr *)(buf + 512 * (logstamp & 3));
+			/* Create an entry with one 0 length log entry */
+			hdr->logstamp = intswap32 (logstamp);
+			hdr->size = 2;
+			MFS_update_crc (hdr, 512, hdr->crc);
+		}
+
+		if (mfs_write_data (info->mfs, buf, logstart + loop, tocopy) < 0)
+		{
+			info->err_msg = "Error writing MFS data";
+			return bsError;
+		}
+
+		if (loop / 4 == logstamp / 4)
+		{
+			hdr2 = (log_hdr *)(buf + 1536 - 512 * (logstamp & 3));
+			/* Reset to the base entry */
+			hdr->size = 0;
+			hdr->logstamp = 0xffffffff;
+			hdr->crc = hdr2->crc;
+		}
 	}
 
-	if (tocopy > size)
-	{
-		tocopy = size;
-	}
-
-	if (mfs_write_data (info->mfs, data, logstart + info->state_val2, tocopy) < 0)
-	{
-		info->err_msg = "Error writing MFS transaction log";
-		return bsError;
-	}
-
-	*consumed = tocopy;
-	info->state_val2 += tocopy;
-
-	if (info->state_val2 < lognsectors)
-		return bsMoreData;
+	*consumed = 0;
 
 	return bsNextState;
 }
@@ -752,52 +771,83 @@ size, unsigned *consumed)
 /* Restore the unknown region referenced in the volume header after the */
 /* transaction log */
 /* state_val1 = --unused-- */
-/* state_val2 = offset within region */
+/* state_val2 = --unised-- */
 /* state_ptr1 = --unused-- */
 /* shared_val1 = --unused-- */
 enum backup_state_ret
 restore_state_unk_region_v3 (struct backup_info *info, void *data, unsigned
 size, unsigned *consumed)
 {
-	unsigned tocopy;
 	unsigned unknsectors;
 	uint64_t unkstart;
+	unsigned unkstamp;
+	unsigned char buf[2048];
+	log_hdr *hdr, *hdr2;
+	int loop;
 
 	if (mfs_is_64bit (info->mfs))
 	{
 		unknsectors = intswap32 (info->mfs->vol_hdr.v64.unknsectors);
 		unkstart = intswap64 (info->mfs->vol_hdr.v64.unkstart);
+		unkstamp = intswap32 (info->mfs->vol_hdr.v64.unkstamp);
 	}
 	else
 	{
 		unknsectors = intswap32 (info->mfs->vol_hdr.v32.unksectors);
 		unkstart = intswap32 (info->mfs->vol_hdr.v32.unkstart);
+		unkstamp = intswap32 (info->mfs->vol_hdr.v32.unkstamp);
 	}
 
-	tocopy = unknsectors - info->state_val2;
+	memset (buf, 0, sizeof (buf));
 
-	if (size == 0)
+	/* Start by making the buffer look like a blank entry */
+	hdr = (log_hdr *)buf;
+	hdr->logstamp = 0xffffffff;
+	MFS_update_crc (hdr, 512, hdr->crc);
+	/* Copy the blank entry to the rest of the buffer */
+	hdr2 = (log_hdr *)(buf + 512);
+	hdr2->logstamp = 0xffffffff;
+	hdr2->crc = hdr->crc;
+	hdr2 = (log_hdr *)(buf + 1024);
+	hdr2->logstamp = 0xffffffff;
+	hdr2->crc = hdr->crc;
+	hdr2 = (log_hdr *)(buf + 1536);
+	hdr2->logstamp = 0xffffffff;
+	hdr2->crc = hdr->crc;
+
+	for (loop = 0; loop < unknsectors; loop += 4)
 	{
-		info->err_msg = "Internal error: Restore buffer empty";
-		return bsError;
+		int tocopy = 4;
+
+		if (unknsectors - loop < 4)
+			tocopy = unknsectors - loop;
+
+		if (loop / 4 == unkstamp / 4)
+		{
+			hdr = (log_hdr *)(buf + 512 * (unkstamp & 3));
+			/* Create an entry with one 0 length log entry */
+			hdr->logstamp = intswap32 (unkstamp);
+			hdr->size = 2;
+			MFS_update_crc (hdr, 512, hdr->crc);
+		}
+
+		if (mfs_write_data (info->mfs, buf, unkstart + loop, tocopy) < 0)
+		{
+			info->err_msg = "Error writing MFS data";
+			return bsError;
+		}
+
+		if (loop / 4 == unkstamp / 4)
+		{
+			hdr2 = (log_hdr *)(buf + 1536 - 512 * (unkstamp & 3));
+			/* Reset to the base entry */
+			hdr->size = 0;
+			hdr->logstamp = 0xffffffff;
+			hdr->crc = hdr2->crc;
+		}
 	}
 
-	if (tocopy > size)
-	{
-		tocopy = size;
-	}
-
-	if (mfs_write_data (info->mfs, data, unkstart + info->state_val2, tocopy) < 0)
-	{
-		info->err_msg = "Error writing MFS data";
-		return bsError;
-	}
-
-	*consumed = tocopy;
-	info->state_val2 += tocopy;
-
-	if (info->state_val2 < unknsectors)
-		return bsMoreData;
+	*consumed = 0;
 
 	return bsNextState;
 }
@@ -999,7 +1049,7 @@ restore_state_zone_maps_v3 (struct backup_info *info, void *data, unsigned size,
 /* state_ptr1 = current inode structure */
 /* shared_val1 = --unused-- */
 enum backup_state_ret
-restore_state_app_inodes_v3 (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
+restore_state_inodes_v3 (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
 {
 	unsigned tocopy = 1, copied;
 	mfs_inode *inode;
@@ -1260,7 +1310,6 @@ backup_state_handler restore_v1 = {
 	restore_state_begin_v1,					// bsBegin
 	restore_state_partition_info,			// bsInfoPartition
 	restore_state_block_info_v1,			// bsInfoBlocks
-	NULL,									// bsInfoInodes
 	restore_state_mfs_partition_info,		// bsInfoMFSPartitions
 	restore_state_info_end,					// bsInfoEnd
 	restore_state_boot_block,				// bsBootBlock
@@ -1271,8 +1320,7 @@ backup_state_handler restore_v1 = {
 	NULL,									// bsTransactionLog
 	NULL,									// bsUnkRegion
 	NULL,									// bsZoneMaps
-	NULL,									// bsAppInodes
-	NULL,									// bsMediaInodes
+	NULL,									// bsInodes
 	restore_state_complete_v1				// bsComplete
 };
 
@@ -1281,7 +1329,6 @@ backup_state_handler restore_v3 = {
 	restore_state_begin_v3,					// bsBegin
 	restore_state_partition_info,			// bsInfoPartition
 	NULL,									// bsInfoBlocks
-	restore_state_inode_info_v3,			// bsInfoInodes
 	restore_state_mfs_partition_info,		// bsInfoMFSPartitions
 	restore_state_info_end,					// bsInfoEnd
 	restore_state_boot_block,				// bsBootBlock
@@ -1292,8 +1339,7 @@ backup_state_handler restore_v3 = {
 	restore_state_transaction_log_v3,		// bsTransactionLog
 	restore_state_unk_region_v3,			// bsUnkRegion
 	restore_state_zone_maps_v3,				// bsZoneMaps
-	restore_state_app_inodes_v3,			// bsAppInodes
-	restore_state_media_inodes_v3,			// bsMediaInodes
+	restore_state_inodes_v3,				// bsInodes
 	restore_state_complete_v3				// bsComplete
 };
 

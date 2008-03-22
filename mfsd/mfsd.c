@@ -371,7 +371,7 @@ dump_mfs_header_32 (volume_header_32 *hdr, unsigned char *buf, unsigned int bufs
 	}
 	printf ("Last sync boot: %-13dTimestamp: %-13dLast Commit: %d\n", intswap32 (hdr->bootcycles), intswap32 (hdr->bootsecs), intswap32 (hdr->logstamp));
 
-	if (hdr->off0c || hdr->off14 || hdr->off1c || hdr->off20 || hdr->offa8 || hdr->offc0 || hdr->offe4)
+	if (hdr->off0c || hdr->off14 || hdr->off1c || hdr->off20 || hdr->offa8 || hdr->offe4)
 	{
 		printf ("Unknown data\n");
 		if (hdr->off0c)
@@ -389,10 +389,6 @@ dump_mfs_header_32 (volume_header_32 *hdr, unsigned char *buf, unsigned int bufs
 		if (hdr->offa8)
 		{
 			printf ("00000000:0a8 %02x %02x %02x %02x\n", buf[168], buf[169], buf[170], buf[171]);
-		}
-		if (hdr->offc0)
-		{
-			printf ("00000000:0c0 %02x %02x %02x %02x\n", buf[192], buf[193], buf[194], buf[195]);
 		}
 		if (hdr->offe4)
 		{

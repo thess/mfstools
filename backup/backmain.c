@@ -193,7 +193,7 @@ backup_main (int argc, char **argv)
 			if (!strcasecmp (optarg, "v1"))
 				selectedformat = bfV1;
 			else if (!strcasecmp (optarg, "v3"))
-				selectedformat = bfV1;
+				selectedformat = bfV3;
 			else if (!strcasecmp (optarg, "winmfs"))
 				selectedformat = bfWinMFS;
 			else

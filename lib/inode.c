@@ -23,55 +23,67 @@
 
 #include "mfs.h"
 
-/*************************************/
-/* Read an inode data and return it. */
-mfs_inode *
-mfs_read_inode (struct mfs_handle *mfshnd, unsigned int inode)
+/*********************************************/
+/* Read an inode into a pre-allocated buffer */
+int
+mfs_read_inode_to_buf (struct mfs_handle *mfshnd, unsigned int inode, mfs_inode *inode_buf)
 {
-	mfs_inode *in = calloc (512, 1);
 	int sector;
 
-	if (!in)
+	if (!inode_buf)
 	{
-		return NULL;
+		return -1;
 	}
 
 /* Find the sector number for this inode. */
 	sector = mfs_inode_to_sector (mfshnd, inode);
 	if (sector == 0)
 	{
-		free (in);
-		return NULL;
+		return -1;
 	}
 
-	if (mfsvol_read_data (mfshnd->vols, (void *) in, sector, 1) != 512)
+	if (mfsvol_read_data (mfshnd->vols, (void *) inode_buf, sector, 1) != 512)
 	{
-		free (in);
-		return NULL;
+		return -1;
 	}
 
 /* If the CRC is good, don't bother reading the next inode. */
-	if (MFS_check_crc (in, 512, in->checksum))
+	if (MFS_check_crc (inode_buf, 512, inode_buf->checksum))
 	{
-		return in;
+		return 1;
 	}
 
 /* CRC is bad, try reading the backup on the next sector. */
-	if (mfsvol_read_data (mfshnd->vols, (void *) in, sector + 1, 1) != 512)
+	if (mfsvol_read_data (mfshnd->vols, (void *) inode_buf, sector + 1, 1) != 512)
 	{
-		free (in);
-		return NULL;
+		return -1;
 	}
 
-	if (MFS_check_crc (in, 512, in->checksum))
+	if (MFS_check_crc (inode_buf, 512, inode_buf->checksum))
 	{
-		return in;
+		return 1;
 	}
 
 	mfshnd->err_msg = "Inode %d corrupt";
 	mfshnd->err_arg1 = (void *)inode;
 
-	return NULL;
+	return -1;
+}
+
+/*************************************/
+/* Read an inode data and return it. */
+mfs_inode *
+mfs_read_inode (struct mfs_handle *mfshnd, unsigned int inode)
+{
+	mfs_inode *in = calloc (512, 1);
+
+	if (mfs_read_inode_to_buf (mfshnd, inode, in) <= 0)
+	{
+		free (in);
+		return NULL;
+	}
+
+	return in;
 }
 
 /*******************/

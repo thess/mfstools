@@ -404,6 +404,12 @@ backup_start (struct backup_info *info)
 {
 	unsigned consumed = 0;
 
+	/* Turn on memwrite mode to commit the transaction log */
+	mfs_enable_memwrite (info->mfs);
+
+	/* Commit the transaction log */
+	mfs_log_fssync (info->mfs);
+
 	/* Call the first state.  If this returns anything but bsNextState with */
 	/* no consumed data, it's an error. */
 	enum backup_state_ret ret = ((*info->state_machine)[info->state]) (info, NULL, 0, &consumed);
