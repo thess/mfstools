@@ -36,6 +36,7 @@ restore_usage (char *progname)
 	fprintf (stderr, " -b        Force no byte swapping on restore\n");
 	fprintf (stderr, " -B        Force byte swapping on restore\n");
 	fprintf (stderr, " -z        Zero out partitions not backed up\n");
+	fprintf (stderr, " -S 32/64  Write MFS structures as 32 or 64 bit\n");
 }
 
 static unsigned int
@@ -131,10 +132,11 @@ restore_main (int argc, char **argv)
 	int bswap = 0;
 	int expand = 0;
 	int expandscale = 2;
+	int restorebits = 0;
 
 	tivo_partition_direct ();
 
-	while ((opt = getopt (argc, argv, "hi:v:s:zqbBpxlr:")) > 0)
+	while ((opt = getopt (argc, argv, "hi:v:s:zqbBpxlr:S:")) > 0)
 	{
 		switch (opt)
 		{
@@ -202,6 +204,19 @@ restore_main (int argc, char **argv)
 				return 1;
 			}
 			break;
+		case 'S':
+			restorebits = strtoul (optarg, &tmp, 10);
+			if (tmp && *tmp)
+			{
+				fprintf (stderr, "%s: Integer argument expected for -S.\n", argv[0]);
+				return 1;
+			}
+			if (restorebits != 32 && restorebits != 64)
+			{
+				fprintf (stderr, "%s: Value for -S must be 32 or 64\n", argv[0]);
+				return 1;
+			}
+			break;
 		default:
 			restore_usage (argv[0]);
 			return 1;
@@ -256,6 +271,8 @@ restore_main (int argc, char **argv)
 			restore_set_swapsize (info, swapsize * 1024 * 2);
 		if (bswap)
 			restore_set_bswap (info, bswap);
+		if (restorebits)
+			restore_set_mfs_type (info, restorebits);
 
 		if (filename[0] == '-' && filename[1] == '\0')
 			fd = 0;
@@ -292,11 +309,13 @@ restore_main (int argc, char **argv)
 		}
 
 		if (swapsize > 128 && !(info->back_flags & BF_NOBSWAP))
-			fprintf (stderr, "***WARNING***\nUsing version 1 swap signature to get >128MiB swap size, but the backup looks\nlike a series 1.  Stock SERIES 1 TiVo kernels do not support the version 1\nswap signature.  If you are using a stock SERIES 1 TiVo kernel, 128MiB is the\nlargest usable swap size.\n");
+			fprintf (stderr, "    ***WARNING***\nUsing version 1 swap signature to get >128MiB swap size, but the backup looks\nlike a series 1.  Stock SERIES 1 TiVo kernels do not support the version 1\nswap signature.  If you are using a stock SERIES 1 TiVo kernel, 128MiB is the\nlargest usable swap size.\n");
+		if (restorebits == 64 && !(info->back_flags & BF_64))
+			fprintf (stderr, "    ***WARNING***\nConverting MFS structure to 64 bit if very experimental, and will only work on\nSeries 3 based TiVo platforms or later, such as the TiVo HD.\n");
 
 		if (info->back_flags & BF_TRUNCATED)
 		{
-			fprintf (stderr, "***WARNING***\nRestoring from a backup of an incomplete volume.  While the backup is whole,\nit is possible there was some required data missing.  Verify the restore.\n");
+			fprintf (stderr, "    ***WARNING***\nRestoring from a backup of an incomplete volume.  While the backup is whole,\nit is possible there was some required data missing.  Verify the restore.\n");
 		}
 
 		if (restore_trydev (info, drive, drive2) < 0)

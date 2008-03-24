@@ -194,6 +194,7 @@ struct backup_info
 	int varsize;
 	int swapsize;
 	int bswap;
+	int bitsize;
 #else
 	unsigned int thresh;
 	char *hda;
@@ -259,7 +260,6 @@ struct backup_head_v3
 #define RF_BALANCE		0x00100000	/* Balance partition layout. */
 #define RF_NOFILL		0x00200000	/* Leave room for more partitions. */
 #define RF_SWAPV1		0x00400000	/* Use version 1 swap signature. */
-#define RF_REBUILDBITS	0x00800000	/* Change MFS structures from 32 to 64 bit (Or back). */
 #define RF_FLAGS		0xffff0000
 
 struct backup_info *init_backup_v1 (char *device, char *device2, int flags);
@@ -277,6 +277,7 @@ void backup_clearerror (struct backup_info *info);
 struct backup_info *init_restore (unsigned int flags);
 void restore_set_varsize (struct backup_info *info, int size);
 void restore_set_swapsize (struct backup_info *info, int size);
+void restore_set_mfs_type (struct backup_info *info, int bits);
 unsigned int restore_write (struct backup_info *info, char *buf, unsigned int size);
 int restore_trydev (struct backup_info *info, char *dev1, char *dev2);
 int restore_start (struct backup_info *info);

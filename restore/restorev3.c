@@ -555,10 +555,27 @@ restore_state_volume_header_v3 (struct backup_info *info, void *data, unsigned s
 
 /* The rest of the header data will be initialized later, or is initialized to 0 */
 
-	do64bit = info->back_flags & BF_64;
-	if (info->back_flags & RF_REBUILDBITS)
+	if (info->back_flags & BF_64)
 	{
-		do64bit = !do64bit;
+		if (info->bitsize == 32)
+		{
+			do64bit = 0;
+		}
+		else
+		{
+			do64bit = 1;
+		}
+	}
+	else
+	{
+		if (info->bitsize == 64)
+		{
+			do64bit = 1;
+		}
+		else
+		{
+			do64bit = 0;
+		}
 	}
 
 /* Now copy the header into the real thing and initialize the remaining values */

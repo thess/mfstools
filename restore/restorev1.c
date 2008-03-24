@@ -122,6 +122,23 @@ restore_state_begin_v1 (struct backup_info *info, void *data, unsigned size, uns
 		return bsError;
 	}
 
+	if (info->back_flags & BF_64)
+	{
+		if (info->bitsize == 32)
+		{
+			info->err_msg = "Restore of V1 format backup files does not support converting MFS structure type";
+			return 1;
+		}
+	}
+	else
+	{
+		if (info->bitsize == 64)
+		{
+			info->err_msg = "Restore of V1 format backup files does not support converting MFS structure type";
+			return 1;
+		}
+	}
+
 /* v1 backup has no other data in first block */
 	*consumed = 1;
 	info->shared_val1 = 0;

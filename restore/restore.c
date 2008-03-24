@@ -79,6 +79,12 @@ restore_set_bswap (struct backup_info *info, int bswap)
 	info->bswap = bswap;
 }
 
+void
+restore_set_mfs_type (struct backup_info *info, int bits)
+{
+	info->bitsize = bits;
+}
+
 /***************************************************************************/
 /* State handlers - return val -1 = error, 0 = more data needed, 1 = go to */
 /* next state. */
