@@ -511,14 +511,14 @@ mfs_zone_map_commit (struct mfs_handle *mfshnd, unsigned int logstamp)
 /************************************************************************/
 /* Return how big a new zone map would need to be for a given number of */
 /* allocation blocks. */
-static int
+int
 mfs_new_zone_map_size (struct mfs_handle *mfshnd, unsigned int blocks)
 {
-/* I don't remember what the original +4 was for, but the +16 is because */
+/* I don't remember what the original +4 was for, but the +24 is because */
 /* apparently TiVo likes a little breathing room at the end, and throws */
 /* a tantrum if it doesn't have it.  This happens when the zone map has */
 /* 18 levels of bitmaps. */
-	int size = 4 + 16;
+	int size = 4 + 28;
 	int order = 0;
 
 	if (mfshnd->is_64)
@@ -559,8 +559,8 @@ mfs_new_zone_map_size (struct mfs_handle *mfshnd, unsigned int blocks)
 /****************************************************************************/
 /* Create a new zone map at the requested sector, pointing to the requested */
 /* sector, and link it in. */
-static int
-mfs_new_zone_map (struct mfs_handle *mfshnd, uint64_t sector, uint64_t backup, uint64_t first, uint64_t size, unsigned int minalloc, zone_type type)
+int
+mfs_new_zone_map (struct mfs_handle *mfshnd, uint64_t sector, uint64_t backup, uint64_t first, uint64_t size, unsigned int minalloc, zone_type type, unsigned int fsmem_base)
 {
 	unsigned int blocks = size / minalloc;
 	int zonesize = (mfs_new_zone_map_size (mfshnd, blocks) + 511) & ~511;
@@ -570,22 +570,23 @@ mfs_new_zone_map (struct mfs_handle *mfshnd, uint64_t sector, uint64_t backup, u
 	struct zone_map *cur;
 	int loop;
 	int order = 0;
-	int fsmem_base;
 	unsigned int *fsmem_pointers;
 	unsigned int *curofs;
 
 /* Truncate the size to the nearest allocation sized block. */
-	size = size & ~((uint64_t)minalloc - 1);
+	size -= size % minalloc;
 
 /* Find the last loaded zone. */
-	for (cur = mfshnd->loaded_zones; cur->next_loaded; cur = cur->next_loaded);
+	for (cur = mfshnd->loaded_zones; cur && cur->next_loaded; cur = cur->next_loaded);
 
-	if (!cur)
+	if (cur)
 	{
-		return -1;
+		last = cur->map;
 	}
-
-	last = cur->map;
+	else
+	{
+		last = NULL;
+	}
 
 /* To get the pointer into fsmem, start with the first pointer from the */
 /* previous zone map.  Subtract the header and all the fsmem pointers from */
@@ -594,13 +595,22 @@ mfs_new_zone_map (struct mfs_handle *mfshnd, uint64_t sector, uint64_t backup, u
 /* It looks like it's more complicated than that now...  But it also looks */
 /* like the numbers don't matter and TiVo will correct them itself because */
 /* this still works. */
-	if (mfshnd->is_64)
+	if (!fsmem_base)
 	{
-		fsmem_base = intswap32 (*(unsigned int *) (&last->z64 + 1)) - (sizeof (last->z64) + intswap32 (last->z64.num) * 4) + intswap32 (last->z64.length) * 512 + 512 + 8;
-	}
-	else
-	{
-		fsmem_base = intswap32 (*(unsigned int *) (&last->z32 + 1)) - (sizeof (last->z32) + intswap32 (last->z32.num) * 4) + intswap32 (last->z32.length) * 512 + 512 + 8;
+		if (!last)
+		{
+			mfshnd->err_msg = "Attempt to create first zone without fsmem base";
+			return -1;
+		}
+
+		if (mfshnd->is_64)
+		{
+			fsmem_base = intswap32 (*(unsigned int *) (&last->z64 + 1)) - (sizeof (last->z64) + intswap32 (last->z64.num) * 4) + intswap32 (last->z64.length) * 512 + 512 + 8;
+		}
+		else
+		{
+			fsmem_base = intswap32 (*(unsigned int *) (&last->z32 + 1)) - (sizeof (last->z32) + intswap32 (last->z32.num) * 4) + intswap32 (last->z32.length) * 512 + 512 + 8;
+		}
 	}
 
 	buf = malloc (zonesize);
@@ -712,9 +722,9 @@ mfs_new_zone_map (struct mfs_handle *mfshnd, uint64_t sector, uint64_t backup, u
 		}
 		else
 		{
-			bitmap->last = 0;
 			bitmap->freeblocks = 0;
 		}
+		bitmap->last = 0;
 
 /* Step past this table. */
 		curofs += sizeof (*bitmap) / 4 + (nbits + 57) / 32;
@@ -723,29 +733,50 @@ mfs_new_zone_map (struct mfs_handle *mfshnd, uint64_t sector, uint64_t backup, u
 	if (mfshnd->is_64)
 	{
 /* Copy the pointer into the current end of the zone list. */
-		last->z64.next_sector = zone->z64.sector;
-		last->z64.next_sbackup = zone->z64.sbackup;
-		last->z64.next_length = zone->z64.length;
-		last->z64.next_size = zone->z64.size;
-		last->z64.next_min = zone->z64.min;
-
+		if (last)
+		{
+			last->z64.next_sector = zone->z64.sector;
+			last->z64.next_sbackup = zone->z64.sbackup;
+			last->z64.next_length = zone->z64.length;
+			last->z64.next_size = zone->z64.size;
+			last->z64.next_min = zone->z64.min;
 /* Update the CRC in the new zone, as well as the previous tail, since it's */
 /* next pointer was updated. */
-		MFS_update_crc (last, intswap32 (last->z64.length) * 512, last->z64.checksum);
+			MFS_update_crc (last, intswap32 (last->z64.length) * 512, last->z64.checksum);
+		}
+		else
+		{
+			mfshnd->vol_hdr.v64.zonemap.sector = zone->z64.sector;
+			mfshnd->vol_hdr.v64.zonemap.sbackup = zone->z64.sbackup;
+			mfshnd->vol_hdr.v64.zonemap.length = intswap64 (intswap32 (zone->z64.length));
+			mfshnd->vol_hdr.v64.zonemap.size = zone->z64.size;
+			mfshnd->vol_hdr.v64.zonemap.min = intswap64 (intswap32 (zone->z64.min));
+		}
 		MFS_update_crc (zone, intswap32 (zone->z64.length) * 512, zone->z64.checksum);
 	}
 	else
 	{
 /* Copy the pointer into the current end of the zone list. */
-		last->z32.next.sector = zone->z32.sector;
-		last->z32.next.sbackup = zone->z32.sbackup;
-		last->z32.next.length = zone->z32.length;
-		last->z32.next.size = zone->z32.size;
-		last->z32.next.min = zone->z32.min;
+		if (last)
+		{
+			last->z32.next.sector = zone->z32.sector;
+			last->z32.next.sbackup = zone->z32.sbackup;
+			last->z32.next.length = zone->z32.length;
+			last->z32.next.size = zone->z32.size;
+			last->z32.next.min = zone->z32.min;
 
 /* Update the CRC in the new zone, as well as the previous tail, since it's */
 /* next pointer was updated. */
-		MFS_update_crc (last, intswap32 (last->z32.length) * 512, last->z32.checksum);
+			MFS_update_crc (last, intswap32 (last->z32.length) * 512, last->z32.checksum);
+		}
+		else
+		{
+			mfshnd->vol_hdr.v32.zonemap.sector = zone->z32.sector;
+			mfshnd->vol_hdr.v32.zonemap.sbackup = zone->z32.sbackup;
+			mfshnd->vol_hdr.v32.zonemap.length = zone->z32.length;
+			mfshnd->vol_hdr.v32.zonemap.size = zone->z32.size;
+			mfshnd->vol_hdr.v32.zonemap.min = zone->z32.min;
+		}
 		MFS_update_crc (zone, intswap32 (zone->z32.length) * 512, zone->z32.checksum);
 	}
 
@@ -753,15 +784,22 @@ mfs_new_zone_map (struct mfs_handle *mfshnd, uint64_t sector, uint64_t backup, u
 /* the journaling facilities, but I don't know how. */
 	mfsvol_write_data (mfshnd->vols, zone, sector, zonesize / 512);
 	mfsvol_write_data (mfshnd->vols, zone, backup, zonesize / 512);
-	if (mfshnd->is_64)
+	if (last)
 	{
-		mfsvol_write_data (mfshnd->vols, last, intswap64 (last->z64.sector), intswap32 (last->z64.length));
-		mfsvol_write_data (mfshnd->vols, last, intswap64 (last->z64.sbackup), intswap32 (last->z64.length));
+		if (mfshnd->is_64)
+		{
+			mfsvol_write_data (mfshnd->vols, last, intswap64 (last->z64.sector), intswap32 (last->z64.length));
+			mfsvol_write_data (mfshnd->vols, last, intswap64 (last->z64.sbackup), intswap32 (last->z64.length));
+		}
+		else
+		{
+			mfsvol_write_data (mfshnd->vols, last, intswap32 (last->z32.sector), intswap32 (last->z32.length));
+			mfsvol_write_data (mfshnd->vols, last, intswap32 (last->z32.sbackup), intswap32 (last->z32.length));
+		}
 	}
 	else
 	{
-		mfsvol_write_data (mfshnd->vols, last, intswap32 (last->z32.sector), intswap32 (last->z32.length));
-		mfsvol_write_data (mfshnd->vols, last, intswap32 (last->z32.sbackup), intswap32 (last->z32.length));
+		mfs_write_volume_header (mfshnd);
 	}
 
 	return 0;
@@ -935,7 +973,7 @@ mfs_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsigned
 		return -1;
 	}
 
-	if (mfs_new_zone_map (mfshnd, appstart + 1, appstart + appsize - mapsize - 1, mediastart, mediasize, minalloc, ztMedia) < 0)
+	if (mfs_new_zone_map (mfshnd, appstart + 1, appstart + appsize - mapsize - 1, mediastart, mediasize, minalloc, ztMedia, 0) < 0)
 	{
 		mfshnd->err_msg = "Failed initializing new zone map";
 		mfs_reinit (mfshnd, O_RDWR);

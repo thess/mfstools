@@ -20,7 +20,7 @@ endif
 bin_PROGRAMS = $(MFSAPPS)
 noinst_LIBRARIES = $(MFSTOOLS)
 
-mfscopy_SOURCES = backup.c backupv1.c backupv3.c restore.c copy.c
+mfscopy_SOURCES = backup.c backupv1.c backupv3.c restore.c restorev1.c restorev3.c copy.c
 mfscopy_LDFLAGS = -Wl,--defsym,main=copy_main
 
 libmfscopy_a_SOURCES = copy.c

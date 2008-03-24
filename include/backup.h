@@ -15,6 +15,15 @@ struct backup_partition
 	char reserved[2];
 };
 
+struct zone_map_info
+{
+	unsigned int map_length;
+	unsigned int zone_type;
+	unsigned int fsmem_base;
+	unsigned int min_au;
+	uint64_t size;
+};
+
 struct device_info
 {
 	struct tivo_partition_file **files;
@@ -46,19 +55,22 @@ enum backup_state {
 			// Write backup header
 /* Backup description collection */
 	bsInfoPartitions,
-		// state_val1 as current partition index.
+		// state_val1 as current partition offset.
 		// shared_val1 as offset within current block of last partition,
-		//     padded to 8 bytes.
 			// List follows immediately after backup header
+/* v1 backup only */
 	bsInfoBlocks,
-		// state_val1 as current MFS block index.
+		// state_val1 as current MFS block offset.
 		// shared_val1 as offset within current block of last MFS block,
-		//     padded to 8 bytes.
 			// List follows immediately after partition list
 	bsInfoMFSPartitions,
-		// state_val1 as current MFS partition index.
+		// state_val1 as current MFS partition offset.
 		// shared_val1 as offset within current block of last MFS partition,
-		//     padded to 8 bytes.
+			// List follows immediately after inode or block list
+/* v3 backup only */
+	bsInfoZoneMaps,
+		// state_val1 as current zone map offset.
+		// shared_val1 as offset within current block of last MFS partition,
 			// List follows immediately after inode or block list
 	bsInfoEnd,
 		// If shared_val1 is not 0 or 512, consume remainder of block.
@@ -83,15 +95,14 @@ enum backup_state {
 		// --- no state val usage
 			// Offset 0 of MFS volume
 	bsTransactionLog,
-		// state_val1 as offset within transaction log
+		// --- no state val usage
 			// Region referenced by volume header
 	bsUnkRegion,
-		// state_val1 as offset within unknown region referenced in volume hdr
+		// --- no state val usage
 			// Region referenced by volume header
-	bsZoneMaps,
-		// shared_ptr1 as pointer to current zone map in memory
-		// state_val1 as offset within current zone map
-			// Zone maps, implicitly stopping at the end of the volume
+	bsMfsReinit,
+		// --- no state val usage
+			// Create zone maps and initialize MFS
 	bsInodes,
 		// state_val1 as current inode number.
 		// state_val2 as offset within current inode.
@@ -123,11 +134,11 @@ struct backup_info
 	int nsectors;
 
 /* Backup state machine */
-	enum backup_state state;
 	uint64_t state_val1;
 	uint64_t state_val2;
 	uint64_t shared_val1;
 	void *state_ptr1;
+	enum backup_state state;
 
 	backup_state_handler *state_machine;
 
@@ -147,6 +158,18 @@ struct backup_info
 
 	int nmfs;
 	struct backup_partition *mfsparts;
+
+// V3 backups only
+	int nzones;
+	struct zone_map_info *zonemaps;
+
+/* Type of transaction to use for inode updates */
+	unsigned int ilogtype;
+
+	uint64_t appsectors;	/* Number of application data sectors backed up */
+	uint64_t mediasectors;	/* Number of media data sectors backed up */
+	uint32_t appinodes;		/* Number of inodes accounting for app data */
+	uint32_t mediainodes;	/* Number of inodes accounting for media data */
 
 /* Other backup stuff stuff */
 	int back_flags;
@@ -186,23 +209,30 @@ struct block_info
 
 struct backup_head
 {
-	unsigned int magic;	/* TBAK */
-	unsigned int flags;
-	unsigned int nsectors;
-	unsigned int nparts;
-	unsigned int nblocks;
-	unsigned int mfspairs;
-	char reserved[488];
+	unsigned int magic;		/* TBAK */
+	unsigned int flags;		/* Flags - only the lower 16 bits should be set */
+	unsigned int nsectors;	/* Uncompressed backup size (512 byte sectors) */
+	unsigned int nparts;	/* Number of non-MFS partitions backed up */
+	unsigned int nblocks;	/* Number of blocks of MFS data backed up */
+	unsigned int mfspairs;	/* Number of MFS volume pairs found */
+	char reserved[488];		/* Padding to 512 bytes */
 };
 
 struct backup_head_v3
 {
-	unsigned int magic;	/* TBK3 */
-	unsigned int flags;
-	unsigned int nsectors;
-	unsigned int nparts;
-	unsigned int ninodes;
-	unsigned int mfspairs;
+	unsigned int magic;		/* TBK3 */
+	unsigned int size;		/* Size of the backup structure */
+	unsigned short flags;	/* 16 bit since backup uses the lower 16 bits */
+	unsigned short nparts;	/* Number of non-MFS partitions backed up */
+	unsigned short nzones;	/* Number of MFS zone maps found */
+	unsigned short mfspairs;/* Number of MFS volume pairs found */
+	unsigned int ninodes;	/* Number of inodes backed up */
+	unsigned int ilogtype;	/* Type of inode update log entries */
+	uint64_t nsectors;		/* Uncompressed backup size (512 byte sectors) */
+	uint64_t appsectors;	/* Number of application data sectors backed up */
+	uint64_t mediasectors;	/* Number of media data sectors backed up */
+	uint32_t appinodes;		/* Number of inodes accounting for app data */
+	uint32_t mediainodes;	/* Number of inodes accounting for media data */
 };
 
 #define TB_MAGIC (('T' << 24) + ('B' << 16) + ('A' << 8) + ('K' << 0))
@@ -210,9 +240,9 @@ struct backup_head_v3
 #define TB3_MAGIC (('T' << 24) + ('B' << 16) + ('K' << 8) + ('3' << 0))
 #define TB3_ENDIAN (('T' << 0) + ('B' << 8) + ('K' << 16) + ('3' << 24))
 #define BF_COMPRESSED	0x00000001	/* Backup is compressed. */
-#define BF_MFSONLY	0x00000002	/* Backup is MFS only. */
+#define BF_MFSONLY		0x00000002	/* Backup is MFS only. */
 #define BF_BACKUPVAR	0x00000004	/* /var in backup. */
-#define BF_SHRINK	0x00000008	/* Divorced backup. */
+#define BF_SHRINK		0x00000008	/* Divorced backup. */
 #define BF_THRESHSIZE	0x00000010
 #define BF_THRESHTOT	0x00000020
 #define BF_STREAMTOT	0x00000040
@@ -221,15 +251,16 @@ struct backup_head_v3
 #define BF_64			0x00000200	/* Backup is from a 64 bit system */
 #define BF_COMPLVL(f)	(((f) >> 12) & 0xf)
 #define BF_SETCOMP(l)	((((l) & 0xf) << 12) | BF_COMPRESSED)
-#define BF_FLAGS	0x0000ffff
+#define BF_FLAGS		0x0000ffff
 #define RF_INITIALIZED	0x00010000	/* Restore initialized. */
-#define RF_ENDIAN	0x00020000	/* Restore from different endian. */
+#define RF_ENDIAN		0x00020000	/* Restore from different endian. */
 #define RF_NOMORECOMP	0x00040000	/* No more compressed data. */
-#define RF_ZEROPART	0x00080000	/* Zero out non restored partitions. */
-#define RF_BALANCE	0x00100000	/* Balance partition layout. */
-#define RF_NOFILL	0x00200000	/* Leave room for more partitions. */
-#define RF_SWAPV1	0x00400000	/* Use version 1 swap signature. */
-#define RF_FLAGS	0xffff0000
+#define RF_ZEROPART		0x00080000	/* Zero out non restored partitions. */
+#define RF_BALANCE		0x00100000	/* Balance partition layout. */
+#define RF_NOFILL		0x00200000	/* Leave room for more partitions. */
+#define RF_SWAPV1		0x00400000	/* Use version 1 swap signature. */
+#define RF_REBUILDBITS	0x00800000	/* Change MFS structures from 32 to 64 bit (Or back). */
+#define RF_FLAGS		0xffff0000
 
 struct backup_info *init_backup_v1 (char *device, char *device2, int flags);
 struct backup_info *init_backup_v3 (char *device, char *device2, int flags);

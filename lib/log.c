@@ -316,6 +316,10 @@ mfs_log_inode_update (struct mfs_handle *mfshnd, mfs_inode *inode)
 	{
 		oldinode = mfs_read_inode (mfshnd, intswap32 (inode->inode));
 	}
+	else
+	{
+		oldinode = NULL;
+	}
 
 	/* Get the fsid for log entries, just in case it's not in the inode block anymore (IE a free) */
 	if (inode->fsid)
@@ -359,7 +363,7 @@ mfs_log_inode_update (struct mfs_handle *mfshnd, mfs_inode *inode)
 	entry = alloca (offsetof (log_inode_update, datablocks) + datasize);
 
 	/* Generic log stuff */
-	entry->log.length = intswap16 (offsetof (log_inode_update, datablocks) + datasize - 2);
+	entry->log.length = intswap16 ((offsetof (log_inode_update, datablocks) + datasize - 2 + 1) & ~1);
 	entry->log.unk1 = 0;
 	entry->log.bootcycles = intswap32 (mfshnd->bootcycle);
 	entry->log.bootsecs = intswap32 (mfshnd->bootsecs);
@@ -466,7 +470,7 @@ static int
 mfs_log_commit_list (struct mfs_handle *mfshnd, struct log_entry_list *list, unsigned int logstamp)
 {
 	struct log_entry_list *cur;
-	struct log_entry_list *last;
+	struct log_entry_list *last = NULL;
 
 	/* Commit each log entry in turn */
 	for (cur = list; cur; cur = cur->next)
@@ -514,7 +518,7 @@ mfs_log_commit_list (struct mfs_handle *mfshnd, struct log_entry_list *list, uns
 			}
 		}
 
-		mfshnd->vol_hdr.v64.logstamp = logstamp;
+		mfshnd->vol_hdr.v64.logstamp = intswap32 (logstamp);
 		if (last)
 		{
 			mfshnd->vol_hdr.v64.bootcycles = last->entry.log.bootcycles;
@@ -533,7 +537,7 @@ mfs_log_commit_list (struct mfs_handle *mfshnd, struct log_entry_list *list, uns
 			}
 		}
 
-		mfshnd->vol_hdr.v32.logstamp = logstamp;
+		mfshnd->vol_hdr.v32.logstamp = intswap32 (logstamp);
 		if (last)
 		{
 			mfshnd->vol_hdr.v32.bootcycles = last->entry.log.bootcycles;
@@ -794,6 +798,9 @@ mfs_log_fssync (struct mfs_handle *mfshnd)
 {
 	log_entry entry;
 	entry.length = intswap16 (sizeof (entry) - 2);
+	entry.unk1 = 0;
+	entry.unk2 = 0;
+	entry.fsid = 0;
 
 	/* If this is the first time, replay the log first */
 	if (!mfshnd->current_log)
@@ -906,6 +913,9 @@ mfs_log_commit (struct mfs_handle *mfshnd)
 	/* Increment the seconds for thenext set of data to commit */
 	entry.bootsecs = intswap32 (mfshnd->bootsecs++);
 	entry.transtype = intswap32 (ltCommit);
+	entry.unk1 = 0;
+	entry.unk2 = 0;
+	entry.fsid = 0;
 
 	if (mfs_log_add_entry (mfshnd, &entry) <= 0)
 		return 0;
@@ -921,7 +931,7 @@ mfs_log_commit (struct mfs_handle *mfshnd)
 	if (mfs_log_load_list (mfshnd, mfshnd->lastlogcommit + 1, endlog, &list) <= 0)
 		return 0;
 
-	if (mfs_log_commit_list (mfshnd, list, endlog))
+	if (mfs_log_commit_list (mfshnd, list, endlog) <= 0)
 		return 0;
 
 	/* Perform a periodic fssync */

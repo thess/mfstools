@@ -92,13 +92,19 @@ backup_scan_inodes (struct backup_info *info)
 	unsigned *fsids = NULL;
 
 	uint64_t appsectors = 0, mediasectors = 0;
-#if DEBUG
 	unsigned int mediainodes = 0, appinodes = 0;
-#endif
 
 	unsigned allocated = 0;
 
 	info->inodes = NULL;
+
+/* Get the log type to use for inode updates */
+	if (!info->mfs->inode_log_type)
+	{
+		info->err_msg = "Unable to determine transaction type for inode updates";
+		return -1;
+	}
+	info->ilogtype = info->mfs->inode_log_type;
 
 /* Add inodes. */
 	for (loop = 0; loop < ninodes; loop++)
@@ -168,21 +174,17 @@ backup_scan_inodes (struct backup_info *info)
 
 /* Count the inode's sectors in the total. */
 			mediasectors += streamsize;
-#if DEBUG
 			mediainodes++;
-#endif
 
 #if DEBUG
 			fprintf (stderr, "Inode %d (%d) added\n", intswap32 (inode->inode), intswap32 (inode->fsid));
 #endif
 		}
-		else if (inode->type != tyStream && !(inode->inode_flags & intswap32 (INODE_DATA)))
+		else if (inode->type != tyStream && !(inode->inode_flags & intswap32 (INODE_DATA)) && inode->size)
 		{
 /* Count the space used by non-stream inodes */
 			appsectors += (intswap32 (inode->size) + 511) / 512;
-#if DEBUG
 			appinodes++;
-#endif
 
 		}
 
@@ -239,10 +241,72 @@ backup_scan_inodes (struct backup_info *info)
 
 /* Count the space for the inodes themselves */
 	info->nsectors += info->ninodes + appsectors + mediasectors;
+	info->appsectors = appsectors;
+	info->mediasectors = mediasectors;
+	info->appinodes = appinodes;
+	info->mediainodes = mediainodes;
 
 	if (fsids)
 		free (fsids);
 	return info->ninodes;
+}
+
+/***************************************************************/
+/* Scan the zone maps for vital stats needed to reproduce them */
+int
+backup_info_scan_zone_maps (struct backup_info *info)
+{
+	zone_header *zone = NULL;
+	int cur;
+
+	/* Start by counting the zone maps */
+	while ((zone = mfs_next_zone (info->mfs, zone)) != NULL)
+		info->nzones++;
+
+	info->zonemaps = calloc (sizeof (struct zone_map_info), info->nzones);
+	if (!info->zonemaps)
+	{
+		info->err_msg = "Memory exhausted (Zone scan)";
+		return -1;
+	}
+
+	zone = NULL;
+	for (cur = 0; cur < info->nzones; cur++)
+	{
+		unsigned int *fsmemptrs;
+		unsigned int numbitmaps;
+		unsigned int fsmem_addr;
+
+		zone = mfs_next_zone (info->mfs, zone);
+
+		if (mfs_is_64bit (info->mfs))
+		{
+			info->zonemaps[cur].map_length = intswap32 (zone->z64.length);
+			info->zonemaps[cur].zone_type = intswap32 (zone->z64.type);
+			info->zonemaps[cur].min_au = intswap32 (zone->z64.min);
+			info->zonemaps[cur].size = intswap64 (zone->z64.size);
+			numbitmaps = intswap32 (zone->z64.num);
+			fsmemptrs = (unsigned int *)(&zone->z64 + 1);
+		}
+		else
+		{
+			info->zonemaps[cur].map_length = intswap32 (zone->z32.length);
+			info->zonemaps[cur].zone_type = intswap32 (zone->z32.type);
+			info->zonemaps[cur].min_au = intswap32 (zone->z32.min);
+			info->zonemaps[cur].size = intswap32 (zone->z32.size);
+			numbitmaps = intswap32 (zone->z32.num);
+			fsmemptrs = (unsigned int *)(&zone->z32 + 1);
+		}
+
+		fsmem_addr = intswap32 (*fsmemptrs);
+		/* Subtract the size of the zone map header from the fsmem address */
+		fsmem_addr -= (unsigned char *)fsmemptrs - (unsigned char *)zone;
+		/* Subtract the space for the bitmap pointers fromt he fsmem address */
+		fsmem_addr -= numbitmaps * 4;
+		info->zonemaps[cur].fsmem_base = fsmem_addr;
+	}
+
+	return 0;
 }
 
 /**************************************************************/
@@ -250,8 +314,6 @@ backup_scan_inodes (struct backup_info *info)
 int
 backup_info_count_misc (struct backup_info *info)
 {
-	zone_header *zone = NULL;
-
 // Boot sector
 	info->nsectors++;
 // Volume header
@@ -259,28 +321,7 @@ backup_info_count_misc (struct backup_info *info)
 // Checksum
 	info->nsectors++;
 
-// Zone maps
-	while ((zone = mfs_next_zone (info->mfs, zone)) != NULL)
-	{
-		uint64_t zonesector;
-		unsigned int zonelength;
-
-		if (mfs_is_64bit (info->mfs))
-		{
-			zonesector = intswap64 (zone->z64.sector);
-			zonelength = intswap32 (zone->z64.length);
-		}
-		else
-		{
-			zonesector = intswap32 (zone->z32.sector);
-			zonelength = intswap32 (zone->z32.length);
-		}
-
-		if (info->shrink_to && zonesector > info->shrink_to)
-			break;
-
-		info->nsectors += zonelength;
-	}
+	return 0;
 }
 
 /*************************************/
@@ -337,6 +378,12 @@ init_backup_v3 (char *device, char *device2, int flags)
 /* State handlers - return val -1 = error, 0 = more data needed, 1 = go to */
 /* next state. */
 
+/***********************************/
+/* Generic handler for header data */
+enum backup_state_ret
+backup_write_header (struct backup_info *info, void *data, unsigned size, unsigned *consumed, void *src, unsigned total, unsigned datasize);
+/* Defined in backup.c */
+
 /**************************/
 /* Scan MFS for v3 backup */
 /* state_val1 = --unused-- */
@@ -362,7 +409,7 @@ backup_state_scan_mfs_v3 (struct backup_info *info, void *data, unsigned size, u
 		return bsError;
 	}
 
-	if (backup_info_count_misc (info) != 0)
+	if (backup_info_scan_zone_maps (info) != 0)
 	{
 		free (info->parts);
 		free (info->inodes);
@@ -370,7 +417,16 @@ backup_state_scan_mfs_v3 (struct backup_info *info, void *data, unsigned size, u
 		return bsError;
 	}
 
-	info->nsectors += (info->nparts * sizeof (struct backup_partition) + info->nmfs * sizeof (struct backup_partition) + sizeof (struct backup_head_v3) + 511) / 512;
+	if (backup_info_count_misc (info) != 0)
+	{
+		free (info->parts);
+		free (info->inodes);
+		free (info->zonemaps);
+		free (info->mfs);
+		return bsError;
+	}
+
+	info->nsectors += (info->nparts * sizeof (struct backup_partition) + info->nmfs * sizeof (struct backup_partition) + info->nzones * sizeof (struct zone_map_info) + sizeof (struct backup_head_v3) + 511) / 512;
 
 	return bsNextState;
 }
@@ -396,8 +452,15 @@ backup_state_begin_v3 (struct backup_info *info, void *data, unsigned size, unsi
 	head->flags = info->back_flags;
 	head->nsectors = info->nsectors;
 	head->nparts = info->nparts;
-	head->ninodes = info->ninodes;
+	head->nzones = info->nzones;
 	head->mfspairs = info->nmfs;
+	head->appsectors = info->appsectors;
+	head->mediasectors = info->mediasectors;
+	head->appinodes = info->appinodes;
+	head->mediainodes = info->mediainodes;
+	head->ilogtype = info->ilogtype;
+	head->ninodes = info->ninodes;
+	head->size = sizeof (*head);
 
 	info->shared_val1 = (sizeof (*head) + 7) & (512 - 8);
 	*consumed = 0;
@@ -424,6 +487,18 @@ backup_state_info_partitions (struct backup_info *info, void *data, unsigned siz
 enum backup_state_ret
 backup_state_info_mfs_partitions (struct backup_info *info, void *data, unsigned size, unsigned *consumed);
 /* Defined in backup.c */
+
+/********************************/
+/* Add zone map info to backup. */
+/* state_val1 = offset of last copied zone map */
+/* state_val2 = --unused-- */
+/* state_ptr1 = --unused-- */
+/* shared_val1 = next offset to use in block */
+enum backup_state_ret
+backup_state_info_zone_maps_v3 (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
+{
+	return backup_write_header (info, data, size, consumed, info->zonemaps, info->nzones, sizeof (struct zone_map_info));
+}
 
 /********************************/
 /* Finish off the backup header */
@@ -476,83 +551,6 @@ backup_state_volume_header_v3 (struct backup_info *info, void *data, unsigned si
 	*consumed = 1;
 
 	return bsNextState;
-}
-
-/********************/
-/* Backup zone maps */
-/* state_val1 = offset within zone map */
-/* state_val2 = --unused-- */
-/* state_ptr1 = current zone map */
-/* shared_val1 = --unused-- */
-enum backup_state_ret
-backup_state_zone_maps_v3 (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
-{
-	unsigned tocopy;
-	zone_header *cur_zone = info->state_ptr1;
-	unsigned int zonelength;
-
-	if (size == 0)
-	{
-		info->err_msg = "Internal error: Backup buffer full";
-		return bsError;
-	}
-
-	if (info->state_val1 == 0)
-	{
-		uint64_t zonesector;
-		cur_zone = mfs_next_zone (info->mfs, cur_zone);
-
-		if (!cur_zone)
-		{
-			return bsNextState;
-		}
-
-		if (mfs_is_64bit (info->mfs))
-		{
-			zonesector = intswap64 (cur_zone->z64.sector);
-		}
-		else
-		{
-			zonesector = intswap32 (cur_zone->z32.sector);
-		}
-
-		if (info->shrink_to > 0 && info->shrink_to < zonesector)
-		{
-/* The restore will be able to figure out the next zone is beyond the end of */
-/* the shrunken volume. */
-			return bsNextState;
-		}
-
-		info->state_ptr1 = cur_zone;
-	}
-
-	if (mfs_is_64bit (info->mfs))
-	{
-		zonelength = intswap32 (cur_zone->z64.length);
-	}
-	else
-	{
-		zonelength = intswap32 (cur_zone->z32.length);
-	}
-
-	tocopy = zonelength - info->state_val1;
-
-	if (tocopy > size)
-	{
-		tocopy = size;
-	}
-
-	memcpy (data, (char *)cur_zone + info->state_val1 * 512, tocopy * 512);
-
-	*consumed = tocopy;
-	info->state_val1 += tocopy;
-
-	if (info->state_val1 >= zonelength)
-	{
-		info->state_val1 = 0;
-	}
-
-	return bsMoreData;
 }
 
 /*****************************/
@@ -742,6 +740,7 @@ backup_state_handler backup_v3 = {
 	&backup_state_info_partitions,			// bsInfoPartition
 	NULL,									// bsInfoBlocks
 	&backup_state_info_mfs_partitions,		// bsInfoMFSPartitions
+	&backup_state_info_zone_maps_v3,		// bsInfoZoneMaps
 	&backup_state_info_end,					// bsInfoEnd
 	&backup_state_boot_block,				// bsBootBlock
 	&backup_state_partitions,				// bsPartitions
@@ -750,7 +749,7 @@ backup_state_handler backup_v3 = {
 	&backup_state_volume_header_v3,			// bsVolumeHeader
 	NULL,									// bsTransactionLog
 	NULL,									// bsUnkRegion
-	&backup_state_zone_maps_v3,				// bsZoneMaps
+	NULL,									// bsMfsReinit
 	&backup_state_inodes_v3,				// bsInodes
 	&backup_state_complete_v3				// bsComplete
 };

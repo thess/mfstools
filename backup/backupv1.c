@@ -589,6 +589,12 @@ init_backup_v1 (char *device, char *device2, int flags)
 /* State handlers - return val -1 = error, 0 = more data needed, 1 = go to */
 /* next state. */
 
+/***********************************/
+/* Generic handler for header data */
+enum backup_state_ret
+backup_write_header (struct backup_info *info, void *data, unsigned size, unsigned *consumed, void *src, unsigned total, unsigned datasize);
+/* Defined in backup.c */
+
 /**************************/
 /* Scan MFS for v1 backup */
 /* state_val1 = --unused-- */
@@ -682,31 +688,7 @@ backup_state_info_partitions (struct backup_info *info, void *data, unsigned siz
 enum backup_state_ret
 backup_state_info_blocks_v1 (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
 {
-	unsigned count = info->nblocks * sizeof (struct backup_block) - info->state_val1;
-
-	if (size == 0)
-	{
-		info->err_msg = "Internal error: Backup buffer full";
-		return bsError;
-	}
-
-/* Copy as much as possible */
-	if (count + info->shared_val1 > size * 512)
-	{
-		count = size * 512 - info->shared_val1;
-	}
-
-	memcpy ((char *)data + info->shared_val1, (char *)info->blocks + info->state_val1, count);
-
-	info->state_val1 += count;
-	info->shared_val1 += count;
-	*consumed = info->shared_val1 / 512;
-	info->shared_val1 &= 511;
-
-	if (info->state_val1 < info->nblocks * sizeof (struct backup_block))
-		return bsMoreData;
-
-	return bsNextState;
+	return backup_write_header (info, data, size, consumed, info->blocks, info->nblocks, sizeof (struct backup_block));
 }
 
 /*************************************/
@@ -809,6 +791,7 @@ backup_state_handler backup_v1 = {
 	&backup_state_info_partitions,			// bsInfoPartition
 	&backup_state_info_blocks_v1,			// bsInfoBlocks
 	&backup_state_info_mfs_partitions,		// bsInfoMFSPartitions
+	NULL,									// bsInfoZoneMaps
 	&backup_state_info_end,					// bsInfoEnd
 	&backup_state_boot_block,				// bsBootBlock
 	&backup_state_partitions,				// bsPartitions
@@ -817,7 +800,7 @@ backup_state_handler backup_v1 = {
 	NULL,									// bsVolumeHeader
 	NULL,									// bsTransactionLog
 	NULL,									// bsUnkRegion
-	NULL,									// bsZoneMaps
+	NULL,									// bsMfsReinit
 	NULL,									// bsInodes
 	NULL									// bsComplete
 };

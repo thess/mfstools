@@ -438,16 +438,12 @@ backup_start (struct backup_info *info)
 /* State handlers - return val -1 = error, 0 = more data needed, 1 = go to */
 /* next state. */
 
-/*********************************/
-/* Add partition info to backup. */
-/* state_val1 = offset of last copied partition */
-/* state_val2 = --unused-- */
-/* state_ptr1 = --unused-- */
-/* shared_val1 = next offset to use in block */
+/***********************************/
+/* Generic handler for header data */
 enum backup_state_ret
-backup_state_info_partitions (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
+backup_write_header (struct backup_info *info, void *data, unsigned size, unsigned *consumed, void *src, unsigned total, unsigned datasize)
 {
-	unsigned count = info->nparts * sizeof (struct backup_partition) - info->state_val1;
+	unsigned count = total * datasize - info->state_val1;
 
 	if (size == 0)
 	{
@@ -461,17 +457,29 @@ backup_state_info_partitions (struct backup_info *info, void *data, unsigned siz
 		count = size * 512 - info->shared_val1;
 	}
 
-	memcpy ((char *)data + info->shared_val1, (char *)info->parts + info->state_val1, count);
+	memcpy ((char *)data + info->shared_val1, (char *)src + info->state_val1, count);
 
 	info->state_val1 += count;
 	info->shared_val1 += count;
 	*consumed = info->shared_val1 / 512;
 	info->shared_val1 &= 511;
 
-	if (info->state_val1 < info->nparts * sizeof (struct backup_partition))
+	if (info->state_val1 < total * datasize)
 		return bsMoreData;
 
 	return bsNextState;
+}
+
+/*********************************/
+/* Add partition info to backup. */
+/* state_val1 = offset of last copied partition */
+/* state_val2 = --unused-- */
+/* state_ptr1 = --unused-- */
+/* shared_val1 = next offset to use in block */
+enum backup_state_ret
+backup_state_info_partitions (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
+{
+	return backup_write_header (info, data, size, consumed, info->parts, info->nparts, sizeof (struct backup_partition));
 }
 
 /*************************************/
@@ -483,31 +491,7 @@ backup_state_info_partitions (struct backup_info *info, void *data, unsigned siz
 enum backup_state_ret
 backup_state_info_mfs_partitions (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
 {
-	unsigned count = info->nmfs * sizeof (struct backup_partition) - info->state_val1;
-
-	if (size == 0)
-	{
-		info->err_msg = "Internal error: Backup buffer full";
-		return bsError;
-	}
-
-/* Copy as much as possible */
-	if (count + info->shared_val1 > size * 512)
-	{
-		count = size * 512 - info->shared_val1;
-	}
-
-	memcpy ((char *)data + info->shared_val1, (char *)info->mfsparts + info->state_val1, count);
-
-	info->state_val1 += count;
-	info->shared_val1 += count;
-	*consumed = info->shared_val1 / 512;
-	info->shared_val1 &= 511;
-
-	if (info->state_val1 < info->nmfs * sizeof (struct backup_partition))
-		return bsMoreData;
-
-	return bsNextState;
+	return backup_write_header (info, data, size, consumed, info->mfsparts, info->nmfs, sizeof (struct backup_partition));
 }
 
 /********************************/

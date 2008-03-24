@@ -532,7 +532,7 @@ mfsvol_write_data (struct volume_handle *hnd, void *buf, uint64_t sector, int co
 
 	if (sector + count > vol->sectors)
 	{
-		fprintf (stderr, "Attempt to write across volume boundry!");
+		fprintf (stderr, "Attempt to write across volume boundry!\n");
 		errno = EIO;
 		return -1;
 	}

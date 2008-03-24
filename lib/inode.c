@@ -188,7 +188,7 @@ mfs_find_inode_for_fsid (struct mfs_handle *mfshnd, unsigned int fsid)
 /* If the fsid was found, return the inode */
 	if (cur && (intswap32 (cur->fsid) == fsid))
 	{
-		if (first)
+		if (first && first != cur)
 		{
 			free (first);
 		}
@@ -198,10 +198,12 @@ mfs_find_inode_for_fsid (struct mfs_handle *mfshnd, unsigned int fsid)
 /* If the fsid wasn't located, but an empty inode was, return that. */
 	if (first)
 	{
-		if (cur)
+		if (cur && cur != first)
 		{
 			free (cur);
 		}
+/* Make sure the inode number is set */
+		first->inode = intswap32 (inode);
 		return first;
 	}
 
@@ -239,7 +241,7 @@ mfs_find_inode_for_fsid (struct mfs_handle *mfshnd, unsigned int fsid)
 		return NULL;
 	}
 
-	cur->inode = inode;
+	cur->inode = intswap32 (inode);
 	return cur;
 }
 

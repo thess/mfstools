@@ -20,7 +20,7 @@ endif
 bin_PROGRAMS = $(MFSAPPS)
 noinst_LIBRARIES = $(MFSTOOLS)
 
-restore_SOURCES = restmain.c restore.c
+restore_SOURCES = restmain.c restore.c restorev1.c restorev3.c
 restore_LDFLAGS = -Wl,--defsym,main=restore_main
 
-librestore_a_SOURCES = restmain.c restore.c
+librestore_a_SOURCES = restmain.c restore.c restorev1.c restorev3.c

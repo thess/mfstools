@@ -67,4 +67,15 @@ typedef struct fs_entry_s
 }
 fs_entry;
 
+uint32_t mfs_inode_count (struct mfs_handle *mfshnd);
+uint64_t mfs_inode_to_sector (struct mfs_handle *mfshnd, uint32_t inode);
+mfs_inode *mfs_read_inode (struct mfs_handle *mfshnd, uint32_t inode);
+int mfs_read_inode_to_buf (struct mfs_handle *mfshnd, unsigned int inode, mfs_inode *inode_buf);
+mfs_inode *mfs_read_inode_by_fsid (struct mfs_handle *mfshnd, uint32_t fsid);
+mfs_inode *mfs_find_inode_for_fsid (struct mfs_handle *mfshnd, uint32_t fsid);
+int mfs_write_inode (struct mfs_handle *mfshnd, mfs_inode *inode);
+int mfs_read_inode_data_part (struct mfs_handle *mfshnd, mfs_inode * inode, unsigned char *data, uint64_t start, unsigned int count);
+unsigned char *mfs_read_inode_data (struct mfs_handle *mfshnd, mfs_inode * inode, int *size);
+int mfs_write_inode_data_part (struct mfs_handle *mfshnd, mfs_inode * inode, unsigned char *data, unsigned int start, unsigned int count);
+
 #endif /*FSID_H */

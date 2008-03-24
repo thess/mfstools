@@ -54,6 +54,8 @@ mfs_write_volume_header (struct mfs_handle *mfshnd)
 		mfshnd->err_arg1 = strerror (errno);
 		return -1;
 	}
+
+	return 512;
 }
 
 /**************************************/

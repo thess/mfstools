@@ -1,6 +1,8 @@
 #ifndef MFS_H
 #define MFS_H
 
+struct mfs_handle;
+
 #include "util.h"
 #include "volume.h"
 #include "zonemap.h"
@@ -124,28 +126,10 @@ struct mfs_handle
 // Flags to pass to mfs_init along with the accmode
 #define MFS_ERROROK		0x04000000	// Open despite errors
 
-unsigned int compute_crc (unsigned char *data, unsigned int size, unsigned int crc);
-unsigned int mfs_compute_crc (unsigned char *data, unsigned int size, unsigned int off);
-unsigned int mfs_check_crc (unsigned char *data, unsigned int size, unsigned int off);
-void mfs_update_crc (unsigned char *data, unsigned int size, unsigned int off);
 void data_swab (void *data, int size);
-zone_header *mfs_next_zone (struct mfs_handle *mfshdn, zone_header *cur);
-int mfs_zone_map_commit (struct mfs_handle *mfshnd, unsigned int logstamp);
-int mfs_zone_map_update (struct mfs_handle *mfshnd, uint64_t sector, uint64_t size, uint32_t state, uint32_t logstamp);
-int mfs_zone_map_block_state (struct mfs_handle *mfshnd, uint64_t sector, uint64_t size);
-uint32_t mfs_inode_count (struct mfs_handle *mfshnd);
-uint64_t mfs_inode_to_sector (struct mfs_handle *mfshnd, uint32_t inode);
-mfs_inode *mfs_read_inode (struct mfs_handle *mfshnd, uint32_t inode);
-int mfs_read_inode_to_buf (struct mfs_handle *mfshnd, unsigned int inode, mfs_inode *inode_buf);
-mfs_inode *mfs_read_inode_by_fsid (struct mfs_handle *mfshnd, uint32_t fsid);
-mfs_inode *mfs_find_inode_for_fsid (struct mfs_handle *mfshnd, uint32_t fsid);
-int mfs_write_inode (struct mfs_handle *mfshnd, mfs_inode *inode);
-int mfs_read_inode_data_part (struct mfs_handle *mfshnd, mfs_inode * inode, unsigned char *data, uint64_t start, unsigned int count);
-unsigned char *mfs_read_inode_data (struct mfs_handle *mfshnd, mfs_inode * inode, int *size);
+
 int mfs_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, uint32_t minalloc);
 int mfs_load_volume_header (struct mfs_handle *mfshnd, int flags);
-void mfs_cleanup_zone_maps (struct mfs_handle *mfshnd);
-int mfs_load_zone_maps (struct mfs_handle *hnd);
 struct mfs_handle *mfs_init (char *hda, char *hdb, int flags);
 int mfs_reinit (struct mfs_handle *mfshnd, int flags);
 void mfs_cleanup (struct mfs_handle *mfshnd);

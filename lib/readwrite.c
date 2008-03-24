@@ -163,7 +163,7 @@ tivo_partition_write (tpFILE * file, void *buf, uint64_t sector, int count)
 
 	if (sector + count > tivo_partition_size (file))
 	{
-		fprintf (stderr, "Attempt to write across partition boundry!");
+		fprintf (stderr, "Attempt to write across partition boundry!\n");
 		errno = EIO;
 		return -1;
 	}

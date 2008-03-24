@@ -446,12 +446,25 @@ scan_inode_overlap (zone_bitmap *bitmap, unsigned int curinode, mfs_inode *inode
 		{
 			if (rangefsid > 0)
 			{
-				printf ("Inode %d fsid %d data block %lld size %d overlaps with fsid %d\n", curinode, intswap32 (inode->fsid), bitno * bitmap->blocksize + bitmap->first, (bitno - rangestart + 1) * bitmap->blocksize, rangefsid);
+				printf ("Inode %d fsid %d data block %lld size %d overlaps with fsid %d\n", curinode, intswap32 (inode->fsid), bitno * bitmap->blocksize + bitmap->first, (bitno - rangestart) * bitmap->blocksize, rangefsid);
 			}
 			else
 			{
-				printf ("Inode %d fsid %d data block %lld size %d marked free in zone map\n", curinode, intswap32 (inode->fsid), bitno * bitmap->blocksize + bitmap->first, (bitno - rangestart + 1) * bitmap->blocksize);
+				printf ("Inode %d fsid %d data block %lld size %d marked free in zone map\n", curinode, intswap32 (inode->fsid), bitno * bitmap->blocksize + bitmap->first, (bitno - rangestart) * bitmap->blocksize);
 			}
+			if (isclear)
+			{
+				rangestart = -1;
+				rangefsid = 0;
+			}
+			else
+			{
+				rangestart = bitno;
+				rangefsid = newfsid;
+			}
+		}
+		else if (newfsid != rangefsid)
+		{
 			if (isclear)
 			{
 				rangestart = -1;
@@ -467,11 +480,11 @@ scan_inode_overlap (zone_bitmap *bitmap, unsigned int curinode, mfs_inode *inode
 
 	if (rangefsid > 0)
 	{
-		printf ("Inode %d fsid %d data block %lld size %d overlaps with fsid %d\n", curinode, intswap32 (inode->fsid), bitno * bitmap->blocksize + bitmap->first, (bitno - rangestart + 1) * bitmap->blocksize, rangefsid);
+		printf ("Inode %d fsid %d data block %lld size %d overlaps with fsid %d\n", curinode, intswap32 (inode->fsid), bitno * bitmap->blocksize + bitmap->first, (bitno - rangestart) * bitmap->blocksize, rangefsid);
 	}
 	else
 	{
-		printf ("Inode %d fsid %d data block %lld size %d marked free in zone map\n", curinode, intswap32 (inode->fsid), bitno * bitmap->blocksize + bitmap->first, (bitno - rangestart + 1) * bitmap->blocksize);
+		printf ("Inode %d fsid %d data block %lld size %d marked free in zone map\n", curinode, intswap32 (inode->fsid), bitno * bitmap->blocksize + bitmap->first, (bitno - rangestart) * bitmap->blocksize);
 	}
 }
 
