@@ -31,7 +31,7 @@ copy_usage (char *progname)
 	fprintf (stderr, " -L max    Copy only streams less than max megabytes\n");
 	fprintf (stderr, " -t        Use total length of stream in calculations\n");
 	fprintf (stderr, " -T        Copy total length of stream instead of used length\n");
-        fprintf (stderr, " -a        Copy all streams\n");
+	fprintf (stderr, " -a        Copy all streams\n");
 	fprintf (stderr, "Target options:\n");
 	fprintf (stderr, " -s        Shrink MFS whily copying\n");
 	fprintf (stderr, " -p        Optimize partition layout\n");
@@ -43,6 +43,8 @@ copy_usage (char *progname)
 	fprintf (stderr, " -b        Force no byte swapping on target\n");
 	fprintf (stderr, " -B        Force byte swapping on target\n");
 	fprintf (stderr, " -z        Zero out partitions not copied\n");
+	fprintf (stderr, " -R        Just copy raw blocks instead of rebuilding data structures\n");
+	fprintf (stderr, " -M 32/64  Write MFS structures as 32 or 64 bit\n");
 }
 
 static unsigned int
@@ -227,10 +229,12 @@ copy_main (int argc, char **argv)
 	int bswap = 0;
 	int expand = 0;
 	int expandscale = 2;
+	int restorebits = 0;
+	int rawcopy = 0;
 
 	tivo_partition_direct ();
 
-	while ((opt = getopt (argc, argv, "hqf:L:tTaspxr:v:S:lbBzE")) > 0)
+	while ((opt = getopt (argc, argv, "hqf:L:tTaspxr:v:S:lbBzEM:R")) > 0)
 	{
 		switch (opt)
 		{
@@ -348,6 +352,32 @@ copy_main (int argc, char **argv)
 				return 1;
 			}
 			break;
+		case 'M':
+			if (rawcopy)
+			{
+				fprintf (stderr, "%s: MFS structure type can not be specified with raw block copy\n", argv[0]);
+				return 1;
+			}
+			restorebits = strtoul (optarg, &tmp, 10);
+			if (tmp && *tmp)
+			{
+				fprintf (stderr, "%s: Integer argument expected for -S.\n", argv[0]);
+				return 1;
+			}
+			if (restorebits != 32 && restorebits != 64)
+			{
+				fprintf (stderr, "%s: Value for -S must be 32 or 64\n", argv[0]);
+				return 1;
+			}
+			break;
+		case 'R':
+			if (restorebits)
+			{
+				fprintf (stderr, "%s: MFS structure type can not be specified with raw block copy\n", argv[0]);
+				return 1;
+			}
+			rawcopy = 1;
+			break;
 		default:
 			copy_usage (argv[0]);
 			return 1;
@@ -394,7 +424,14 @@ copy_main (int argc, char **argv)
 	if (expand > 0)
 		rflags |= RF_NOFILL;
 
-	info_b = init_backup_v1 (source_a, source_b, bflags);
+	if (rawcopy)
+	{
+		info_b = init_backup_v1 (source_a, source_b, bflags);
+	}
+	else
+	{
+		info_b = init_backup_v3 (source_a, source_b, bflags);
+	}
 
 	// Try to continue anyway despite error.
 	if (bflags & BF_TRUNCATED && backup_has_error (info_b))
@@ -445,6 +482,8 @@ copy_main (int argc, char **argv)
 			restore_set_swapsize (info_r, swapsize * 1024 * 2);
 		if (bswap)
 			restore_set_bswap (info_r, bswap);
+		if (restorebits)
+			restore_set_mfs_type (info_r, restorebits);
 
 		if (quiet < 2)
 			fprintf (stderr, "Scanning source drive.  Please wait a moment.\n");
@@ -487,7 +526,9 @@ copy_main (int argc, char **argv)
 		}
 
 		if (swapsize > 128 && !(info_r->back_flags & BF_NOBSWAP))
-			fprintf (stderr, "***WARNING***\nUsing version 1 swap signature to get >128MiB swap size, but the backup looks\nlike a series 1.  Stock SERIES 1 TiVo kernels do not support the version 1\nswap signature.  If you are using a stock SERIES 1 TiVo kernel, 128MiB is the\nlargest usable swap size.\n");
+			fprintf (stderr, "    ***WARNING***\nUsing version 1 swap signature to get >128MiB swap size, but the backup looks\nlike a series 1.  Stock SERIES 1 TiVo kernels do not support the version 1\nswap signature.  If you are using a stock SERIES 1 TiVo kernel, 128MiB is the\nlargest usable swap size.\n");
+		if (restorebits == 64 && !(info_r->back_flags & BF_64))
+			fprintf (stderr, "    ***WARNING***\nConverting MFS structure to 64 bit if very experimental, and will only work on\nSeries 3 based TiVo platforms or later, such as the TiVo HD.\n");
 
 		if (restore_trydev (info_r, dest_a, dest_b) < 0)
 		{

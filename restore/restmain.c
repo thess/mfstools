@@ -36,7 +36,7 @@ restore_usage (char *progname)
 	fprintf (stderr, " -b        Force no byte swapping on restore\n");
 	fprintf (stderr, " -B        Force byte swapping on restore\n");
 	fprintf (stderr, " -z        Zero out partitions not backed up\n");
-	fprintf (stderr, " -S 32/64  Write MFS structures as 32 or 64 bit\n");
+	fprintf (stderr, " -M 32/64  Write MFS structures as 32 or 64 bit\n");
 }
 
 static unsigned int
@@ -136,7 +136,7 @@ restore_main (int argc, char **argv)
 
 	tivo_partition_direct ();
 
-	while ((opt = getopt (argc, argv, "hi:v:s:zqbBpxlr:S:")) > 0)
+	while ((opt = getopt (argc, argv, "hi:v:s:zqbBpxlr:M:")) > 0)
 	{
 		switch (opt)
 		{
@@ -204,7 +204,7 @@ restore_main (int argc, char **argv)
 				return 1;
 			}
 			break;
-		case 'S':
+		case 'M':
 			restorebits = strtoul (optarg, &tmp, 10);
 			if (tmp && *tmp)
 			{

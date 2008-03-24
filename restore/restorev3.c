@@ -893,11 +893,6 @@ restore_state_inodes_v3 (struct backup_info *info, void *data, unsigned size, un
 		uint64_t datasize;
 		uint64_t allocsize;
 
-		zone_header *bestzone, *zone;
-		int zoneno, bestzoneno;
-		unsigned int desired_zone_type;
-		uint64_t bestzoneused;
-
 /* Check for data to write on an existing inode */
 		if (info->state_ptr1)
 		{
@@ -990,8 +985,16 @@ restore_state_inodes_v3 (struct backup_info *info, void *data, unsigned size, un
 		while (allocsize > 0)
 		{
 /* Find a zone to stick the data in */
+			zone_header *bestzone, *zone;
+			int zoneno, bestzoneno;
+			unsigned int desired_zone_type;
+			uint64_t bestzoneused;
+
 			bestzone = NULL;
 			zone = NULL;
+			bestzoneno = 0;
+			zoneno = 0;
+			bestzoneused = 0;
 
 			switch (inode->type)
 			{
