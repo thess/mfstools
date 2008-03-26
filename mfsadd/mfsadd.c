@@ -122,7 +122,7 @@ mfsadd_add_extends (struct mfs_handle *mfs, char **drives, char **xdevs, char **
 		unsigned int maxfree = tivo_partition_largest_free (xdevs[loop]);
 		unsigned int totalfree = tivo_partition_total_free (xdevs[loop]);
 		unsigned int used = maxfree & ~(minalloc - 1);
-		unsigned int required = mfs_volume_pair_app_size (used, minalloc);
+		unsigned int required = mfs_volume_pair_app_size (mfs, used, minalloc);
 		unsigned int part1, part2;
 		int devn = xdevs[loop] == drives[0]? 0: 1;
 
@@ -132,7 +132,7 @@ mfsadd_add_extends (struct mfs_handle *mfs, char **drives, char **xdevs, char **
 		if (totalfree - maxfree < required && maxfree - used < required)
 		{
 			used = (maxfree - required) & ~(minalloc - 1);
-			required = mfs_volume_pair_app_size (used, minalloc);
+			required = mfs_volume_pair_app_size (mfs, used, minalloc);
 		}
 
 		if (totalfree - maxfree >= required && maxfree - used < required)

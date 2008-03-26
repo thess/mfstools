@@ -65,7 +65,7 @@ expand_drive (struct mfs_handle *mfshnd, char *tivodev, char *realdev, unsigned 
 	unsigned int maxfree = tivo_partition_largest_free (realdev);
 	unsigned int totalfree = tivo_partition_total_free (realdev);
 	unsigned int used = maxfree & ~(blocksize - 1);
-	unsigned int required = mfs_volume_pair_app_size (used, blocksize);
+	unsigned int required = mfs_volume_pair_app_size (mfshnd, used, blocksize);
 	unsigned int part1, part2;
 	char app[MAXPATHLEN];
 	char media[MAXPATHLEN];
@@ -77,7 +77,7 @@ expand_drive (struct mfs_handle *mfshnd, char *tivodev, char *realdev, unsigned 
 	if (totalfree - maxfree < required && maxfree - used < required)
 	{
 		used = (maxfree - required) & ~(blocksize - 1);
-		required = mfs_volume_pair_app_size (used, blocksize);
+		required = mfs_volume_pair_app_size (mfshnd, used, blocksize);
 	}
 
 	if (totalfree - maxfree >= required && maxfree - used < required)

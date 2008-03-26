@@ -129,6 +129,7 @@ struct mfs_handle
 void data_swab (void *data, int size);
 
 int mfs_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, uint32_t minalloc);
+unsigned int mfs_volume_pair_app_size (struct mfs_handle *mfshnd, uint64_t blocks, unsigned int minalloc);
 int mfs_load_volume_header (struct mfs_handle *mfshnd, int flags);
 struct mfs_handle *mfs_init (char *hda, char *hdb, int flags);
 int mfs_reinit (struct mfs_handle *mfshnd, int flags);
