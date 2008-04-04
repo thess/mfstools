@@ -78,4 +78,8 @@ int mfs_read_inode_data_part (struct mfs_handle *mfshnd, mfs_inode * inode, unsi
 unsigned char *mfs_read_inode_data (struct mfs_handle *mfshnd, mfs_inode * inode, int *size);
 int mfs_write_inode_data_part (struct mfs_handle *mfshnd, mfs_inode * inode, unsigned char *data, unsigned int start, unsigned int count);
 
+/* Simplified "greedy" allocation scheme */
+/* Works well on a fresh MFS, not so well on a well used volume */
+int mfs_alloc_greedy (struct mfs_handle *mfshnd, mfs_inode *inode, uint64_t highest);
+
 #endif /*FSID_H */

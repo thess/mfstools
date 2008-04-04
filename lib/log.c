@@ -508,16 +508,6 @@ mfs_log_commit_list (struct mfs_handle *mfshnd, struct log_entry_list *list, uns
 	mfshnd->lastlogcommit = logstamp;
 	if (mfshnd->is_64)
 	{
-		struct zone_map *zone;
-
-		for (zone = mfshnd->loaded_zones; zone; zone = zone->next_loaded)
-		{
-			if (zone->dirty && intswap32 (zone->map->z64.logstamp) < logstamp)
-			{
-				zone->map->z64.logstamp = intswap32 (logstamp);
-			}
-		}
-
 		mfshnd->vol_hdr.v64.logstamp = intswap32 (logstamp);
 		if (last)
 		{
@@ -527,16 +517,6 @@ mfs_log_commit_list (struct mfs_handle *mfshnd, struct log_entry_list *list, uns
 	}
 	else
 	{
-		struct zone_map *zone;
-
-		for (zone = mfshnd->loaded_zones; zone; zone = zone->next_loaded)
-		{
-			if (zone->dirty && intswap32 (zone->map->z32.logstamp) < logstamp)
-			{
-				zone->map->z32.logstamp = intswap32 (logstamp);
-			}
-		}
-
 		mfshnd->vol_hdr.v32.logstamp = intswap32 (logstamp);
 		if (last)
 		{
@@ -544,6 +524,8 @@ mfs_log_commit_list (struct mfs_handle *mfshnd, struct log_entry_list *list, uns
 			mfshnd->vol_hdr.v32.bootsecs = last->entry.log.bootsecs;
 		}
 	}
+
+	mfs_zone_map_commit (mfshnd, logstamp);
 
 	return 1;
 }
@@ -886,7 +868,7 @@ mfs_log_fssync (struct mfs_handle *mfshnd)
 	/* updates before the next transaction */
 	mfshnd->bootsecs++;
 
-	if (mfs_zone_map_commit (mfshnd, mfshnd->lastlogcommit) <= 0)
+	if (mfs_zone_map_sync (mfshnd, mfshnd->lastlogcommit) <= 0)
 	{
 		return 0;
 	}

@@ -464,9 +464,62 @@ mfs_zone_map_update (struct mfs_handle *mfshnd, uint64_t sector, uint64_t size, 
 }
 
 /************************************************************************/
+/* Clean up storage used by tracking changes */
+static void
+mfs_zone_map_clear_changes (struct mfs_handle *mfshnd, struct zone_map *zone)
+{
+	int numbitmaps;
+	int loop;
+
+	if (mfshnd->is_64)
+	{
+		numbitmaps = intswap32 (zone->map->z64.num);
+	}
+	else
+	{
+		numbitmaps = intswap32 (zone->map->z32.num);
+	}
+
+	for (loop = 0; loop < numbitmaps; loop++)
+	{
+		while (zone->changed_runs[loop])
+		{
+			struct zone_changed_run *cur = zone->changed_runs[loop];
+			zone->changed_runs[loop] = cur->next;
+			free (cur);
+		}
+		zone->changes[loop].allocated = 0;
+		zone->changes[loop].freed = 0;
+	}
+}
+
+void
+mfs_zone_map_commit (struct mfs_handle *mfshnd, unsigned int logstamp)
+{
+	struct zone_map *zone;
+
+	for (zone = mfshnd->loaded_zones; zone; zone = zone->next_loaded)
+	{
+		if (zone->dirty)
+		{
+			if (mfshnd->is_64)
+			{
+				zone->map->z64.logstamp = intswap32 (logstamp);
+			}
+			else
+			{
+				zone->map->z32.logstamp = intswap32 (logstamp);
+			}
+
+			mfs_zone_map_clear_changes (mfshnd, zone);
+		}
+	}
+}
+
+/************************************************************************/
 /* Write changed zone maps back to disk */
 int
-mfs_zone_map_commit (struct mfs_handle *mfshnd, unsigned int logstamp)
+mfs_zone_map_sync (struct mfs_handle *mfshnd, unsigned int logstamp)
 {
 	struct zone_map *zone;
 
@@ -503,6 +556,8 @@ mfs_zone_map_commit (struct mfs_handle *mfshnd, unsigned int logstamp)
 			{
 				return -1;
 			}
+
+			mfs_zone_map_clear_changes (mfshnd, zone);
 		}
 	}
 	return 1;
@@ -1013,10 +1068,16 @@ mfs_cleanup_zone_maps (struct mfs_handle *mfshnd)
 		{
 			struct zone_map *map = mfshnd->zones[loop].next;
 
+			mfs_zone_map_clear_changes (mfshnd, map);
+
 			mfshnd->zones[loop].next = map->next;
 			free (map->map);
 			if (map->bitmaps)
 				free (map->bitmaps);
+			if (map->changed_runs)
+				free (map->changed_runs);
+			if (map->changes)
+				free (map->changes);
 			free (map);
 		}
 	}
@@ -1176,6 +1237,10 @@ mfs_load_zone_maps (struct mfs_handle *mfshnd)
 			{
 				newmap->bitmaps[loop2] = (bitmap_header *)((unsigned long)newmap->bitmaps[0] + (intswap32 (bitmap_ptrs[loop2]) - intswap32 (bitmap_ptrs[0])));
 			}
+
+/* Allocate head pointers for changes for each level of the map */
+			newmap->changed_runs = calloc (sizeof (*newmap->changed_runs), numbitmaps);
+			newmap->changes = calloc (sizeof (*newmap->changes), numbitmaps);
 		}
 
 /* Also link it into the loaded order. */
@@ -1202,4 +1267,378 @@ mfs_load_zone_maps (struct mfs_handle *mfshnd)
 	}
 
 	return loop;
+}
+
+/*************************************************************/
+/* Find a free run of a certain size within a specific szone */
+static int
+mfs_zone_find_run (struct mfs_handle *mfshnd, struct zone_map *zone, int order)
+{
+	int curorder;
+	int numbitmaps;
+	int freebit = -1;
+	struct zone_changed_run **changed_runs;
+
+	if (mfshnd->is_64)
+	{
+		numbitmaps = intswap32 (zone->map->z64.num);
+	}
+	else
+	{
+		numbitmaps = intswap32 (zone->map->z32.num);
+	}
+
+	for (curorder = order; curorder < numbitmaps; curorder++)
+	{
+		int numfree = intswap32 (zone->bitmaps[curorder]->freeblocks) + zone->changes[curorder].freed - zone->changes[curorder].allocated;
+		if (numfree > 0)
+			break;
+	}
+
+	if (curorder >= numbitmaps)
+		return -1;
+
+	/* Find the free bit in the bitmap */
+	for (changed_runs = &zone->changed_runs[curorder]; *changed_runs; changed_runs = &(*changed_runs)->next)
+	{
+		if ((*changed_runs)->newstate)
+		{
+			struct zone_changed_run *tmp = *changed_runs;
+			*changed_runs = tmp->next;
+
+			freebit = tmp->bitno;
+			free (tmp);
+			break;
+		}
+	}
+
+	/* Didn't find something in the list, find it in the bitmap */
+	if (freebit < 0)
+	{
+		int nints = intswap32 (zone->bitmaps[curorder]->nints);
+		int startint = (intswap32 (zone->bitmaps[curorder]->last) / 32) % nints;
+		int loop;
+		unsigned *bits = (unsigned *)(zone->bitmaps[curorder] + 1);
+
+		for (loop = 0; loop < nints; loop++)
+		{
+			unsigned curint = bits[(loop + startint) % nints];
+			if (curint)
+			{
+				curint = intswap32 (curint);
+				int loop2;
+				int thisbit = -1;
+				for (loop2 = 0; curint && loop2 < 32; loop2++)
+				{
+					if (curint & (1 << (31 - loop2)))
+					{
+						thisbit = ((loop + startint) % nints) * 32 + loop2;
+						/* Make sure the bit wasn't already allocated */
+						struct zone_changed_run *crloop;;
+						for (crloop = zone->changed_runs[curorder]; crloop; crloop = crloop->next)
+						{
+							if (crloop->bitno == thisbit)
+							{
+								break;
+							}
+						}
+
+						if (!crloop)
+							break;
+
+						thisbit = -1;
+					}
+				}
+
+				if (thisbit >= 0)
+				{
+					freebit = thisbit;
+				}
+			}
+		}
+
+		if (freebit < 0)
+		{
+			/* Something is wrong */
+			return -1;
+		}
+
+		/* Add the allocation to the list */
+		/* Due to the loop earlier, this points to the tail of the list */
+		*changed_runs = calloc (sizeof (*changed_runs), 1);
+		(*changed_runs)->bitno = freebit;
+	}
+
+	zone->changes[curorder].allocated++;
+	while (curorder > order)
+	{
+		struct zone_changed_run *newchange;
+
+		freebit <<= 1;
+		curorder--;
+
+		/* Create a notation that there is now a free block for the */
+		/* "other half" of the allocation */
+		newchange = calloc (sizeof (*newchange), 1);
+		newchange->next = zone->changed_runs[curorder];
+		zone->changed_runs[curorder] = newchange;
+
+		newchange->newstate = 1;
+		newchange->bitno = freebit + 1;
+		zone->changes[curorder].freed++;
+	}
+
+	return freebit;
+}
+
+/*******************************/
+/* Perform a greedy allocation */
+/* This is not an ideal solution, but the ideal solution is not NP complete */
+/* (See knapsack problem) */
+/* This allocates blocks for the file starting at the largest and going */
+/* down to the smallest.  This works great for a fresh volume, but it */
+/* can break down when there has been some churn, leaving lots of */
+/* small runs unallocated until late. */
+/* This can be a problem if the free space is so fragmented that it needs */
+/* more runs than can be allocated to describe a file */
+int
+mfs_alloc_greedy (struct mfs_handle *mfshnd, mfs_inode *inode, uint64_t highest)
+{
+	zone_type alloctype = ztApplication;
+	uint64_t size = intswap32 (inode->size);
+	uint64_t *runsizes;
+	int *freeblocks;
+	int *curorders;
+	int *nbitmaps;
+	struct zone_map **zones;
+	int nzones;
+	struct zone_map *zone;
+	int maxruns, currun = 0;
+	uint64_t lastrunsize = 0xffffffff;
+
+	if (mfshnd->is_64)
+	{
+		maxruns = (512 - offsetof (mfs_inode, datablocks)) / sizeof (inode->datablocks.d64[0]);
+	}
+	else
+	{
+		maxruns = (512 - offsetof (mfs_inode, datablocks)) / sizeof (inode->datablocks.d32[0]);
+	}
+
+	if (inode->type == tyStream)
+	{
+		alloctype = ztMedia;
+		size *= intswap32 (inode->blocksize);
+	}
+
+	/* Convert bytes to blocks */
+	size = (size + 511) / 512;
+
+	inode->numblocks = 0;
+
+	/* Make it really high if it wasn't specified */
+	if (!highest)
+		highest = ~INT64_C(0);
+
+	/* Count the number of loaded maps */
+	nzones = 0;
+	for (zone = mfshnd->zones[alloctype].next; zone; zone = zone->next)
+	{
+		if (mfshnd->is_64)
+		{
+			if (intswap64 (zone->map->z64.last) < highest)
+			{
+				nzones++;
+			}
+		}
+		else
+		{
+			if (intswap32 (zone->map->z32.last) < highest)
+			{
+				nzones++;
+			}
+		}
+	}
+
+	/* Quick sanity check */
+	if (!nzones)
+	{
+		return 0;
+	}
+
+	/* Allocate temp arrays (Off the stack) */
+	freeblocks = alloca (nzones * sizeof (*freeblocks));
+	curorders = alloca (nzones * sizeof (*curorders));
+	runsizes = alloca (nzones * sizeof (*runsizes));
+	zones = alloca (nzones * sizeof (*zones));
+	nbitmaps = alloca (nzones * sizeof (*nbitmaps));
+
+	/* Fill in the data for the zones */
+	nzones = 0;
+	for (zone = mfshnd->zones[alloctype].next; zone; zone = zone->next)
+	{
+		if (mfshnd->is_64)
+		{
+			if (intswap64 (zone->map->z64.last) < highest)
+			{
+				int curorder = intswap32 (zone->map->z64.num) - 1;
+				zones[nzones] = zone;
+				runsizes[nzones] = intswap32 (zone->map->z64.min);
+				curorders[nzones] = curorder;
+				freeblocks[nzones] = intswap32 (zone->bitmaps[curorder]->freeblocks) + zone->changes[curorder].freed - zone->changes[curorder].allocated;
+				nbitmaps[nzones] = curorder + 1;
+				nzones++;
+			}
+		}
+		else
+		{
+			if (intswap32 (zone->map->z32.last) < highest)
+			{
+				int curorder = intswap32 (zone->map->z32.num) - 1;
+				zones[nzones] = zone;
+				runsizes[nzones] = intswap32 (zone->map->z32.min);
+				curorders[nzones] = curorder;
+				freeblocks[nzones] = intswap32 (zone->bitmaps[curorder]->freeblocks) + zone->changes[curorder].freed - zone->changes[curorder].allocated;
+				nbitmaps[nzones] = curorder + 1;
+				nzones++;
+			}
+		}
+	}
+
+	/* Keep going until the entire size is taken up */
+	while (size > 0)
+	{
+		int loop;
+		uint64_t largestfit = 0;
+		int largestfitno = 0;
+		/* To use as a tie-breaker */
+		int largestfitborrow = 0;
+		/* To use as a second tiebreaker */
+		unsigned largestfitfree = 0;
+
+		if (currun >= maxruns)
+		{
+			/* Out of space within the requested limits */
+			return 0;
+		}
+
+		/* Find the first zone with available space */
+		for (loop = 0; loop < nzones; loop++)
+		{
+			unsigned unitsleft = (size + runsizes[loop] - 1) / runsizes[loop];
+			int nborrow = 0;
+			int loop2;
+			int runstoalloc;
+
+			/* Don't waste space unless it's the last level */
+			/* Also make sure it never goes bigger */
+			while (curorders[loop] > 0 &&
+				((runsizes[loop] << curorders[loop]) > lastrunsize ||
+				!(unitsleft >> curorders[loop]) ||
+				!freeblocks[loop]))
+			{
+				curorders[loop]--;
+				freeblocks[loop] <<= 1;
+				freeblocks[loop] += intswap32 (zones[loop]->bitmaps[curorders[loop]]->freeblocks) + zones[loop]->changes[curorders[loop]].freed - zones[loop]->changes[curorders[loop]].allocated;
+			}
+
+			/* If the current largest is already bigger, keep going */
+			/* As an exception, if the largest is bigger than the size */
+			/* remaining, keep this block in consideration */
+			if (largestfit > runsizes[loop] << curorders[loop]
+				&& largestfit < size)
+			{
+				continue;
+			}
+
+			/* If this is the last level of this zone map, switch from */
+			/* biggest fit to smallest */
+			if (!curorders[loop])
+			{
+				if (largestfit && size < runsizes[loop] && runsizes[loop] > largestfit)
+					continue;
+			}
+
+			runstoalloc = unitsleft >> curorders[loop];
+			if (runstoalloc > freeblocks[loop])
+				runstoalloc = freeblocks[loop];
+			/* ??? Shouldn't ever happen */
+			if (!runstoalloc)
+				continue;
+
+			/* Count how many blocks would need to be borrowed */
+			for (loop2 = curorders[loop]; runstoalloc && loop2 < nbitmaps[loop]; loop2++)
+			{
+				unsigned thisfree = intswap32 (zones[loop]->bitmaps[loop2]->freeblocks) + zones[loop]->changes[loop2].freed - zones[loop]->changes[loop2].allocated;
+				thisfree = thisfree << (loop2 - curorders[loop]);
+				if (thisfree > runstoalloc)
+					thisfree = runstoalloc;
+				/* Theoretically the algorithm will never borrow more */
+				/* than one from anything but the current level */
+				nborrow += thisfree * (loop2 - curorders[loop]);
+				runstoalloc -= thisfree;
+			}
+
+			/* If they are equal, go to the tiebreaker */
+			if (largestfit == runsizes[loop] << curorders[loop])
+			{
+				/* First tiebreaker, whoever is borrowing the least */
+				if (nborrow > largestfitborrow)
+					continue;
+				/* Second tiebreaker, whoever has more free space */
+				if (freeblocks[loop] < largestfitfree)
+					continue;
+			}
+
+			largestfit = runsizes[loop] << curorders[loop];
+			largestfitfree = freeblocks[loop];
+			largestfitborrow = nborrow;
+			largestfitno = loop;
+		}
+
+		if (!largestfit)
+		{
+			/* Out of space within the requested limits */
+			return 0;
+		}
+
+		int bitno = mfs_zone_find_run (mfshnd, zones[largestfitno], curorders[largestfitno]);
+		if (bitno < 0)
+		{
+			/* Shouldn't happen, but just in case */
+			return 0;
+		}
+
+		if (mfshnd->is_64)
+		{
+			uint64_t sector = intswap64 (zones[largestfitno]->map->z64.first);
+			sector += (bitno * runsizes[largestfitno]) << curorders[largestfitno];
+			inode->datablocks.d64[currun].sector = intswap64 (sector);
+			inode->datablocks.d64[currun].count = intswap32 (largestfit);
+#if DEBUG
+			fprintf (stderr, "mfs_alloc_greedy: Allocated %d block of %d at %lld for %d\n", alloctype, (unsigned)largestfit, sector, intswap32 (inode->fsid));
+#endif
+		}
+		else
+		{
+			unsigned sector = intswap32 (zones[largestfitno]->map->z32.first);
+			sector += (bitno * runsizes[largestfitno]) << curorders[largestfitno];
+			inode->datablocks.d32[currun].sector = intswap32 (sector);
+			inode->datablocks.d32[currun].count = intswap32 (largestfit);
+#if DEBUG
+			fprintf (stderr, "mfs_alloc_greedy: Allocated %d block of %d at %d for %d\n", alloctype, (unsigned)largestfit, sector, intswap32 (inode->fsid));
+#endif
+		}
+
+		currun++;
+		freeblocks[largestfitno]--;
+		if (size > largestfit)
+			size -= largestfit;
+		else
+			size = 0;
+		lastrunsize = largestfit;
+	}
+
+	inode->numblocks = intswap32 (currun);
+	return currun;
 }

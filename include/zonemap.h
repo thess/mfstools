@@ -98,7 +98,8 @@ zone_header;
 /* In bitmap, MSB is first, LSB last */
 
 zone_header *mfs_next_zone (struct mfs_handle *mfshdn, zone_header *cur);
-int mfs_zone_map_commit (struct mfs_handle *mfshnd, unsigned int logstamp);
+int mfs_zone_map_sync (struct mfs_handle *mfshnd, unsigned int logstamp);
+void mfs_zone_map_commit (struct mfs_handle *mfshnd, unsigned int logstamp);
 int mfs_zone_map_update (struct mfs_handle *mfshnd, uint64_t sector, uint64_t size, uint32_t state, uint32_t logstamp);
 int mfs_zone_map_block_state (struct mfs_handle *mfshnd, uint64_t sector, uint64_t size);
 void mfs_cleanup_zone_maps (struct mfs_handle *mfshnd);

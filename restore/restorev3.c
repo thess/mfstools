@@ -878,9 +878,9 @@ restore_state_mfs_reinit_v3 (struct backup_info *info, void *data, unsigned size
 enum backup_state_ret
 restore_state_inodes_v3 (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
 {
-	int needcommit = 0;
 	int numsincecommit = 0;
 	mfs_inode *inode;
+	uint64_t basetop = 0;
 
 	if (size == 0)
 	{
@@ -932,7 +932,6 @@ restore_state_inodes_v3 (struct backup_info *info, void *data, unsigned size, un
 				return bsError;
 			}
 			numsincecommit = 0;
-			needcommit = 0;
 		}
 
 		inode = (mfs_inode *)((unsigned char *)data + *consumed * 512);
@@ -982,133 +981,99 @@ restore_state_inodes_v3 (struct backup_info *info, void *data, unsigned size, un
 		info->state_ptr1 = inode;
 		++*consumed;
 
-		while (allocsize > 0)
+		if (inode->type == tyStream)
 		{
-/* Find a zone to stick the data in */
-			zone_header *bestzone, *zone;
-			int zoneno, bestzoneno;
-			unsigned int desired_zone_type;
-			uint64_t bestzoneused;
-
-			bestzone = NULL;
-			zone = NULL;
-			bestzoneno = 0;
-			zoneno = 0;
-			bestzoneused = 0;
-
-			switch (inode->type)
+			/* Find the end of the media region that goes with the last app region */
+			/* This will fill up the media regions that can not be divorced */
+			/* the low numbered fsids, such as loopsets. */
+			if (!basetop)
 			{
-			case tyStream:
-				desired_zone_type = ztMedia;
-				break;
-			default:
-				desired_zone_type = ztApplication;
-				break;
+				uint64_t lastapp = 0;
+				uint64_t mediasize = 0;
+				uint64_t mediafree = 0;
+				zone_header *zone = NULL;
+				for (zone = mfs_next_zone (info->mfs, NULL); zone; zone = mfs_next_zone (info->mfs, zone))
+				{
+					if (mfs_is_64bit (info->mfs))
+					{
+						if (zone->z64.type == intswap32 (ztApplication))
+						{
+							uint64_t zoneloc = intswap64 (zone->z64.first);
+							if (zoneloc > lastapp)
+								lastapp = zoneloc;
+						}
+					}
+					else
+					{
+						if (zone->z32.type == intswap32 (ztApplication))
+						{
+							unsigned zoneloc = intswap32 (zone->z32.first);
+							if (zoneloc > lastapp)
+								lastapp = zoneloc;
+						}
+					}
+				}
+
+				for (basetop = 0; basetop < lastapp && basetop < mfs_volume_set_size (info->mfs);)
+				{
+					basetop += mfs_volume_size (info->mfs, basetop);
+					basetop += mfs_volume_size (info->mfs, basetop);
+				}
+
+				/* Don't force the first media volumes to be more than 1gb or 50% used for this */
+				for (zone = mfs_next_zone (info->mfs, NULL); zone; zone = mfs_next_zone (info->mfs, zone))
+				{
+					if (mfs_is_64bit (info->mfs))
+					{
+						if (zone->z64.type == intswap32 (ztMedia))
+						{
+							uint64_t zoneloc = intswap64 (zone->z64.first);
+							if (zoneloc < basetop)
+							{
+								mediasize += intswap64 (zone->z64.size);
+								mediafree += intswap64 (zone->z64.free);
+							}
+						}
+					}
+					else
+					{
+						if (zone->z32.type == intswap32 (ztApplication))
+						{
+							unsigned zoneloc = intswap32 (zone->z32.first);
+							if (zoneloc < basetop)
+							{
+								mediasize += intswap32 (zone->z32.size);
+								mediafree += intswap32 (zone->z32.free);
+							}
+						}
+					}
+				}
+
+				if (mediasize - mediafree > (1024 * 1024 * 1024 / 512) ||
+					(mediasize >> 1) > mediafree)
+				{
+					basetop = ~INT64_C(0);
+				}
 			}
 
-			if (needcommit & (1 << desired_zone_type))
+			if (!mfs_alloc_greedy (info->mfs, inode, basetop))
 			{
-				if (mfs_log_commit (info->mfs) <= 0)
+				/* Should be safe from this, but just in case */
+				if (!mfs_alloc_greedy (info->mfs, inode, 0))
 				{
+					info->err_msg = "Out of space for video content";
+					free (inode);
 					return bsError;
 				}
-				numsincecommit = 0;
-				needcommit = 0;
 			}
-			needcommit |= (1 << desired_zone_type);
-
-			desired_zone_type = intswap32 (desired_zone_type);
-
-			while ((zone = mfs_next_zone (info->mfs, zone)) != NULL)
+		}
+		else
+		{
+			if (!mfs_alloc_greedy (info->mfs, inode, 0))
 			{
-				uint64_t size;
-				uint64_t free;
-
-				if (mfs_is_64bit (info->mfs))
-				{
-					if (zone->z64.type != desired_zone_type)
-						continue;
-					size = intswap64 (zone->z64.size);
-					free = intswap64 (zone->z64.free);
-				}
-				else
-				{
-					if (zone->z32.type != desired_zone_type)
-						continue;
-					size = intswap32 (zone->z32.size);
-					free = intswap32 (zone->z32.free);
-				}
-
-/* Track which of this zone type it is */
-				zoneno++;
-
-/* Not enough space in this zone */
-				if (free < allocsize)
-				{
-					if (!bestzone)
-					{
-						bestzone = zone;
-						bestzoneno = zoneno;
-						bestzoneused = ~0;
-					}
-					continue;
-				}
-
-/* Try and balance out usage across zones */
-				if (!bestzone || size - free < bestzoneused)
-				{
-					bestzone = zone;
-					bestzoneno = zoneno;
-					bestzoneused = size - free;
-				}
-			}
-
-			if (!bestzone)
-			{
-				info->err_msg = "Out of space to restore data";
+				info->err_msg = "Out of space for application content";
 				free (inode);
 				return bsError;
-			}
-			else
-			{
-				uint64_t first;
-				uint64_t size;
-				uint64_t free;
-				uint64_t datasector;
-				uint64_t thiszoneamount = allocsize;
-				uint32_t min_au;
-
-				if (mfs_is_64bit (info->mfs))
-				{
-					first = intswap64 (bestzone->z64.first);
-					size = intswap64 (bestzone->z64.size);
-					free = intswap64 (bestzone->z64.free);
-				}
-				else
-				{
-					first = intswap32 (bestzone->z32.first);
-					size = intswap32 (bestzone->z32.size);
-					free = intswap32 (bestzone->z32.free);
-				}
-
-				if (allocsize > free)
-				{
-					thiszoneamount = free;
-				}
-
-				/* First zone move data towards the end (Middle of the disk) */
-				/* Second zone move it towards the beginning (Also middle) */
-				if (bestzoneno == 1)
-				{
-					datasector = first + free - thiszoneamount;
-				}
-				else
-				{
-					datasector = first + size - free;
-				}
-
-				restore_add_blocks_to_inode (info, bestzone, inode, datasector, thiszoneamount);
-				allocsize -= thiszoneamount;
 			}
 		}
 
@@ -1121,7 +1086,7 @@ restore_state_inodes_v3 (struct backup_info *info, void *data, unsigned size, un
 		info->state_val2 = 0;
 	}
 
-	if (numsincecommit || needcommit)
+	if (numsincecommit)
 	{
 		if (mfs_log_commit (info->mfs) <= 0)
 		{

@@ -81,11 +81,33 @@ typedef union volume_header_u
 }
 volume_header;
 
+/* Linked list of runs allocated or freed since the last commit */
+/* This only includes frees created by splitting an existing */
+/* run.  Including frees created by actually freeing a run wuld not */
+/* be transactionally safe to do, since it would result in allocating */
+/* (and overwriting) a run with currently live data in it. */
+struct zone_changed_run
+{
+	int bitno;
+	int newstate;
+	struct zone_changed_run *next;
+};
+
+/* Summary of changes to a zone bitmap since last commit */
+/* As above, this only includes frees from split runs. */
+struct zone_changes
+{
+	int allocated;
+	int freed;
+};
+
 /* Linked lists of zone maps for a certain type of map */
 struct zone_map
 {
 	zone_header *map;
 	bitmap_header **bitmaps;
+	struct zone_changed_run **changed_runs;
+	struct zone_changes *changes;
 	int dirty;
 	struct zone_map *next;
 	struct zone_map *next_loaded;
