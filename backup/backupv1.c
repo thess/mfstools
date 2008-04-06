@@ -554,6 +554,8 @@ init_backup_v1 (char *device, char *device2, int flags)
  		return 0;
  	}
 
+	info->format = bfV1;
+
 	info->crc = ~0;
 	info->state_machine = &backup_v1;
 
@@ -786,17 +788,18 @@ backup_state_blocks_v1 (struct backup_info *info, void *data, unsigned size, uns
 }
 
 backup_state_handler backup_v1 = {
-	&backup_state_scan_mfs_v1,				// bsScanMFS
-	&backup_state_begin_v1,					// bsBegin
-	&backup_state_info_partitions,			// bsInfoPartition
-	&backup_state_info_blocks_v1,			// bsInfoBlocks
-	&backup_state_info_mfs_partitions,		// bsInfoMFSPartitions
+	backup_state_scan_mfs_v1,				// bsScanMFS
+	backup_state_begin_v1,					// bsBegin
+	backup_state_info_partitions,			// bsInfoPartition
+	backup_state_info_blocks_v1,			// bsInfoBlocks
+	backup_state_info_mfs_partitions,		// bsInfoMFSPartitions
 	NULL,									// bsInfoZoneMaps
-	&backup_state_info_end,					// bsInfoEnd
-	&backup_state_boot_block,				// bsBootBlock
-	&backup_state_partitions,				// bsPartitions
+	NULL,									// bsInfoExtra
+	backup_state_info_end,					// bsInfoEnd
+	backup_state_boot_block,				// bsBootBlock
+	backup_state_partitions,				// bsPartitions
 	NULL,									// bsMFSInit
-	&backup_state_blocks_v1,				// bsBlocks
+	backup_state_blocks_v1,					// bsBlocks
 	NULL,									// bsVolumeHeader
 	NULL,									// bsTransactionLog
 	NULL,									// bsUnkRegion

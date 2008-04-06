@@ -131,8 +131,6 @@ display_backup_info (struct backup_info *info)
 	}
 }
 
-enum backupformat { bfV1, bfV3, bfWinMFS };
-
 int
 backup_main (int argc, char **argv)
 {
@@ -146,7 +144,7 @@ backup_main (int argc, char **argv)
 	int quiet = 0;
 	int compressed = 0;
 
-	enum backupformat selectedformat = bfV3;
+	enum backup_format selectedformat = bfV3;
 
 	tivo_partition_direct ();
 

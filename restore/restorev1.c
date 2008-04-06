@@ -321,6 +321,7 @@ backup_state_handler restore_v1 = {
 	restore_state_block_info_v1,			// bsInfoBlocks
 	restore_state_mfs_partition_info,		// bsInfoMFSPartitions
 	NULL,									// bsInfoZoneMaps
+	NULL,									// bsInfoExtra
 	restore_state_info_end,					// bsInfoEnd
 	restore_state_boot_block,				// bsBootBlock
 	restore_state_partitions,				// bsPartitions

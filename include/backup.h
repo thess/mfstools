@@ -35,6 +35,8 @@ struct device_info
 #endif
 };
 
+enum backup_format { bfV1, bfV3, bfWinMFS };
+
 enum backup_state_ret {
 	bsError = -1,
 	bsMoreData = 0,
@@ -70,8 +72,13 @@ enum backup_state {
 /* v3 backup only */
 	bsInfoZoneMaps,
 		// state_val1 as current zone map offset.
-		// shared_val1 as offset within current block of last MFS partition,
-			// List follows immediately after inode or block list
+		// shared_val1 as offset within current block
+			// List follows immediately after partition list
+	bsInfoExtra,
+		// state_val1 as current extra info offset.
+		// state_val2 as current extra info index.
+		// shared_val1 as offset within current block
+			// List follows immediately after  zone map info
 	bsInfoEnd,
 		// If shared_val1 is not 0 or 512, consume remainder of block.
 			// Consume partial block left by MFS partition list
@@ -140,6 +147,8 @@ struct backup_info
 	void *state_ptr1;
 	enum backup_state state;
 
+	enum backup_format format;
+
 	backup_state_handler *state_machine;
 
 	int ndevs;
@@ -155,6 +164,10 @@ struct backup_info
 // V3 backups only
 	int ninodes;
 	unsigned *inodes;
+
+	int nextrainfo;
+	int extrainfosize;
+	struct extrainfo **extrainfo;
 
 	int nmfs;
 	struct backup_partition *mfsparts;
@@ -195,11 +208,24 @@ struct backup_info
 	int swapsize;
 	int bswap;
 	int bitsize;
+
+	void *extrainfodata;
 #else
 	unsigned int thresh;
 	char *hda;
 	unsigned int shrink_to;
 #endif
+};
+
+/* Used to track information such as release and model number */
+/* Also potentially for hints that restore can use on new backups without */
+/* changing the format to add the hints. */
+struct extrainfo
+{
+	unsigned char typelength;
+	unsigned char datatype;		// For now 0 = string
+	unsigned short datalength;
+	char data[0];
 };
 
 struct block_info
@@ -234,6 +260,8 @@ struct backup_head_v3
 	uint64_t mediasectors;	/* Number of media data sectors backed up */
 	uint32_t appinodes;		/* Number of inodes accounting for app data */
 	uint32_t mediainodes;	/* Number of inodes accounting for media data */
+	unsigned int nextra;	/* Number of informational entries */
+	unsigned int extrasize;	/* Size of informational entries */
 };
 
 #define TB_MAGIC (('T' << 24) + ('B' << 16) + ('A' << 8) + ('K' << 0))

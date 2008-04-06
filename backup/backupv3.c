@@ -309,6 +309,33 @@ backup_info_scan_zone_maps (struct backup_info *info)
 	return 0;
 }
 
+/******************************************/
+/* Add some named data to the backup info */
+void
+backup_info_add_extra (struct backup_info *info, char *type, void *data, int datalength)
+{
+	int extrainfosize = offsetof (struct extrainfo, data);
+	extrainfosize += (strlen (type) + 3) & ~3;
+	extrainfosize += (datalength + 3) &~3;
+
+	info->extrainfo = realloc (info->extrainfo, sizeof (*info->extrainfo) * (info->nextrainfo + 1));
+	info->extrainfo[info->nextrainfo] = calloc (extrainfosize, 1);
+	info->extrainfo[info->nextrainfo]->typelength = strlen (type);
+	info->extrainfo[info->nextrainfo]->datalength = datalength;
+	memcpy (&info->extrainfo[info->nextrainfo]->data[0], type, strlen (type));
+	memcpy (&info->extrainfo[info->nextrainfo]->data[(strlen (type) + 3) & ~3], data, datalength);
+	info->nextrainfo++;
+	info->extrainfosize += extrainfosize;
+}
+
+/*****************************************/
+/* Add a named string to the backup info */
+void
+backup_info_add_extra_string (struct backup_info *info, char *type, char *data)
+{
+	backup_info_add_extra (info, type, data, strlen (data) + 1);
+}
+
 /**************************************************************/
 /* Count the sectors of various items not scanned during init */
 int
@@ -342,6 +369,8 @@ init_backup_v3 (char *device, char *device2, int flags)
  	{
  		return 0;
  	}
+
+	info->format = bfV3;
 
 	info->crc = ~0;
 	info->state_machine = &backup_v3;
@@ -426,7 +455,13 @@ backup_state_scan_mfs_v3 (struct backup_info *info, void *data, unsigned size, u
 		return bsError;
 	}
 
-	info->nsectors += (info->nparts * sizeof (struct backup_partition) + info->nmfs * sizeof (struct backup_partition) + info->nzones * sizeof (struct zone_map_info) + sizeof (struct backup_head_v3) + 511) / 512;
+	info->nsectors += (
+		info->nparts * sizeof (struct backup_partition) +
+		info->nmfs * sizeof (struct backup_partition) +
+		info->nzones * sizeof (struct zone_map_info) +
+		info->extrainfosize +
+		sizeof (struct backup_head_v3) +
+		511) / 512;
 
 	return bsNextState;
 }
@@ -460,6 +495,7 @@ backup_state_begin_v3 (struct backup_info *info, void *data, unsigned size, unsi
 	head->mediainodes = info->mediainodes;
 	head->ilogtype = info->ilogtype;
 	head->ninodes = info->ninodes;
+	head->extrasize = info->extrainfosize;
 	head->size = sizeof (*head);
 
 	info->shared_val1 = (sizeof (*head) + 7) & (512 - 8);
@@ -498,6 +534,36 @@ enum backup_state_ret
 backup_state_info_zone_maps_v3 (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
 {
 	return backup_write_header (info, data, size, consumed, info->zonemaps, info->nzones, sizeof (struct zone_map_info));
+}
+
+/********************************/
+/* Add zone map info to backup. */
+/* state_val1 = offset in current info */
+/* state_val2 = current info index */
+/* state_ptr1 = --unused-- */
+/* shared_val1 = next offset to use in block */
+enum backup_state_ret
+backup_state_info_extra_v3 (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
+{
+	while (info->state_val2 < info->nextrainfo && *consumed < size)
+	{
+		int extrainfosize = offsetof (struct extrainfo, data);
+		size += (info->extrainfo[info->state_val1]->datalength + 3) & ~3;
+		size += (info->extrainfo[info->state_val1]->typelength + 3) & ~3;
+
+		enum backup_state_ret ret = backup_write_header (info, data, size, consumed, &info->extrainfo[info->state_val1], 1, extrainfosize);
+
+		if (ret != bsNextState)
+			return ret;
+
+		info->state_val1 = 0;
+		info->state_val2++;
+	}
+
+	if (info->state_val2 < info->nextrainfo)
+		return bsMoreData;
+
+	return bsNextState;
 }
 
 /********************************/
@@ -735,21 +801,22 @@ backup_state_complete_v3 (struct backup_info *info, void *data, unsigned size, u
 }
 
 backup_state_handler backup_v3 = {
-	&backup_state_scan_mfs_v3,				// bsScanMFS
-	&backup_state_begin_v3,					// bsBegin
-	&backup_state_info_partitions,			// bsInfoPartition
+	backup_state_scan_mfs_v3,				// bsScanMFS
+	backup_state_begin_v3,					// bsBegin
+	backup_state_info_partitions,			// bsInfoPartition
 	NULL,									// bsInfoBlocks
-	&backup_state_info_mfs_partitions,		// bsInfoMFSPartitions
-	&backup_state_info_zone_maps_v3,		// bsInfoZoneMaps
-	&backup_state_info_end,					// bsInfoEnd
-	&backup_state_boot_block,				// bsBootBlock
-	&backup_state_partitions,				// bsPartitions
+	backup_state_info_mfs_partitions,		// bsInfoMFSPartitions
+	backup_state_info_zone_maps_v3,			// bsInfoZoneMaps
+	backup_state_info_extra_v3,				// bsInfoExtra
+	backup_state_info_end,					// bsInfoEnd
+	backup_state_boot_block,				// bsBootBlock
+	backup_state_partitions,				// bsPartitions
 	NULL,									// bsMFSInit
 	NULL,									// bsBlocks
-	&backup_state_volume_header_v3,			// bsVolumeHeader
+	backup_state_volume_header_v3,			// bsVolumeHeader
 	NULL,									// bsTransactionLog
 	NULL,									// bsUnkRegion
 	NULL,									// bsMfsReinit
-	&backup_state_inodes_v3,				// bsInodes
-	&backup_state_complete_v3				// bsComplete
+	backup_state_inodes_v3,					// bsInodes
+	backup_state_complete_v3				// bsComplete
 };

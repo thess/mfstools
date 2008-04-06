@@ -346,6 +346,11 @@ restore_state_begin_v3 (struct backup_info *info, void *data, unsigned size, uns
 		info->ilogtype = Endian32_Swap (head->ilogtype);
 		info->ninodes = Endian32_Swap (head->ninodes);
 		info->shared_val1 = Endian32_Swap (head->size);
+		if (info->shared_val1 >= sizeof (struct backup_head_v3))
+		{
+			info->nextrainfo = Endian32_Swap (head->nextra);
+			info->extrainfosize = Endian32_Swap (head->extrasize);
+		}
 	}
 	else
 	{
@@ -361,12 +366,30 @@ restore_state_begin_v3 (struct backup_info *info, void *data, unsigned size, uns
 		info->ilogtype = head->ilogtype;
 		info->ninodes = head->ninodes;
 		info->shared_val1 = head->size;
+		if (info->shared_val1 >= sizeof (struct backup_head_v3))
+		{
+			info->nextrainfo = head->nextra;
+			info->extrainfosize = head->extrasize;
+		}
+	}
+
+	if (info->shared_val1 < offsetof (struct backup_head_v3, nextra))
+	{
+		info->err_msg = "Error processing backup header: Too small";
+		return bsError;
+	}
+	if (info->shared_val1 > sizeof (struct backup_head_v3))
+	{
+		info->err_msg = "Error processing backup header: Too large";
+		return bsError;
 	}
 
 /* Allocate storage for backup description */
 	info->parts = calloc (sizeof (struct backup_partition), info->nparts);
 	info->zonemaps = calloc (sizeof (struct zone_map_info), info->nzones);
 	info->mfsparts = calloc (sizeof (struct backup_partition), info->nmfs);
+	info->extrainfo = calloc (sizeof (*info->extrainfo), info->nextrainfo);
+	info->extrainfodata = calloc (sizeof (*info->extrainfo), info->extrainfosize);
 
 	if (!info->parts || !info->zonemaps || !info->mfsparts)
 	{
@@ -425,6 +448,38 @@ enum backup_state_ret
 restore_state_zone_map_info_v3 (struct backup_info *info, void *data, unsigned size,unsigned *consumed)
 {
 	return restore_read_header (info, data, size, consumed, info->zonemaps, info->nzones, sizeof (struct zone_map_info));
+}
+
+/*******************************/
+/* Read extra information data */
+/* state_val1 = offset of last copied extra data */
+/* state_val2 = --unused-- */
+/* state_ptr1 = --unused-- */
+/* shared_val1 = next offset to use in block */
+enum backup_state_ret
+restore_state_info_extra_v3 (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
+{
+	enum backup_state_ret ret = restore_read_header (info, data, size, consumed, info->extrainfodata, info->extrainfosize, 1);
+
+	if (ret == bsNextState)
+	{
+		int loop;
+		int curoff = 0;
+
+		for (loop = 0; loop < info->nextrainfo; loop++)
+		{
+			info->extrainfo[loop] = (struct extrainfo *)((char *)info->extrainfodata + curoff);
+			if (info->back_flags & RF_ENDIAN)
+			{
+				info->extrainfo[loop]->datalength = Endian16_Swap (info->extrainfo[loop]->datalength);
+			}
+			curoff += offsetof (struct extrainfo, data);
+			curoff += (info->extrainfo[loop]->typelength + 3) & ~3;
+			curoff += (info->extrainfo[loop]->datalength + 3) & ~3;
+		}
+	}
+
+	return ret;
 }
 
 /********************************/
@@ -1159,6 +1214,7 @@ backup_state_handler restore_v3 = {
 	NULL,									// bsInfoBlocks
 	restore_state_mfs_partition_info,		// bsInfoMFSPartitions
 	restore_state_zone_map_info_v3,			// bsInfoZoneMaps
+	restore_state_info_extra_v3,				// bsInfoExtra
 	restore_state_info_end,					// bsInfoEnd
 	restore_state_boot_block,				// bsBootBlock
 	restore_state_partitions,				// bsPartitions
