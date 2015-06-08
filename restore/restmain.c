@@ -7,16 +7,25 @@
 #include <fcntl.h>
 #include <string.h>
 #include <errno.h>
+#include <time.h>
 #ifdef HAVE_ASM_TYPES_H
 #include <asm/types.h>
 #endif
 #include <sys/param.h>
+#include <inttypes.h>
 
 #include "mfs.h"
 #include "backup.h"
 #include "macpart.h"
 
 #define BUFSIZE 512 * 256
+
+/**
+ * Tivo device names.
+ * Defaults to /dev/hd{a,b}.  For a Premier backup, we'll replace these
+ * with /dev/sd{a,b}.
+ */
+extern char* tivo_devnames[];
 
 void
 restore_usage (char *progname)
@@ -208,7 +217,7 @@ restore_main (int argc, char **argv)
 			restorebits = strtoul (optarg, &tmp, 10);
 			if (tmp && *tmp)
 			{
-				fprintf (stderr, "%s: Integer argument expected for -S.\n", argv[0]);
+				fprintf (stderr, "%s: Integer argument expected for -M.\n", argv[0]);
 				return 1;
 			}
 			if (restorebits != 32 && restorebits != 64)
@@ -262,7 +271,7 @@ restore_main (int argc, char **argv)
 	{
 		unsigned starttime;
 		int fd, nread, nwrit;
-		char buf[BUFSIZE];
+		unsigned char buf[BUFSIZE];
 		unsigned int cursec = 0, curcount;
 
 		if (varsize)
@@ -347,7 +356,7 @@ restore_main (int argc, char **argv)
 
 		starttime = time (NULL);
 
-		fprintf (stderr, "Starting restore\nUncompressed backup size: %d megabytes\n", info->nsectors / 2048);
+		fprintf (stderr, "Starting restore\nUncompressed backup size: %" PRId64 " megabytes\n", info->nsectors / 2048);
 		while ((curcount = read (fd, buf, BUFSIZE)) > 0)
 		{
 			unsigned int prcnt, compr;
@@ -369,14 +378,14 @@ restore_main (int argc, char **argv)
 				unsigned timedelta = time(NULL) - starttime;
 
 				if (info->back_flags & BF_COMPRESSED)
-					fprintf (stderr, "     \rRestoring %d of %d mb (%d.%02d%%) (%d.%02d%% comp)", info->cursector / 2048, info->nsectors / 2048, prcnt / 100, prcnt % 100, compr / 100, compr % 100);
+					fprintf (stderr, "     \rRestoring %" PRId64 " of %" PRId64 "mb (%d.%02d%%) (%d.%02d%% comp)", info->cursector / 2048, info->nsectors / 2048, prcnt / 100, prcnt % 100, compr / 100, compr % 100);
 				else
-					fprintf (stderr, "     \rRestoring %d of %d mb (%d.%02d%%)", info->cursector / 2048, info->nsectors / 2048, prcnt / 100, prcnt % 100);
+					fprintf (stderr, "     \rRestoring %" PRId64 " of %" PRId64 " mb (%d.%02d%%)", info->cursector / 2048, info->nsectors / 2048, prcnt / 100, prcnt % 100);
 
 				if (prcnt > 100 && timedelta > 15)
 				{
 					unsigned ETA = timedelta * (10000 - prcnt) / prcnt;
-					fprintf (stderr, " %d mb/sec (ETA %d:%02d:%02d)", info->cursector / timedelta / 2048, ETA / 3600, ETA / 60 % 60, ETA % 60);
+					fprintf (stderr, " %" PRId64 " mb/sec (ETA %d:%02d:%02d)", info->cursector / timedelta / 2048, ETA / 3600, ETA / 60 % 60, ETA % 60);
 				}
 			}
 		}
@@ -436,7 +445,7 @@ restore_main (int argc, char **argv)
 
 		if (tivo_partition_largest_free (drive) > 1024 * 1024 * 2)
 		{
-			if (expand_drive (mfshnd, "/dev/hda", drive, blocksize) < 0)
+			if (expand_drive (mfshnd, tivo_devnames[0], drive, blocksize) < 0)
 			{
 				if (restore_has_error (info))
 					restore_perror (info, "Expand drive A");
@@ -449,7 +458,7 @@ restore_main (int argc, char **argv)
 
 		if (drive2 && tivo_partition_largest_free (drive2) > 1024 * 1024 * 2)
 		{
-			if (expand_drive (mfshnd, "/dev/hdb", drive2, blocksize) < 0)
+			if (expand_drive (mfshnd, tivo_devnames[1], drive2, blocksize) < 0)
 			{
 				if (restore_has_error (info))
 					restore_perror (info, "Expand drive B");

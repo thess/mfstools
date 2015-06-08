@@ -13,10 +13,10 @@ zone_type;
 
 typedef struct bitmap_header_s
 {
-	unsigned long nbits;		/* Number of bits in this map */
-	unsigned long freeblocks;	/* Number of free blocks in this map */
-	unsigned long last;			/* Last bit allocated (Cleared) */
-	unsigned long nints;		/* Number of ints in this map */
+	uint32_t nbits;		/* Number of bits in this map */
+	uint32_t freeblocks;	/* Number of free blocks in this map */
+	uint32_t last;			/* Last bit allocated (Cleared) */
+	uint32_t nints;		/* Number of ints in this map */
 }
 bitmap_header;
 
@@ -61,7 +61,7 @@ typedef struct zone_header_32_s
 }
 zone_header_32;
 
-typedef struct zone_header_64_s
+typedef struct __attribute__ ((__packed__)) zone_header_64_s
 {
 	uint64_t sector;			/* Sector of this table */
 	uint64_t sbackup;			/* Sector of backup of this table */
@@ -106,5 +106,8 @@ void mfs_cleanup_zone_maps (struct mfs_handle *mfshnd);
 int mfs_load_zone_maps (struct mfs_handle *hnd);
 int mfs_new_zone_map_size (struct mfs_handle *mfshnd, unsigned int blocks);
 int mfs_new_zone_map (struct mfs_handle *mfshnd, uint64_t sector, uint64_t backup, uint64_t first, uint64_t size, unsigned int minalloc, zone_type type, unsigned int fsmem_base);
+
+unsigned int mfs_sa_hours_estimate (struct mfs_handle *mfshnd);
+int mfs_can_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsigned int minalloc);
 
 #endif /*ZONEMAP_H */

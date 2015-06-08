@@ -7,6 +7,9 @@
 #include <fcntl.h>
 #include <string.h>
 #include <errno.h>
+#include <time.h>
+#include <inttypes.h>
+
 #ifdef HAVE_ASM_TYPES_H
 #include <asm/types.h>
 #endif
@@ -65,79 +68,6 @@ get_percent (uint64_t current, uint64_t max)
 	}
 
 	return prcnt;
-}
-
-static uint64_t
-sectors_no_reserved (uint64_t sectors)
-{
-	if (sectors < 14 * 1024 * 1024 * 2)
-		return sectors;
-	if (sectors > 72 * 1024 * 1024 * 2)
-		return sectors - 12 * 1024 * 1024 * 2;
-	return sectors - (sectors - 14 * 1024 * 1024 * 2) / 4;
-}
-
-static void
-display_backup_info (struct backup_info *info)
-{
-	zone_header *hdr = 0;
-	uint64_t sizes[32];
-	int count = 0;
-	int loop;
-	uint64_t backuptot = 0;
-	uint64_t backupmfs = 0;
-
-	for (loop = 0; loop < info->nmfs; loop++)
-	{
-		backupmfs += info->mfsparts[loop].sectors;
-	}
-
-	while ((hdr = mfs_next_zone (info->mfs, hdr)) != 0)
-	{
-		unsigned int zonetype;
-		uint64_t zonesize;
-		uint64_t zonefirst;
-
-		if (mfs_is_64bit (info->mfs))
-		{
-			zonetype = intswap32 (hdr->z64.type);
-			zonesize = intswap64 (hdr->z64.size);
-			zonefirst = intswap64 (hdr->z64.first);
-		}
-		else
-		{
-			zonetype = intswap32 (hdr->z32.type);
-			zonesize = intswap32 (hdr->z32.size);
-			zonefirst = intswap32 (hdr->z32.first);
-		}
-
-		if (zonetype == ztMedia)
-		{
-			unsigned int size = zonesize;
-			if (zonefirst < backupmfs)
-				backuptot += size;
-			sizes[count++] = size;
-		}
-		else
-			while (count > 1)
-			{
-				sizes[0] += sizes[--count];
-			}
-	}
-
-	if (sizes > 0)
-	{
-		unsigned int running = sizes[0];
-		fprintf (stderr, "Source drive size is %d hours\n", sectors_no_reserved (running) / SABLOCKSEC);
-		if (count > 1)
-			for (loop = 1; loop < count; loop++)
-			{
-				running += sizes[loop];
-				fprintf (stderr, "         Upgraded to %d hours\n", sectors_no_reserved (running) / SABLOCKSEC);
-			}
-		if (info->back_flags & BF_SHRINK)
-			fprintf (stderr, "Target drive will be %d hours\n", sectors_no_reserved (backuptot) / SABLOCKSEC);
-	}
 }
 
 static int
@@ -222,7 +152,7 @@ copy_main (int argc, char **argv)
 	char dest_a[PATH_MAX], dest_b[PATH_MAX];
 	char *tmp;
 	struct backup_info *info_b, *info_r;
-	int opt, loop, thresh = 0, threshopt = 0;
+	int opt, thresh = 0, threshopt = 0;
 	unsigned int varsize = 0, swapsize = 0;
 	unsigned int bflags = BF_BACKUPVAR, rflags = 0;
 	int quiet = 0;
@@ -253,7 +183,7 @@ copy_main (int argc, char **argv)
 				fprintf (stderr, "%s: -f and -%c cannot be used together\n", argv[0], threshopt);
 				return 1;
 			}
-			threshopt = loop;
+			threshopt = 'f';
 			thresh = strtoul (optarg, &tmp, 10);
 			if (*tmp)
 			{
@@ -267,7 +197,7 @@ copy_main (int argc, char **argv)
 				fprintf (stderr, "%s: -l and -%c cannot be used together\n", argv[0], threshopt);
 				return 1;
 			}
-			threshopt = loop;
+			threshopt = 'L';
 			thresh = strtoul (optarg, &tmp, 10);
 			thresh *= 1024 * 2;
 			bflags |= BF_THRESHSIZE;
@@ -289,7 +219,7 @@ copy_main (int argc, char **argv)
 				fprintf (stderr, "%s: -a and -%c cannot be used together\n", argv[0], threshopt);
 				return 1;
 			}
-			threshopt = loop;
+			threshopt = 'a';
 			thresh = ~0;
 			break;
 
@@ -469,7 +399,7 @@ copy_main (int argc, char **argv)
 	else
 	{
 		unsigned starttime;
-		char buf[BUFSIZE];
+		unsigned char buf[BUFSIZE];
 		unsigned int curcount = 0;
 		int nread, nwrit;
 
@@ -559,10 +489,10 @@ copy_main (int argc, char **argv)
 
 		starttime = time (NULL);
 
-		fprintf (stderr, "Starting copy\nSize: %d megabytes\n", info_r->nsectors / 2048);
+		fprintf (stderr, "Starting copy\nSize: %" PRId64 " megabytes\n", info_r->nsectors / 2048);
 		while ((curcount = backup_read (info_b, buf, BUFSIZE)) > 0)
 		{
-			unsigned int prcnt, compr;
+			unsigned int prcnt;
 			if (restore_write (info_r, buf, curcount) != curcount)
 			{
 				if (quiet < 1)
@@ -578,12 +508,12 @@ copy_main (int argc, char **argv)
 			{
 				unsigned timedelta = time(NULL) - starttime;
 
-				fprintf (stderr, "\rCopying %d of %d mb (%d.%02d%%)", info_r->cursector / 2048, info_r->nsectors / 2048, prcnt / 100, prcnt % 100);
+				fprintf (stderr, "\rCopying %" PRId64 " of %" PRId64 " mb (%d.%02d%%)", info_r->cursector / 2048, info_r->nsectors / 2048, prcnt / 100, prcnt % 100);
 
 				if (prcnt > 100 && timedelta > 15)
 				{
 					unsigned ETA = timedelta * (10000 - prcnt) / prcnt;
-					fprintf (stderr, " %d mb/sec (ETA %d:%02d:%02d)", info_r->cursector / timedelta / 2048, ETA / 3600, ETA / 60 % 60, ETA % 60);
+					fprintf (stderr, " %" PRId64 " mb/sec (ETA %d:%02d:%02d)", info_r->cursector / timedelta / 2048, ETA / 3600, ETA / 60 % 60, ETA % 60);
 				}
 			}
 		}

@@ -28,7 +28,7 @@
 int
 mfs_read_inode_to_buf (struct mfs_handle *mfshnd, unsigned int inode, mfs_inode *inode_buf)
 {
-	int sector;
+	uint64_t sector;
 
 	if (!inode_buf)
 	{
@@ -65,7 +65,7 @@ mfs_read_inode_to_buf (struct mfs_handle *mfshnd, unsigned int inode, mfs_inode 
 	}
 
 	mfshnd->err_msg = "Inode %d corrupt";
-	mfshnd->err_arg1 = (void *)inode;
+	mfshnd->err_arg1 = inode;
 
 	return -1;
 }
@@ -92,7 +92,7 @@ int
 mfs_write_inode (struct mfs_handle *mfshnd, mfs_inode *inode)
 {
 	char buf[1024];
-	int sector;
+	uint64_t sector;
 
 /* Find the sector number for this inode. */
 	sector = mfs_inode_to_sector (mfshnd, intswap32 (inode->inode));
@@ -119,9 +119,9 @@ mfs_write_inode (struct mfs_handle *mfshnd, mfs_inode *inode)
 mfs_inode *
 mfs_read_inode_by_fsid (struct mfs_handle *mfshnd, uint32_t fsid)
 {
-	int inode = (fsid * MFS_FSID_HASH) & (mfs_inode_count (mfshnd) - 1);
+	unsigned int inode = (fsid * MFS_FSID_HASH) & (mfs_inode_count (mfshnd) - 1);
 	mfs_inode *cur = NULL;
-	int inode_base = inode;
+	unsigned int inode_base = inode;
 
 	do
 	{
@@ -153,9 +153,9 @@ mfs_read_inode_by_fsid (struct mfs_handle *mfshnd, uint32_t fsid)
 mfs_inode *
 mfs_find_inode_for_fsid (struct mfs_handle *mfshnd, unsigned int fsid)
 {
-	int inode = (fsid * MFS_FSID_HASH) & (mfs_inode_count (mfshnd) - 1);
+	unsigned int inode = (fsid * MFS_FSID_HASH) & (mfs_inode_count (mfshnd) - 1);
 	mfs_inode *cur = NULL;
-	int inode_base = inode;
+	unsigned int inode_base = inode;
 	mfs_inode *first = NULL;
 
 	do
@@ -248,7 +248,7 @@ mfs_find_inode_for_fsid (struct mfs_handle *mfshnd, unsigned int fsid)
 /**************************************/
 /* Write a portion of an inodes data. */
 int
-mfs_write_inode_data_part (struct mfs_handle *mfshnd, mfs_inode * inode, unsigned char *data, unsigned int start, unsigned int count)
+mfs_write_inode_data_part (struct mfs_handle *mfshnd, mfs_inode * inode, unsigned char *data, uint32_t start, unsigned int count)
 {
 	int totwrit = 0;
 
@@ -283,7 +283,7 @@ mfs_write_inode_data_part (struct mfs_handle *mfshnd, mfs_inode * inode, unsigne
 		{
 /* For sanity sake (Mine, not the code's), make these variables. */
 			uint64_t blkstart;
-			uint64_t blkcount;
+			uint32_t blkcount;
 			int result;
 
 			if (mfshnd->is_64)
@@ -364,7 +364,7 @@ mfs_read_inode_data_part (struct mfs_handle *mfshnd, mfs_inode * inode, unsigned
 /* All the data fits in the inode */
 	if (inode->inode_flags & intswap32 (INODE_DATA))
 	{
-		int size = intswap32 (inode->size);
+		uint32_t size = intswap32 (inode->size);
 
 		if (start)
 		{
@@ -431,7 +431,7 @@ mfs_read_inode_data_part (struct mfs_handle *mfshnd, mfs_inode * inode, unsigned
 			}
 
 			result = mfsvol_read_data (mfshnd->vols, data, blkstart, blkcount);
-			count -= blkcount;
+			count -= (uint32_t) blkcount;
 
 /* Error - propogate it up. */
 			if (result < 0)
@@ -474,9 +474,9 @@ mfs_read_inode_data (struct mfs_handle *mfshnd, mfs_inode * inode, int *size)
 		return NULL;
 	}
 
-	*size = intswap32 (inode->size);
+	*size = (int) intswap32 (inode->size);
 
-	data = malloc ((*size + 511) & ~511);
+	data = malloc ((unsigned)(*size + 511) & ~511);
 	if (!data)
 	{
 		*size = 0;
@@ -485,7 +485,7 @@ mfs_read_inode_data (struct mfs_handle *mfshnd, mfs_inode * inode, int *size)
 
 /* This function is just a wrapper for read_inode_data_part, with the last */
 /* parameter being implicitly the whole data. */
-	result = mfs_read_inode_data_part (mfshnd, inode, data, 0, (*size + 511) / 512);
+	result = (int) mfs_read_inode_data_part (mfshnd, inode, data, 0, (*size + 511) / 512);
 
 	if (result < 0)
 	{

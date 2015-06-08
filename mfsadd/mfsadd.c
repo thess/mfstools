@@ -3,6 +3,8 @@
 #endif
 #include <unistd.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <ctype.h>
 #include <fcntl.h>
 #include <string.h>
 #include <sys/param.h>
@@ -12,6 +14,13 @@
 #endif
 #include "mfs.h"
 #include "macpart.h"
+
+/**
+ * Tivo device names.
+ * Defaults to /dev/hd{a,b}.  For a Premier backup, we'll replace these
+ * with /dev/sd{a,b}.
+ */
+extern char* tivo_devnames[];
 
 void
 mfsadd_usage (char *progname)
@@ -40,6 +49,12 @@ mfsadd_scan_partitions (struct mfs_handle *mfs, int *used, char *seconddrive)
 
 	strncpy (partitions, mfs_partition_list (mfs), 255);
 	partitions[255] = 0;
+
+	if (!strncmp(partitions,"/dev/sd",7))
+	{
+		tivo_devnames[0] = "/dev/sda";
+		tivo_devnames[1] = "/dev/sdb";
+	}
 
 	*seconddrive = 0;
 
@@ -82,7 +97,7 @@ mfsadd_scan_partitions (struct mfs_handle *mfs, int *used, char *seconddrive)
 
 		partition = strtoul (loop, &loop, 10);
 
-		if (*loop && !isspace (*loop) || partition < 2 || partition > 16)
+		if (*loop && (!isspace (*loop) || partition < 2 || partition > 16))
 		{
 			fprintf (stderr, "Non-standard partition in MFS - giving up.\n");
 			return -1;
@@ -334,8 +349,8 @@ mfsadd_main (int argc, char **argv)
 		}
 	}
 
-	if (extendmfs || xdevs[0] && xdevs[0] == drives[1] ||
-		xdevs[1] && xdevs[1] == drives[1])
+	if (extendmfs || (xdevs[0] && xdevs[0] == drives[1]) ||
+	    (xdevs[1] && xdevs[1] == drives[1]))
 	{
 		init_b_part = 1;
 	}
@@ -548,8 +563,9 @@ mfsadd_main (int argc, char **argv)
 		int newsize;
 
 		fprintf (stderr, "Adding pair %s-%s...\n", pairs[loop], pairs[loop + 1]);
-		sprintf (app, "/dev/hd%c%d", 'a' + (pairnums[loop] >> 6) + usecdrive, pairnums[loop] & 31);
-		sprintf (media, "/dev/hd%c%d", 'a' + (pairnums[loop + 1] >> 6) + usecdrive, pairnums[loop + 1] & 31);
+		sprintf (app, "%s%d", tivo_devnames[pairnums[loop]>>6] + usecdrive, pairnums[loop] & 31);
+		sprintf (media, "%s%d", tivo_devnames[pairnums[loop + 1]>>6] + usecdrive, pairnums[loop + 1] & 31);
+
 		if (mfs_add_volume_pair (mfs, app, media, minalloc) < 0)
 		{
 			fprintf (stderr, "Adding %s-%s", pairs[loop], pairs[loop + 1]);

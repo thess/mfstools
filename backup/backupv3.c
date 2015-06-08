@@ -33,7 +33,7 @@
 /* Add an inode to the list, allocating more space if needed. */
 /* Keep the list in order of fsid*/
 static int
-backup_inode_list_add (unsigned **listinode, unsigned **listfsid, unsigned *allocated, unsigned *total, unsigned inodeval, unsigned fsidval)
+backup_inode_list_add (unsigned **listinode, unsigned **listfsid, unsigned *allocated, int *total, unsigned inodeval, unsigned fsidval)
 {
 	int insertposmin = 0;
 	int insertposmax = *total;
@@ -85,7 +85,7 @@ backup_inode_list_add (unsigned **listinode, unsigned **listfsid, unsigned *allo
 unsigned
 backup_scan_inodes (struct backup_info *info)
 {
-	unsigned int loop, loop2, loop3;
+	unsigned int loop, loop2;
 	int ninodes = mfs_inode_count (info->mfs);
 	uint64_t highest = 0;
 	unsigned char inodebuf[512];
@@ -135,7 +135,7 @@ backup_scan_inodes (struct backup_info *info)
 		if (backup_inode_list_add (&info->inodes, &fsids, &allocated, &info->ninodes, loop, intswap32 (inode->fsid)) < 0)
 		{
 			info->err_msg = "Memory exhausted (Inode scan %d)";
-			info->err_arg1 = (void *)loop;
+			info->err_arg1 = (int64_t)(size_t)loop;
 			if (info->inodes)
 				free (info->inodes);
 			if (fsids)
@@ -156,8 +156,8 @@ backup_scan_inodes (struct backup_info *info)
 
 /* Ignore streams with no allocated data, or bigger than the threshhold. */
 			if (streamsize == 0 || 
-				(info->back_flags & BF_THRESHSIZE) && streamsize > info->thresh ||
-				!(info->back_flags & BF_THRESHSIZE) && intswap32 (inode->fsid) > info->thresh)
+			    ((info->back_flags & BF_THRESHSIZE) && streamsize > info->thresh) ||
+			    (!(info->back_flags & BF_THRESHSIZE) && intswap32 (inode->fsid) > info->thresh))
 			{
 				/* Clear out the data in the inode and write it back to */
 				/* memory for backup to read later */
@@ -219,8 +219,8 @@ backup_scan_inodes (struct backup_info *info)
 		if (highest > set_size)
 		{
 			info->err_msg = "Required data at %ld beyond end of the device (%ld)";
-			info->err_arg1 = (void *)highest;
-			info->err_arg2 = (void *)set_size;
+			info->err_arg1 = (int64_t)highest;
+			info->err_arg2 = (int64_t)set_size;
 
 			if (info->inodes)
 				free (info->inodes);
@@ -725,7 +725,7 @@ backup_state_inodes_v3 (struct backup_info *info, void *data, unsigned size, uns
 			if (mfs_read_inode_data_part (info->mfs, inode, data, info->state_val2, (tocopy + 511) / 512) < 0)
 			{
 				info->err_msg = "Error reading inode %d";
-				info->err_arg1 = (void *)(uint32_t)info->state_val1;
+				info->err_arg1 = (int64_t)info->state_val1;
 				free (inode);
 				return bsError;
 			}

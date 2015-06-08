@@ -1,8 +1,9 @@
+#define _LARGEFILE_SOURCE
+#define _LARGEFILE64_SOURCE
+
 #ifdef HAVE_CONFIG_H
 #include <config.h>
 #endif
-/* For stat64 */
-#define _LARGEFILE64_SOURCE 1
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -27,8 +28,16 @@
 #include <linux/unistd.h>
 #endif
 
-/* #include "mfs.h" */
+#include <linux/blkpg.h>
+#include <sys/ioctl.h> 
+
+#if !defined(BLKGETSIZE64)
+# define BLKGETSIZE64 _IOR(0x12,114,size_t) /* return device size in bytes (uint64_t * arg) */
+#endif
+
+#include "mfs.h"
 #include "macpart.h"
+
 
 /* Some static variables..  Really this should be a class and these */
 /* private members. */
@@ -45,10 +54,11 @@ void data_swab (void *data, int size);
 static int
 file_or_dev_size (int fd, uint64_t *size)
 {
-#ifdef BLKGETSIZE
-#ifndef BLKGETSIZE64
-	uint32_t size32;
+#ifdef BLKGETSIZE64
+	uint64_t sz64;
 #endif
+#ifdef BLKGETSIZE
+	uint32_t sz32;
 #endif
 #ifdef O_LARGEFILE
 	struct stat64 st;
@@ -75,19 +85,19 @@ file_or_dev_size (int fd, uint64_t *size)
 #endif
 
 #ifdef BLKGETSIZE64
-	if (ioctl (fd, BLKGETSIZE64, size) == 0)
+	if (ioctl (fd, BLKGETSIZE64, &sz64 ) == 0)
 	{
-		*size >>= 9;
-		return 1;
-	}
-#else
-#ifdef BLKGETSIZE
-	if (ioctl (fd, BLKGETSIZE, &size32) == 0)
-	{
-		*size = size32;
+		*size =  sz64 / 512;
 		return 1;
 	}
 #endif
+
+#ifdef BLKGETSIZE
+	if (ioctl (fd, BLKGETSIZE, &sz32 ) == 0)
+	{
+		*size =  sz32;
+		return 1;
+	}
 #endif
 
 #ifdef O_LARGEFILE
@@ -96,10 +106,9 @@ file_or_dev_size (int fd, uint64_t *size)
 	if (fstat (fd, &st) == 0)
 #endif
 	{
-		*size = st.st_size / 512;
+		*size = st.st_blocks;
 		return 0;
 	}
-
 	return -1;
 }
 
@@ -131,19 +140,22 @@ tivo_read_partition_table (const char *device, int flags)
 /* See if this device has been opened yet. */
 	for (table = partition_tables; table; table = table->next)
 	{
+	     if (table->device != NULL) {		
 		if (!strcmp (device, table->device))
 		{
 			break;
 		}
 	}
+	}
 
 /* If not, open it and read the partition table. */
 	if (!table)
 	{
+
 		int *fd;
 		unsigned char buf[512];
-		int cursec;
-		int maxsec = 1;
+		uint64_t cursec;
+		uint64_t maxsec = 1;
 		int partitions = 0;
 		struct tivo_partition parts[256];
 
@@ -213,6 +225,7 @@ tivo_read_partition_table (const char *device, int flags)
 		for (cursec = 1; cursec <= maxsec && partitions < 256; cursec++)
 		{
 			struct mac_partition *part;
+			struct tivo_bigpartition *bigpart;
 			lseek (*fd, 512 * cursec, SEEK_SET);
 			if (read (*fd, buf, 512) != 512)
 			{
@@ -226,17 +239,15 @@ tivo_read_partition_table (const char *device, int flags)
 			}
 			part = (struct mac_partition *) buf;
 
-/* If it doesn't have the magic, it's not hip.  No more partitions. */
-			if (intswap16 (part->signature) != MAC_PARTITION_MAGIC)
-			{
-				break;
-			}
-
 /* If this is the first, update the max. */
 			if (cursec == 1)
 			{
 				maxsec = intswap32 (part->map_count);
 			}
+
+/* If it doesn't have the magic, it's not hip.  No more partitions. */
+			if (intswap16 (part->signature) == MAC_PARTITION_MAGIC)
+			{
 
 /* Add it to the list. */
 			parts[partitions].start = intswap32 (part->start_block);
@@ -245,6 +256,22 @@ tivo_read_partition_table (const char *device, int flags)
 			parts[partitions].type = strdup (part->type);
 			parts[partitions].refs = 1;
 			partitions++;
+		}
+			else if (intswap16 (part->signature) == TIVO_BIGPARTITION_MAGIC)
+			{
+				bigpart = (struct tivo_bigpartition *) buf;
+
+/* Add it to the list. */
+				parts[partitions].start = intswap64 (bigpart->start_block);
+				parts[partitions].sectors = intswap64 (bigpart->block_count);
+				parts[partitions].name = strdup (bigpart->name);
+				parts[partitions].type = strdup (bigpart->type);
+				parts[partitions].refs = 1;
+				partitions++;
+
+			} else 
+				break;
+
 		}
 
 /* No partitions.  None.  Nada. */
@@ -277,11 +304,13 @@ tivo_read_partition_table (const char *device, int flags)
 		table->device = strdup (device);
 		table->next = partition_tables;
 		partition_tables = table;
+	       
 	}
 	else
 	{
 /* Okay, the table already exists.  Make sure the device is opened for the */
 /* proper access mode already, as well. */
+
 		if ((flags & O_ACCMODE) == O_RDONLY)
 		{
 			if (table->ro_fd < 0)
@@ -369,7 +398,9 @@ tivo_partition_validate (struct tivo_partition_table *table)
 	char partsused[256];
 
 	if (!table)
+	{
 		return -1;
+	}
 
 /* Only need to validate once. */
 	if (table->vol_flags & VOL_VALID)
@@ -380,7 +411,9 @@ tivo_partition_validate (struct tivo_partition_table *table)
 	loop = 1;
 
 	if (table->count >= 256)
+	{
 		return -1;
+	}
 
 /* Loop through each sector on the drive. */
 	while (loop < table->devsize)
@@ -402,7 +435,7 @@ tivo_partition_validate (struct tivo_partition_table *table)
 		partsused[partno] = 1;
 
 /* If there was a gap, create a partition to fill it. */
-		if (table->partitions[partno].start > loop)
+		if (table->partitions[loop2].start > loop)
 		{
 /* If the table is too big for the first partition or for a max of 256, */
 /* which is very generous since TiVo only allows 15 max, report an error. */
@@ -410,7 +443,7 @@ tivo_partition_validate (struct tivo_partition_table *table)
 				return -1;
 
 /* Create the new partition. */
-			table->partitions[table->count].sectors = table->partitions[partno].start - loop;
+			table->partitions[table->count].sectors = table->partitions[loop2].start - loop;
 			table->partitions[table->count].start = loop;
 			table->partitions[table->count].refs = 1;
 			table->partitions[table->count].name = strdup ("Extra");
@@ -420,8 +453,16 @@ tivo_partition_validate (struct tivo_partition_table *table)
 			table->count++;
 		}
 
-		if (table->partitions[partno].start + table->partitions[partno].sectors > INT64_C(0x100000000))
+/* Mathematically speaking, this prevents integer wrap.  The proof of this */
+/* is if x (Sector number) + y (Partition size) > z (Integet size) then */
+/* x + y - y > z - y or x > z - y.  To put this in other terms, if the */
+/* sector number is greater than the max int - the partition size, there */
+/* will be wrap.  In this case, 0 is taking the place of maxint, since it */
+/* will wrap.  If a partition is 0 bytes, it's considered an error. */
+		if (loop > (uint64_t)(0 - table->partitions[partno].sectors)) 
+		{
 			return -1;
+		}
 
 		loop += table->partitions[partno].sectors;
 	}
@@ -431,7 +472,7 @@ tivo_partition_validate (struct tivo_partition_table *table)
 		return -1;
 
 /* If the partition table describes too few partitions, create a filler. */
-	if (loop < table->devsize && loop < INT64_C(0x100000000))
+	if (loop < table->devsize)
 	{
 /* If the table is too big for the first partition or for a max of 256, */
 /* which is very generous since TiVo only allows 15 max, report an error. */
@@ -439,14 +480,7 @@ tivo_partition_validate (struct tivo_partition_table *table)
 			return -1;
 
 /* Create the new partition. */
-		if (table->devsize > INT64_C(0x100000000))
-		{
-			table->partitions[table->count].sectors = INT64_C(0x100000000) - loop;
-		}
-		else
-		{
 			table->partitions[table->count].sectors = table->devsize - loop;
-		}
 		table->partitions[table->count].start = loop;
 		table->partitions[table->count].refs = 1;
 		table->partitions[table->count].name = strdup ("Extra");
@@ -484,10 +518,14 @@ tivo_partition_total_free (const char *device)
 /* Make sure it has a partition table. */
 	table = tivo_read_partition_table (device, O_RDONLY);
 	if (!table)
+	{
 		return 0;
+	}
 /* Make sure the partition table makes sense. */
 	if (tivo_partition_validate (table) < 0)
+	{
 		return 0;
+	}
 
 /* Check there is room for a partition. */
 	if (table->count + 1 >= table->allocated)
@@ -505,6 +543,39 @@ tivo_partition_total_free (const char *device)
 	return total;
 }
 
+// Find out total used space 
+uint64_t
+tivo_partition_total_used (const char *device)
+{
+	struct tivo_partition_table *table;
+	int loop;
+	uint64_t total = 0;
+
+/* Make sure it has a partition table. */
+	table = tivo_read_partition_table (device, O_RDONLY);
+	if (!table)
+		return 0;
+/* Make sure the partition table makes sense. */
+	if (tivo_partition_validate (table) < 0)
+		return 0;
+
+/* Check there is room for a partition. */
+	if (table->count + 1 >= table->allocated)
+	{
+		return 0;
+	}
+
+/* Find any Apple_Free partitions. */
+	for (loop = 0; loop < table->count; loop++)
+	{
+		if (strcmp (table->partitions[loop].type, "Apple_Free"))
+			total += table->partitions[loop].sectors;
+	}
+
+	return total;
+}
+
+
 /* Find the largest bit of free space on a drive. */
 uint64_t
 tivo_partition_largest_free (const char *device)
@@ -514,7 +585,7 @@ tivo_partition_largest_free (const char *device)
 	uint64_t last = 0;
 	int startpart = 0;
 	int loop;
-	unsigned int largest = 0;
+	uint64_t largest = 0;
 
 /* Make sure it has a partition table. */
 	table = tivo_read_partition_table (device, O_RDONLY);
@@ -567,7 +638,6 @@ tivo_partition_largest_free (const char *device)
 				largest = last - first;
 		}
 	}
-
 	return largest;
 }
 
@@ -605,6 +675,30 @@ tivo_partition_rename (const char *device, int partition, const char *name)
 	return 0;
 }
 
+/**
+ *  Move a partition to another slot.  Only the last partition in the map can be moved.
+ *  Information about the old partition is clobbered, so this is a dangerous operation.
+ */
+int
+tivo_partition_remap (const char *device, int old, int new)
+{
+	struct tivo_partition_table *table;
+
+	table = tivo_read_partition_table (device, O_RDONLY);
+	if (!table)
+		return -1;
+
+	if (old != table->count-1)
+		return -1;
+
+	table->partitions[new-1] = table->partitions[old-1];
+	table->partitions[old-1] = table->partitions[old];
+	table->count--;
+	table->vol_flags |= VOL_DIRTY;
+
+	return 0;
+}
+
 /* Add a partition to the specified device.  Make the partition size */
 /* sectors, add it before a specific partition (Or 0 for at the end) */
 /* and assign it's name and type. */
@@ -623,15 +717,21 @@ tivo_partition_add (const char *device, uint64_t size, int before, const char *n
 
 /* Partitions must have a size. */
 	if (!size)
+	{
 		return -1;
+	}
 
 /* Make sure it has a partition table. */
 	table = tivo_read_partition_table (device, O_RDONLY);
 	if (!table)
+	{
 		return -1;
+	}
 /* Make sure the partition table makes sense. */
 	if (tivo_partition_validate (table) < 0)
+	{
 		return -1;
+	}
 
 /* Make sure no partitions that are currently being used are affected. */
 	for (startpart = table->count - 1; startpart > 0; startpart--)
@@ -675,7 +775,9 @@ tivo_partition_add (const char *device, uint64_t size, int before, const char *n
 /* If there was no further partition found, and the loop is still going, */
 /* there is not enough free space. */
 		if (!nextpart)
+		{
 			return -1;
+		}
 
 /* If the partition found starts at the previous last, keep counting the */
 /* space, otherwise start over. */
@@ -685,7 +787,7 @@ tivo_partition_add (const char *device, uint64_t size, int before, const char *n
 		}
 		else
 		{
-			first = table->partitions[nextpart].start;
+			first = (table->partitions[nextpart].start + 3 ) & ~0x03;;  /* round to 2K boundary for modern disks */
 			last = first + table->partitions[nextpart].sectors;
 		}
 	}
@@ -698,9 +800,12 @@ tivo_partition_add (const char *device, uint64_t size, int before, const char *n
 /* Delete all partitions that fall within the now used range. */
 	for (loop = startpart; loop < table->count; loop++)
 	{
-		if (table->partitions[loop].start >= first && table->partitions[loop].start < last)
+		uint64_t tfirst, tlast;
+		tfirst = table->partitions[loop].start;
+		tlast = tfirst + table->partitions[loop].sectors;
+		if (tfirst < last  && first < tlast)
 		{
-			if (table->partitions[loop].start + table->partitions[loop].sectors > last)
+			if (tlast > last)
 			{
 /* It is really only using part of this partition; truncate it. */
 				table->partitions[loop].sectors -= last - table->partitions[loop].start;
@@ -819,6 +924,7 @@ tivo_partition_table_write (const char *device)
 	tpFILE file;
 	struct tivo_partition_table *table = tivo_read_partition_table (device, O_RDWR);
 	struct mac_partition *mp = (struct mac_partition *)buf;
+	struct tivo_bigpartition *tbp = (struct tivo_bigpartition *)buf;
 	int loop;
 
 	if (!table)
@@ -856,6 +962,11 @@ tivo_partition_table_write (const char *device)
 		bzero (buf, sizeof (buf));
 		if (loop < table->count)
 		{
+			char *p, *name;
+			// Use the old format if the partition doesn't touch blocks above the old format limit.
+			if (table->partitions[loop].start < UINT_MAX &&
+			    (table->partitions[loop].start + table->partitions[loop].sectors) < UINT_MAX )
+			{
 			mp->signature = intswap16 (MAC_PARTITION_MAGIC);
 			mp->map_count = intswap32 (table->count);
 			mp->start_block = intswap32 (table->partitions[loop].start);
@@ -865,13 +976,37 @@ tivo_partition_table_write (const char *device)
 			strncpy (mp->type, table->partitions[loop].type, sizeof (mp->type) - 1);
 			mp->data_count = mp->block_count;
 			mp->status = intswap32 (0x33);
+				// Set special tivo AV status bit for media partitions.
+				name = strdup(mp->name);
+				for(p=name; *p != 0; p++)
+					*p = tolower(*p);
+				if(strstr(name,"media") != 0)
+					mp->status |= intswap32(0x100);
+				free(name);
+			} else 	{
+				tbp->signature = intswap16 (TIVO_BIGPARTITION_MAGIC);
+				tbp->map_count = intswap32 (table->count);
+				tbp->start_block = intswap64 (table->partitions[loop].start);
+				tbp->block_count = intswap64 (table->partitions[loop].sectors);
+/* One smaller so the result is null terminated, due to the bzero(). */
+				strncpy (tbp->name, table->partitions[loop].name, sizeof (tbp->name) - 1);
+				strncpy (tbp->type, table->partitions[loop].type, sizeof (tbp->type) - 1);
+				tbp->data_count = tbp->block_count;
+				tbp->status = intswap32 (0x33);
+				// Set special tivo AV status bit for media partitions.
+				name = strdup(tbp->name);
+				for(p=name; *p != 0; p++)
+					*p = tolower(*p);
+				if(strstr(name,"media") != 0)
+					tbp->status |= intswap32(0x100);
+				free(name);
+			}
+
 		}
 		if (tivo_partition_write (&file, buf, loop, 1) != 512)
 			return -1;
 	}
-
 	table->vol_flags &= ~VOL_DIRTY;
-
 	return 0;
 }
 
@@ -1138,7 +1273,17 @@ int tivo_partition_devswabbed (const char *device)
 		return 0;
 
 	buf[0] = 0;
-	read (fd, buf, 4096);
+	int nread = 0;
+	while( nread < 4096)
+	{
+		int n = read (fd, buf, 4096 - nread);
+		if (n < 0) 
+		{
+			perror("read errpr");
+			break;
+		}
+		nread += n;
+	}
 	buf[4096] = 0;
 
 	close (fd);
@@ -1379,4 +1524,54 @@ void
 tivo_partition_auto ()
 {
 	tivo_partition_accmode = accAUTO;
+}
+
+//Revalidate partition
+int
+revalidate_drive (const char *device) {
+       
+        struct tivo_partition_table *table;
+        struct blkpg_partition blkpgpt;
+        struct blkpg_ioctl_arg blkpgarg;
+        int loop = 0;
+        int fd,ret;
+
+        fd = open(device, O_RDONLY);
+        if (fd < 0)
+           return -1;
+
+        //wipe the partition map from mem
+        for (loop = 1; loop <= 16; loop ++) {
+            blkpgpt.start = 0;
+            blkpgpt.length = 0;
+            blkpgpt.pno = loop;
+            blkpgpt.devname[0] = '\0';
+            blkpgpt.volname[0] = '\0';           
+            blkpgarg.op = BLKPG_DEL_PARTITION;
+            blkpgarg.flags = 0;
+            blkpgarg.datalen = sizeof(blkpgpt);
+            blkpgarg.data = &blkpgpt;
+            ret = ioctl(fd, BLKPG, &blkpgarg); 
+        }
+        
+  	table = tivo_read_partition_table (device, O_RDONLY);
+        if (!table)
+           return -1; 
+        
+        for (loop = 1; loop <= 16; loop ++) {
+            blkpgpt.start = 512 * (long long)table->partitions[loop-1].start;    
+            blkpgpt.length = 512 * (long long)table->partitions[loop-1].sectors;
+            blkpgpt.pno = loop;
+	    blkpgpt.devname[0] = '\0';
+            blkpgpt.volname[0] = '\0';
+            blkpgarg.op = BLKPG_ADD_PARTITION;
+            blkpgarg.flags = 0;
+            blkpgarg.datalen = sizeof(blkpgpt);
+            blkpgarg.data = &blkpgpt;
+	    ioctl(fd, BLKPG, &blkpgarg);  
+        }
+        if (table)
+           free(table);        
+        close (fd);
+        return 1;
 }

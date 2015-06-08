@@ -48,7 +48,7 @@ typedef struct mfs_inode_s
 			unsigned int count;
 		}
 		d32[0];
-		struct
+		struct __attribute__ ((__packed__)) 
 		{
 			uint64_t sector;
 			uint32_t count;
@@ -63,7 +63,7 @@ typedef struct fs_entry_s
 	unsigned int fsid;
 	unsigned char entry_length;
 	fsid_type type;
-	unsigned char name[0];
+	char name[0];
 }
 fs_entry;
 
@@ -76,7 +76,7 @@ mfs_inode *mfs_find_inode_for_fsid (struct mfs_handle *mfshnd, uint32_t fsid);
 int mfs_write_inode (struct mfs_handle *mfshnd, mfs_inode *inode);
 int mfs_read_inode_data_part (struct mfs_handle *mfshnd, mfs_inode * inode, unsigned char *data, uint64_t start, unsigned int count);
 unsigned char *mfs_read_inode_data (struct mfs_handle *mfshnd, mfs_inode * inode, int *size);
-int mfs_write_inode_data_part (struct mfs_handle *mfshnd, mfs_inode * inode, unsigned char *data, unsigned int start, unsigned int count);
+int mfs_write_inode_data_part (struct mfs_handle *mfshnd, mfs_inode * inode, unsigned char *data, uint32_t start, unsigned int count);
 
 /* Simplified "greedy" allocation scheme */
 /* Works well on a fresh MFS, not so well on a well used volume */

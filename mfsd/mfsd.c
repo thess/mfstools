@@ -4,10 +4,12 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <ctype.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
 #include <time.h>
+#include <inttypes.h>
 
 #include "mfs.h"
 #include "log.h"
@@ -16,6 +18,9 @@ static char *progname;
 
 static struct mfs_handle *mfs;
 static int hexvals = 0;
+
+void
+dump_bitmaps (unsigned char *base, unsigned bufsize, unsigned *fsmem_ptrs, uint64_t sector, uint64_t size, uint32_t num, uint64_t blocksize);
 
 static void
 usage ()
@@ -88,7 +93,7 @@ hexdump (unsigned char *buf, unsigned int sector, unsigned int size)
 int
 dump_inode_log (log_inode_update *entry)
 {
-	unsigned char date[17] = "xx/xx/xx xx:xx";
+	char date[17] = "xx/xx/xx xx:xx";
 	time_t modtime;
 
 	printf ("Inode: %-13xFSid: %x\n", intswap32 (entry->inode), intswap32 (entry->fsid));
@@ -121,13 +126,13 @@ dump_inode_log (log_inode_update *entry)
 	{
 		if (hexvals)
 		{
-			printf ("Size: %d blocks of %x bytes (%llx)\n", intswap32 (entry->size), intswap32 (entry->unk3), (unsigned long long) intswap32 (entry->unk3) * (unsigned long long) intswap32 (entry->size));
-			printf ("Used: %d blocks of %x bytes (%llx)\n", intswap32 (entry->blockused), intswap32 (entry->blocksize), (unsigned long long) intswap32 (entry->blockused) * (unsigned long long) intswap32 (entry->blocksize));
+			printf ("Size: %d blocks of %x bytes (%" PRIx64 ")\n", intswap32 (entry->size), intswap32 (entry->unk3), (uint64_t) intswap32 (entry->unk3) * (uint64_t) intswap32 (entry->size));
+			printf ("Used: %d blocks of %x bytes (%" PRIx64 ")\n", intswap32 (entry->blockused), intswap32 (entry->blocksize), (uint64_t) intswap32 (entry->blockused) * (uint64_t) intswap32 (entry->blocksize));
 		}
 		else
 		{
-			printf ("Size: %d blocks of %d bytes (%llu)\n", intswap32 (entry->size), intswap32 (entry->unk3), (unsigned long long) intswap32 (entry->unk3) * (unsigned long long) intswap32 (entry->size));
-			printf ("Used: %d blocks of %d bytes (%llu)\n", intswap32 (entry->blockused), intswap32 (entry->blocksize), (unsigned long long) intswap32 (entry->blockused) * (unsigned long long) intswap32 (entry->blocksize));
+			printf ("Size: %d blocks of %d bytes (%" PRIu64 ")\n", intswap32 (entry->size), intswap32 (entry->unk3), (uint64_t) intswap32 (entry->unk3) * (uint64_t) intswap32 (entry->size));
+			printf ("Used: %d blocks of %d bytes (%" PRIu64 ")\n", intswap32 (entry->blockused), intswap32 (entry->blocksize), (uint64_t) intswap32 (entry->blockused) * (uint64_t) intswap32 (entry->blocksize));
 		}
 	}
 	else
@@ -148,22 +153,22 @@ dump_inode_log (log_inode_update *entry)
 		int loop;
 		if (mfs->is_64)
 		{
-			printf ("Data is in %d blocks:\n", intswap32 (entry->datasize) / sizeof (entry->datablocks.d64[0]));
+		  printf ("Data is in %" PRIu32 " blocks:\n", intswap32 (entry->datasize) / sizeof (entry->datablocks.d64[0]));
 			for (loop = 0; loop < intswap32 (entry->datasize) / sizeof (entry->datablocks.d64[0]); loop++)
 			{
 				if (hexvals)
 				{
-					printf ("At %llx %x sectors\n", intswap64 (entry->datablocks.d64[loop].sector), intswap32 (entry->datablocks.d64[loop].count));
+					printf ("At %" PRIu64 " %x sectors\n", intswap64 (entry->datablocks.d64[loop].sector), intswap32 (entry->datablocks.d64[loop].count));
 				}
 				else
 				{
-					printf ("At %lld %d sectors\n", intswap64 (entry->datablocks.d64[loop].sector), intswap32 (entry->datablocks.d64[loop].count));
+					printf ("At %" PRIu64 " %d sectors\n", intswap64 (entry->datablocks.d64[loop].sector), intswap32 (entry->datablocks.d64[loop].count));
 				}
 			}
 		}
 		else
 		{
-			printf ("Data is in %d blocks:\n", intswap32 (entry->datasize) / sizeof (entry->datablocks.d32[0]));
+			printf ("Data is in %u blocks:\n", (unsigned int) (intswap32 (entry->datasize) / sizeof (entry->datablocks.d32[0])));
 			for (loop = 0; loop < intswap32 (entry->datasize) / sizeof (entry->datablocks.d32[0]); loop++)
 			{
 				if (hexvals)
@@ -189,7 +194,7 @@ dump_inode_log (log_inode_update *entry)
 int
 dump_inode (mfs_inode *inode_buf, unsigned char *buf, unsigned int bufsize)
 {
-	unsigned char date[17] = "xx/xx/xx xx:xx";
+	char date[17] = "xx/xx/xx xx:xx";
 	time_t modtime;
 
 	if (!inode_buf && bufsize >= 512)
@@ -234,13 +239,13 @@ dump_inode (mfs_inode *inode_buf, unsigned char *buf, unsigned int bufsize)
 		{
 			if (hexvals)
 			{
-				printf ("Size: %d blocks of %x bytes (%llx)\n", intswap32 (inode_buf->size), intswap32 (inode_buf->unk3), (unsigned long long) intswap32 (inode_buf->unk3) * (unsigned long long) intswap32 (inode_buf->size));
-				printf ("Used: %d blocks of %x bytes (%llx)\n", intswap32 (inode_buf->blockused), intswap32 (inode_buf->blocksize), (unsigned long long) intswap32 (inode_buf->blockused) * (unsigned long long) intswap32 (inode_buf->blocksize));
+				printf ("Size: %d blocks of %x bytes (%" PRIx64 ")\n", intswap32 (inode_buf->size), intswap32 (inode_buf->unk3), (uint64_t) intswap32 (inode_buf->unk3) * (uint64_t) intswap32 (inode_buf->size));
+				printf ("Used: %d blocks of %x bytes (%" PRIx64 ")\n", intswap32 (inode_buf->blockused), intswap32 (inode_buf->blocksize), (uint64_t) intswap32 (inode_buf->blockused) * (uint64_t) intswap32 (inode_buf->blocksize));
 			}
 			else
 			{
-				printf ("Size: %d blocks of %d bytes (%llu)\n", intswap32 (inode_buf->size), intswap32 (inode_buf->unk3), (unsigned long long) intswap32 (inode_buf->unk3) * (unsigned long long) intswap32 (inode_buf->size));
-				printf ("Used: %d blocks of %d bytes (%llu)\n", intswap32 (inode_buf->blockused), intswap32 (inode_buf->blocksize), (unsigned long long) intswap32 (inode_buf->blockused) * (unsigned long long) intswap32 (inode_buf->blocksize));
+				printf ("Size: %d blocks of %d bytes (%" PRIu64 ")\n", intswap32 (inode_buf->size), intswap32 (inode_buf->unk3), (uint64_t) intswap32 (inode_buf->unk3) * (uint64_t) intswap32 (inode_buf->size));
+				printf ("Used: %d blocks of %d bytes (%" PRIu64 ")\n", intswap32 (inode_buf->blockused), intswap32 (inode_buf->blocksize), (uint64_t) intswap32 (inode_buf->blockused) * (uint64_t) intswap32 (inode_buf->blocksize));
 			}
 		}
 		else
@@ -282,11 +287,11 @@ dump_inode (mfs_inode *inode_buf, unsigned char *buf, unsigned int bufsize)
 				{
 					if (hexvals)
 					{
-						printf ("At %llx %x sectors\n", intswap64 (inode_buf->datablocks.d64[loop].sector), intswap32 (inode_buf->datablocks.d64[loop].count));
+						printf ("At %" PRIu64 " %x sectors\n", intswap64 (inode_buf->datablocks.d64[loop].sector), intswap32 (inode_buf->datablocks.d64[loop].count));
 					}
 					else
 					{
-						printf ("At %lld %d sectors\n", intswap64 (inode_buf->datablocks.d64[loop].sector), intswap32 (inode_buf->datablocks.d64[loop].count));
+						printf ("At %" PRIu64 " %d sectors\n", intswap64 (inode_buf->datablocks.d64[loop].sector), intswap32 (inode_buf->datablocks.d64[loop].count));
 					}
 				}
 			}
@@ -322,26 +327,6 @@ dump_inode (mfs_inode *inode_buf, unsigned char *buf, unsigned int bufsize)
 }
 
 int
-dump_mfs_header (unsigned char *buf, unsigned int bufsize)
-{
-	volume_header *hdr;
-
-	if (bufsize < sizeof (volume_header_32))
-		return 0;
-
-	hdr = (volume_header *)buf;
-	switch (intswap32 (hdr->v32.magic))
-	{
-		case MFS32_MAGIC:
-			return dump_mfs_header_32 (&hdr->v32, buf, bufsize);
-		case MFS64_MAGIC:
-			return dump_mfs_header_64 (&hdr->v64, buf, bufsize);
-	}
-
-	return 0;
-}
-
-int
 dump_mfs_header_32 (volume_header_32 *hdr, unsigned char *buf, unsigned int bufsize)
 {
 	if (bufsize < sizeof (volume_header_32))
@@ -360,7 +345,8 @@ dump_mfs_header_32 (volume_header_32 *hdr, unsigned char *buf, unsigned int bufs
 		printf ("Redo log start: %08x     Size: %08x\n", intswap32 (hdr->logstart), intswap32 (hdr->lognsectors));
 		printf ("?        start: %08x     Size: %08x\n", intswap32 (hdr->unkstart), intswap32 (hdr->unksectors));
 		printf ("Zone map start: %08x     Size: %08x\n", intswap32 (hdr->zonemap.sector), intswap32 (hdr->zonemap.length));
-		printf ("        backup: %08x     Zone size: %08x      Allocation size: 08x\n", intswap32 (hdr->zonemap.sbackup), intswap32 (hdr->zonemap.size), intswap32 (hdr->zonemap.min));
+		printf ("        backup: %08x     Zone size: %08x      Allocation size: %08x\n", 
+			intswap32 (hdr->zonemap.sbackup), intswap32 (hdr->zonemap.size), intswap32 (hdr->zonemap.min));
 	}
 	else
 	{
@@ -410,22 +396,22 @@ dump_mfs_header_64 (volume_header_64 *hdr, unsigned char *buf, unsigned int bufs
 
 	printf ("\n    MFS Volume Header\n");
 	printf ("State: %-13dFirst partition size: %dx1024 sectors (%dmb)\n", intswap32 (hdr->state), intswap32 (hdr->firstpartsize), intswap32 (hdr->firstpartsize) / 2);
-	printf ("Sig: %08x   CRC: %08x   Size: %lld\n", intswap32 (hdr->magic), intswap32 (hdr->checksum), intswap64 (hdr->total_sectors));
+	printf ("Sig: %08x   CRC: %08x   Size: %" PRIu64 "\n", intswap32 (hdr->magic), intswap32 (hdr->checksum), intswap64 (hdr->total_sectors));
 	printf ("MFS Partitions: %s\n", hdr->partitionlist);
 	printf ("Root FSID: %-13dNext FSID: %d\n", intswap32 (hdr->root_fsid), intswap32 (hdr->next_fsid));
 	if (hexvals)
 	{
-		printf ("Redo log start: %09llx    Size: %08x\n", intswap64 (hdr->logstart), intswap32 (hdr->lognsectors));
-		printf ("?        start: %09llx    Size: %08x\n", intswap64 (hdr->unkstart), intswap32 (hdr->unknsectors));
-		printf ("Zone map start: %09llx    Size: %08llx\n", intswap64 (hdr->zonemap.sector), intswap64 (hdr->zonemap.length));
-		printf ("        backup: %09llx    Zone size: %09llxAllocation size: %08llx\n", intswap64 (hdr->zonemap.sbackup), intswap64 (hdr->zonemap.size), intswap64 (hdr->zonemap.min));
+		printf ("Redo log start: %09" PRIu64 " Size: %08x\n", intswap64 (hdr->logstart), intswap32 (hdr->lognsectors));
+		printf ("?        start: %09" PRIu64 "    Size: %08x\n", intswap64 (hdr->unkstart), intswap32 (hdr->unknsectors));
+		printf ("Zone map start: %09" PRIu64 "    Size: %08" PRIx64 "\n", intswap64 (hdr->zonemap.sector), intswap64 (hdr->zonemap.length));
+		printf ("        backup: %09" PRIu64 "    Zone size: %09" PRIx64 "Allocation size: %08" PRIx64 "\n", intswap64 (hdr->zonemap.sbackup), intswap64 (hdr->zonemap.size), intswap64 (hdr->zonemap.min));
 	}
 	else
 	{
-		printf ("Redo log start: %-13lldSize: %d\n", intswap64 (hdr->logstart), intswap32 (hdr->lognsectors));
-		printf ("?        start: %-13lldSize: %d\n", intswap64 (hdr->unkstart), intswap32 (hdr->unknsectors));
-		printf ("Zone map start: %-13lldSize: %lld\n", intswap64 (hdr->zonemap.sector), intswap64 (hdr->zonemap.length));
-		printf ("        backup: %-13lldZone size: %-13lldAllocation size: %lld\n", intswap64 (hdr->zonemap.sbackup), intswap64 (hdr->zonemap.size), intswap64 (hdr->zonemap.min));
+		printf ("Redo log start: %-13" PRIu64 "Size: %d\n", intswap64 (hdr->logstart), intswap32 (hdr->lognsectors));
+		printf ("?        start: %-13" PRIu64 "Size: %d\n", intswap64 (hdr->unkstart), intswap32 (hdr->unknsectors));
+		printf ("Zone map start: %-13" PRIu64 "Size: %" PRIu64 "\n", intswap64 (hdr->zonemap.sector), intswap64 (hdr->zonemap.length));
+		printf ("        backup: %-13" PRIu64 "Zone size: %-13" PRIu64 "Allocation size: %" PRId64 "\n", intswap64 (hdr->zonemap.sbackup), intswap64 (hdr->zonemap.size), intswap64 (hdr->zonemap.min));
 	}
 	printf ("Last sync boot: %-13dTimestamp: %-13dLast Commit: %d\n", intswap32 (hdr->bootcycles), intswap32 (hdr->bootsecs), intswap32 (hdr->logstamp));
 
@@ -466,125 +452,29 @@ dump_mfs_header_64 (volume_header_64 *hdr, unsigned char *buf, unsigned int bufs
 }
 
 int
-dump_zone_map (uint64_t sector, unsigned char *buf, unsigned int bufsize)
+dump_mfs_header (unsigned char *buf, unsigned int bufsize)
 {
-	if (mfs->is_64)
-		return dump_zone_map_64 (sector, buf, bufsize);
-	else
-		return dump_zone_map_32 (sector, buf, bufsize);
-}
+	volume_header *hdr;
 
-void
-dump_bitmaps (char *base, unsigned bufsize, unsigned *fsmem_ptrs, uint64_t sector, uint64_t size, uint32_t num, uint64_t blocksize)
-{
-	unsigned nbits = size / blocksize;
-	unsigned int intwidth;
-	unsigned int loop;
-	uint64_t bigloop;
+	if (bufsize < sizeof (volume_header_32))
+		return 0;
 
-	/* Find how wide the sector size is in the appropriate number base */
-	if (hexvals)
+	hdr = (volume_header *)buf;
+	switch (intswap32 (hdr->v32.magic))
 	{
-		for (bigloop = 1, intwidth = 0; sector + size > bigloop; intwidth++, bigloop *= 16);
-	}
-	else
-	{
-		for (bigloop = 1, intwidth = 0; sector + size > bigloop; intwidth++, bigloop *= 10);
+		case MFS32_MAGIC:
+			return dump_mfs_header_32 (&hdr->v32, buf, bufsize);
+		case MFS64_MAGIC:
+			return dump_mfs_header_64 (&hdr->v64, buf, bufsize);
 	}
 
-	for (loop = 0; loop < num; loop++, nbits /= 2, blocksize *= 2)
-	{
-		int loop2;
-		unsigned *bits;
-		int found = 0;
-		int linelength = 0;
-
-		bitmap_header *bitmap = (void *)((unsigned)intswap32 (fsmem_ptrs[loop]) - (unsigned)intswap32 (fsmem_ptrs[0]) + (unsigned)base);
-
-		if ((unsigned)bitmap < (unsigned)base || (unsigned)bitmap > (unsigned)base + bufsize)
-		{
-			fprintf (stderr, "\nBitmap %d out of range\n", loop);
-			continue;
-		}
-
-		if (hexvals)
-		{
-			printf ("\nBitmap at %08x  Blocksize: %09x\n", intswap32 (fsmem_ptrs[loop]), blocksize);
-		}
-		else
-		{
-			printf ("\nBitmap at %08x  Blocksize: %d\n", intswap32 (fsmem_ptrs[loop]), blocksize);
-		}
-		printf (" Words: %-12dBits: %-14dActual: %d\n", intswap32 (bitmap->nints), intswap32 (bitmap->nbits), nbits);
-		if (hexvals)
-		{
-			printf (" Free: %-13dNext alloc search: %0.*x (%d)\n", intswap32 (bitmap->freeblocks), intwidth, intswap32 (bitmap->last) * blocksize + sector, intswap32 (bitmap->last));
-		}
-		else
-		{
-			printf (" Free: %-13dNext alloc search: %d (%d)\n", intswap32 (bitmap->freeblocks), intswap32 (bitmap->last) * blocksize + sector, intswap32 (bitmap->last));
-		}
-
-		bits = (unsigned *)(bitmap + 1);
-		for (loop2 = 0; loop2 < intswap32 (bitmap->nints); loop2++)
-		{
-			if (bits[loop2])
-			{
-				int bitloop;
-
-				for (bitloop = 0; bitloop < 32; bitloop++)
-				{
-					if (intswap32 (bits[loop2]) & (1 << (31 - bitloop)))
-					{
-						unsigned bitaddr = (loop2 * 32 + bitloop) * blocksize + sector;
-						if (!found)
-						{
-							linelength = 8 + intwidth * 2 + 1;
-							linelength = linelength - linelength % (intwidth * 2 + 2) + 8;
-							printf ("%-*s ", linelength - 1, "    Free blocks:");
-							++found;
-						}
-						else if (linelength == 0)
-						{
-							printf ("        ");
-							linelength = 8;
-						}
-						else
-						{
-							printf (" ");
-							linelength++;
-						}
-
-						if (hexvals)
-						{
-							printf ("%0.*x-%0.*x", intwidth, bitaddr, intwidth, bitaddr + blocksize - 1);
-						}
-						else
-						{
-							printf ("%.*d-%-.*d", intwidth, bitaddr, intwidth, bitaddr + blocksize - 1);
-						}
-						++found;
-						linelength += intwidth * 2 + 1;
-						if (linelength + intwidth * 2 + 1 >= 80)
-						{
-							printf ("\n");
-							linelength = 0;
-						}
-					}
-				}
-			}
-		}
-
-		if (linelength)
-			printf ("\n");
-	}
+	return 0;
 }
 
 int
 dump_zone_map_32 (uint64_t sector, unsigned char *buf, unsigned int bufsize)
 {
 	unsigned fsmem_base;
-	int loop;
 	unsigned blocksize;
 	unsigned *fsmem_ptrs;
 
@@ -596,7 +486,8 @@ dump_zone_map_32 (uint64_t sector, unsigned char *buf, unsigned int bufsize)
 
 	zone = (zone_header_32 *)buf;
 
-	if (sector != intswap32 (zone->sector) && sector != intswap32 (zone->sbackup) || intswap32 (zone->length) * 512 > bufsize || !MFS_check_crc (zone, intswap32 (zone->length) * 512, zone->checksum))
+	if ((sector != intswap32 (zone->sector) && sector != intswap32 (zone->sbackup)) || 
+	    (intswap32 (zone->length) * 512 > bufsize || !MFS_check_crc (zone, intswap32 (zone->length) * 512, zone->checksum)))
 		return 0;
 
 	printf ("\n    Zone map ");
@@ -653,7 +544,6 @@ int
 dump_zone_map_64 (uint64_t sector, unsigned char *buf, unsigned int bufsize)
 {
 	unsigned fsmem_base;
-	int loop;
 	unsigned blocksize;
 	unsigned *fsmem_ptrs;
 
@@ -665,7 +555,8 @@ dump_zone_map_64 (uint64_t sector, unsigned char *buf, unsigned int bufsize)
 
 	zone = (zone_header_64 *)buf;
 
-	if (sector != intswap64 (zone->sector) && sector != intswap64 (zone->sbackup) || intswap32 (zone->length) * 512 > bufsize || !MFS_check_crc (zone, intswap32 (zone->length) * 512, zone->checksum))
+	if ((sector != intswap64 (zone->sector) && sector != intswap64 (zone->sbackup)) || 
+	    intswap32 (zone->length) * 512 > bufsize || !MFS_check_crc (zone, intswap32 (zone->length) * 512, zone->checksum))
 		return 0;
 
 	printf ("\n    Zone map ");
@@ -693,21 +584,21 @@ dump_zone_map_64 (uint64_t sector, unsigned char *buf, unsigned int bufsize)
 
 	if (hexvals)
 	{
-		printf ("This zone:                Sector: %09llx        Backup: %09llx\n", intswap64 (zone->sector), intswap64 (zone->sbackup));
+		printf ("This zone:                Sector: %09" PRIx64 "        Backup: %09" PRIx64 "\n", intswap64 (zone->sector), intswap64 (zone->sbackup));
 		printf ("   Length: %08x         Size: %08x    Block size: %08x\n", intswap32 (zone->length), intswap32 (zone->size), intswap32 (zone->min));
-		printf ("Next zone:                Sector: %09llx        Backup: %09llx\n", intswap64 (zone->next_sector), intswap64 (zone->next_sbackup));
+		printf ("Next zone:                Sector: %09" PRIx64 "        Backup: %09" PRIx64 "\n", intswap64 (zone->next_sector), intswap64 (zone->next_sbackup));
 		printf ("   Length: %08x         Size: %08x    Block size: %08x\n", intswap32 (zone->next_length), intswap32 (zone->next_size), intswap32 (zone->next_min));
-		printf ("First    : %09llx        Last: %09llx\n", intswap64 (zone->first), intswap64 (zone->last));
-		printf (" Size    : %09llx        Free: %09llx\n", intswap64 (zone->size), intswap64 (zone->free));
+		printf ("First    : %09" PRIx64 "        Last: %09" PRIx64 "\n", intswap64 (zone->first), intswap64 (zone->last));
+		printf (" Size    : %09" PRIx64 "        Free: %09" PRIx64 "\n", intswap64 (zone->size), intswap64 (zone->free));
 	}
 	else
 	{
-		printf ("This zone:                Sector: %-13lld    Backup: %lld\n", intswap64 (zone->sector), intswap64 (zone->sbackup));
+		printf ("This zone:                Sector: %-13" PRId64 "    Backup: %" PRId64 "\n", intswap64 (zone->sector), intswap64 (zone->sbackup));
 		printf ("   Length: %-13d    Size: %-13dBlock size: %d\n", intswap32 (zone->length), intswap32 (zone->size), intswap32 (zone->min));
-		printf ("Next zone:                Sector: %-13lld    Backup: %lld\n", intswap64 (zone->next_sector), intswap64 (zone->next_sbackup));
+		printf ("Next zone:                Sector: %-13" PRId64 "    Backup: %" PRId64 "\n", intswap64 (zone->next_sector), intswap64 (zone->next_sbackup));
 		printf ("   Length: %-13d    Size: %-13dBlock size: %d\n", intswap32 (zone->next_length), intswap32 (zone->next_size), intswap32 (zone->next_min));
-		printf ("First    : %-13lld    Last: %lld\n", intswap64 (zone->first), intswap64 (zone->last));
-		printf (" Size    : %-13lld    Free: %lld\n", intswap64 (zone->size), intswap64 (zone->free));
+		printf ("First    : %-13" PRId64 "    Last: %" PRId64 "\n", intswap64 (zone->first), intswap64 (zone->last));
+		printf (" Size    : %-13" PRId64 "    Free: %" PRId64 "\n", intswap64 (zone->size), intswap64 (zone->free));
 	}
 	printf ("Logstamp : %-13dChecksum: %08x           Zero: %d\n", intswap32 (zone->logstamp), intswap32 (zone->checksum), intswap32 (zone->zero));
 	printf ("Bitmaps: %-13dfsmem base: %08x\n", intswap32 (zone->num), fsmem_base);
@@ -716,6 +607,123 @@ dump_zone_map_64 (uint64_t sector, unsigned char *buf, unsigned int bufsize)
 	dump_bitmaps (bitmaps, bufsize - (bitmaps - buf), fsmem_ptrs, intswap64 (zone->first), intswap32 (zone->size), intswap32 (zone->num), intswap32 (zone->min));
 
 	return 1;
+}
+
+
+int
+dump_zone_map (uint64_t sector, unsigned char *buf, unsigned int bufsize)
+{
+	if (mfs->is_64)
+		return dump_zone_map_64 (sector, buf, bufsize);
+	else
+		return dump_zone_map_32 (sector, buf, bufsize);
+}
+
+void
+dump_bitmaps (unsigned char *base, unsigned bufsize, unsigned *fsmem_ptrs, uint64_t sector, uint64_t size, uint32_t num, uint64_t blocksize)
+{
+	unsigned nbits = size / blocksize;
+	unsigned int intwidth;
+	unsigned int loop;
+	uint64_t bigloop;
+
+	/* Find how wide the sector size is in the appropriate number base */
+	if (hexvals)
+	{
+		for (bigloop = 1, intwidth = 0; sector + size > bigloop; intwidth++, bigloop *= 16);
+	}
+	else
+	{
+		for (bigloop = 1, intwidth = 0; sector + size > bigloop; intwidth++, bigloop *= 10);
+	}
+
+	for (loop = 0; loop < num; loop++, nbits /= 2, blocksize *= 2)
+	{
+		int loop2;
+		unsigned *bits;
+		int found = 0;
+		int linelength = 0;
+
+		bitmap_header *bitmap = (void *)((size_t)intswap32 (fsmem_ptrs[loop]) - (size_t)intswap32 (fsmem_ptrs[0]) + (size_t)base);
+
+		if ((size_t)bitmap < (size_t)base || (size_t)bitmap > (size_t)base + bufsize)
+		{
+			fprintf (stderr, "\nBitmap %d out of range\n", loop);
+			continue;
+		}
+
+		if (hexvals)
+		{
+			printf ("\nBitmap at %08x  Blocksize: %09" PRIu64 "\n", intswap32 (fsmem_ptrs[loop]), blocksize);
+		}
+		else
+		{
+			printf ("\nBitmap at %08x  Blocksize: %" PRIu64 "\n", intswap32 (fsmem_ptrs[loop]), blocksize);
+		}
+		printf (" Words: %-12dBits: %-14dActual: %d\n", intswap32 (bitmap->nints), intswap32 (bitmap->nbits), nbits);
+		if (hexvals)
+		{
+			printf (" Free: %-13dNext alloc search: %.*" PRIx64 " (%" PRId32 ")\n", intswap32 (bitmap->freeblocks), 
+				intwidth, intswap32 (bitmap->last) * blocksize + sector, intswap32 (bitmap->last));
+		}
+		else
+		{
+			printf (" Free: %-13dNext alloc search: %" PRIu64 " (%d)\n", intswap32 (bitmap->freeblocks), intswap32 (bitmap->last) * blocksize + sector, intswap32 (bitmap->last));
+		}
+
+		bits = (unsigned *)(bitmap + 1);
+		for (loop2 = 0; loop2 < intswap32 (bitmap->nints); loop2++)
+		{
+			if (bits[loop2])
+			{
+				int bitloop;
+
+				for (bitloop = 0; bitloop < 32; bitloop++)
+				{
+					if (intswap32 (bits[loop2]) & (1 << (31 - bitloop)))
+					{
+						unsigned bitaddr = (loop2 * 32 + bitloop) * blocksize + sector;
+						if (!found)
+						{
+							linelength = 8 + intwidth * 2 + 1;
+							linelength = linelength - linelength % (intwidth * 2 + 2) + 8;
+							printf ("%-*s ", linelength - 1, "    Free blocks:");
+							++found;
+						}
+						else if (linelength == 0)
+						{
+							printf ("        ");
+							linelength = 8;
+						}
+						else
+						{
+							printf (" ");
+							linelength++;
+						}
+
+						if (hexvals)
+						{
+							printf ("%.*x-%.*" PRIx64, intwidth, bitaddr, intwidth, bitaddr + blocksize - 1);
+						}
+						else
+						{
+							printf ("%.*d-%-.*" PRId64, intwidth, bitaddr, intwidth, bitaddr + blocksize - 1);
+						}
+						++found;
+						linelength += intwidth * 2 + 1;
+						if (linelength + intwidth * 2 + 1 >= 80)
+						{
+							printf ("\n");
+							linelength = 0;
+						}
+					}
+				}
+			}
+		}
+
+		if (linelength)
+			printf ("\n");
+	}
 }
 
 int
@@ -730,7 +738,8 @@ dump_log_entry (unsigned int sector, unsigned char *buf, unsigned int bufsize)
 
 	hdr = (log_hdr *)buf;
 
-	if (sector != 0xdeadbeef && sector != mfs_log_stamp_to_sector (mfs, intswap32 (hdr->logstamp)) || !MFS_check_crc(buf, 512, hdr->crc))
+	if ((sector != 0xdeadbeef && sector != mfs_log_stamp_to_sector (mfs, intswap32 (hdr->logstamp))) || 
+	    !MFS_check_crc(buf, 512, hdr->crc))
 		return 0;
 
 	printf ("\n    Log entry stamp %d\n", intswap32 (hdr->logstamp));
@@ -738,7 +747,7 @@ dump_log_entry (unsigned int sector, unsigned char *buf, unsigned int bufsize)
 
 	off = intswap32 (hdr->first);
 	hdroff = 0;
-	while (off < bufsize && off < intswap32 (hdr->size) || hdroff + 512 <= bufsize)
+	while ( (off < bufsize && off < intswap32 (hdr->size)) || hdroff + 512 <= bufsize)
 	{
 		unsigned char *allocated = NULL;
 		unsigned int allocwritten = 0;
@@ -869,11 +878,11 @@ dump_log_entry (unsigned int sector, unsigned char *buf, unsigned int bufsize)
 					printf ("Change: ?%-12d", intswap32 (entry->zonemap_64.remove));
 				if (hexvals)
 				{
-					printf ("Sector: %09llx    Size: %09llx\n", intswap64 (entry->zonemap_64.sector), intswap64 (entry->zonemap_64.size));
+					printf ("Sector: %09" PRIx64 "    Size: %09" PRIx64 "\n", intswap64 (entry->zonemap_64.sector), intswap64 (entry->zonemap_64.size));
 				}
 				else
 				{
-					printf ("Sector: %-13lldSize: %lld\n", intswap64 (entry->zonemap_64.sector), intswap64 (entry->zonemap_64.size));
+					printf ("Sector: %-13" PRId64 "Size: %" PRId64 "\n", intswap64 (entry->zonemap_64.sector), intswap64 (entry->zonemap_64.size));
 				}
 				printf ("Unknown Flag: %d\n", entry->zonemap_64.flag);
 				break;
@@ -976,7 +985,9 @@ mfsd_main (int argc, char **argv)
 		}
 	}
 
-	if (sector == 0xdeadbeef && !fsid && inode == 0xdeadbeef && logstamp == 0xdeadbeef && zonemap == 0xdeadbeef || optind == argc || optind >= argc + 2 || logstamp != 0xdeadbeef && (fsid || inode != 0xdeadbeef || sector != 0xdeadbeef))
+	if ( (sector == 0xdeadbeef && !fsid && inode == 0xdeadbeef && logstamp == 0xdeadbeef && zonemap == 0xdeadbeef) || 
+	     optind == argc || optind >= argc + 2 || 
+	     (logstamp != 0xdeadbeef && (fsid || inode != 0xdeadbeef || sector != 0xdeadbeef)))
 	{
 		usage ();
 		return 4;

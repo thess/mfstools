@@ -120,4 +120,7 @@ int mfs_log_inode_update (struct mfs_handle *mfshnd, mfs_inode *inode);
 int mfs_log_commit (struct mfs_handle *mfshnd);
 int mfs_log_fssync (struct mfs_handle *mfshnd);
 
+uint64_t mfs_log_stamp_to_sector (struct mfs_handle *mfshnd, unsigned int logstamp);
+
+
 #endif /*LOG_H */

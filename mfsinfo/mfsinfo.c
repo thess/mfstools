@@ -4,6 +4,8 @@
 
 #include <stdio.h>
 #include <fcntl.h>
+#include <ctype.h>
+#include <stdlib.h>
 #include "mfs.h"
 
 void

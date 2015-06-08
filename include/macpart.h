@@ -6,6 +6,7 @@
 #define TIVO_BOOT_MAGIC         0x1492
 #define TIVO_BOOT_AMIGC         0x9214
 #define MAC_PARTITION_MAGIC     0x504d
+#define TIVO_BIGPARTITION_MAGIC 0x504E
 
 /* Format of mac partition table. */
 struct mac_partition
@@ -20,6 +21,35 @@ struct mac_partition
 	uint32_t data_start;
 	uint32_t data_count;
 	uint32_t status;
+};
+
+/*
+ * The TiVo partition structure is (quite obviously) derived from
+ * the PowerMac structure, but expands the LBA-related fields from
+ * 32 bits to 64 in order to allow addressing of disks which
+ * fall in the multi-terabyte storage class.
+ */
+
+struct tivo_bigpartition {
+	uint16_t signature;	/* expected to be TIVO_BIGPARTITION_MAGIC */
+	uint16_t res1;
+	uint32_t map_count;	/* # blocks in partition map */
+	uint64_t start_block;	/* absolute starting block # of partition */
+	uint64_t block_count;	/* number of blocks in partition */
+	char name[32];	/* partition name */
+	char type[32];	/* string type description */
+	uint64_t data_start;	/* rel block # of first data block */
+	uint64_t data_count;	/* number of data blocks */
+	uint64_t boot_start;
+	uint64_t boot_size;
+	uint64_t boot_load;
+	uint64_t boot_load2;
+	uint64_t boot_entry;
+	uint64_t boot_entry2;
+	uint32_t boot_cksum;
+	uint32_t status;		/* partition status bits */
+	char	processor[16];	/* identifies ISA of boot */
+	/* there is more stuff after this that we don't need */
 };
 
 typedef struct tivo_partition_file
@@ -67,7 +97,7 @@ struct tivo_partition
 /* TiVo partition map information */
 struct tivo_partition_table
 {
-	unsigned char *device;
+	char *device;
 	int ro_fd;
 	int rw_fd;
 	int vol_flags;
@@ -87,6 +117,7 @@ int tivo_partition_count (const char *device);
 void tivo_partition_close (tpFILE * file);
 uint64_t tivo_partition_size (tpFILE * file);
 uint64_t tivo_partition_sizeof (const char *device, int partnum);
+uint64_t tivo_partition_total_free (const char *device);
 char *tivo_partition_name (const char *device, int partnum);
 char *tivo_partition_type (const char *device, int partnum);
 uint64_t tivo_partition_offset (tpFILE * file);
@@ -109,9 +140,12 @@ int tivo_partition_table_init (const char *device, int swab);
 int tivo_partition_add (const char *device, uint64_t size, int before, const char *name, const char *type);
 int tivo_partition_table_write (const char *device);
 
+uint64_t tivo_partition_largest_free (const char *device);
+
 /* From readwrite.c */
 int tivo_partition_read (tpFILE * file, void *buf, uint64_t sector, int count);
 int tivo_partition_write (tpFILE * file, void *buf, uint64_t sector, int count);
+int tivo_partition_rename (const char *device, int partition, const char *name);
 
 /* Some quick routines, mainly intended for internal macpart use. */
 EXTERNINLINE int

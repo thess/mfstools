@@ -69,6 +69,7 @@ restore_state_begin_v1 (struct backup_info *info, void *data, unsigned size, uns
 		break;
 	case TB3_MAGIC:
 	case TB3_ENDIAN:
+	        info->format = bfV3;
 		info->state_machine = &restore_v3;
 /* Return and let it call back into v3 handler */
 		return bsMoreData;
@@ -99,7 +100,7 @@ restore_state_begin_v1 (struct backup_info *info, void *data, unsigned size, uns
 /* Allocate storage for backup description */
 	info->parts = calloc (sizeof (struct backup_partition), info->nparts);
 	info->blocks = calloc (sizeof (struct backup_block), info->nblocks);
-	info->mfsparts = calloc (sizeof (struct backup_partition), info->nmfs);
+	info->mfsparts = calloc (sizeof (struct backup_partition), 32);
 
 	if (!info->parts || !info->blocks || !info->mfsparts)
 	{
@@ -245,9 +246,9 @@ restore_state_blocks_v1 (struct backup_info *info, void *data, unsigned size, un
 	{
 		info->err_msg = "%s restoring MFS data";
 		if (errno)
-			info->err_arg1 = strerror (errno);
+			info->err_arg1 = (size_t) strerror (errno);
 		else
-			info->err_arg1 = "Unknown error";
+			info->err_arg1 = (size_t) "Unknown error";
 
 		return bsError;
 	}

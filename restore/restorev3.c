@@ -80,12 +80,16 @@ restore_generate_zone_maps (struct backup_info *info)
 	int loop;
 	int createdmedia = 0;
 	int fsmem_ptr_offset = 0;
+	int imedia=0, nmedia=2;	/* single drive will always have 2 media zones */
 
 	unsigned int mediaminalloc = 0x800;
 
 	uint64_t curappvolstart = 0;
 	uint64_t curmediavolstart = mfs_volume_size (info->mfs, 0);
 	uint64_t curapplastsector = curmediavolstart - 2;
+
+	if (info->ndevs > 1)
+	  nmedia++;		/* extra media zone for additional drives */
 
 	for (loop = 0; loop < info->nzones; loop++)
 	{
@@ -101,6 +105,11 @@ restore_generate_zone_maps (struct backup_info *info)
 			zonesize = info->zonemaps[loop].size;
 			break;
 		case ztMedia:
+			if (imedia >= nmedia)
+			{
+				continue;  // no more media zones needed.
+			}
+
 			/* This is used to bump up the app start if more than one media */
 			/* zones are being created in a row */
 			if (createdmedia)
@@ -114,7 +123,8 @@ restore_generate_zone_maps (struct backup_info *info)
 					curapplastsector--;
 			}
 			zonesize = mfs_volume_size (info->mfs, curmediavolstart);
-			mediaminalloc = info->zonemaps[loop].min_au;
+			//			mediaminalloc = info->zonemaps[loop].min_au;
+			mediaminalloc = info->zonemaps[loop].min_au = 20480;  /* modern default chunk size */
 			break;
 		case ztApplication:
 			zonesize = curapplastsector - info->shared_val1;
@@ -123,7 +133,7 @@ restore_generate_zone_maps (struct backup_info *info)
 			break;
 		default:
 			info->err_msg = "Unknown zone type %d";
-			info->err_arg1 = (void *)info->zonemaps[loop].zone_type;
+			info->err_arg1 = (int64_t)info->zonemaps[loop].zone_type;
 			return -1;
 		}
 
@@ -131,7 +141,7 @@ restore_generate_zone_maps (struct backup_info *info)
 		if (zonesize < info->zonemaps[loop].min_au)
 		{
 			info->err_msg = "Error creating zone map %d";
-			info->err_arg1 = (void *)(loop + 1);
+			info->err_arg1 = (int64_t)(loop + 1);
 			return -1;
 		}
 
@@ -143,7 +153,7 @@ restore_generate_zone_maps (struct backup_info *info)
 		if (curapplastsector < info->shared_val1 || curapplastsector - info->shared_val1 + 1 < maplength * 2)
 		{
 			info->err_msg = "No MFS application space for zone %d";
-			info->err_arg1 = (void *)(loop + 1);
+			info->err_arg1 = (int64_t)(loop + 1);
 			return -1;
 		}
 		mapsector = info->shared_val1 + curappvolstart;
@@ -166,6 +176,7 @@ restore_generate_zone_maps (struct backup_info *info)
 			curmediavolstart += mfs_volume_size (info->mfs, curmediavolstart);
 			curmediavolstart += mfs_volume_size (info->mfs, curmediavolstart);
 			createdmedia = 1;
+			imedia++;
 			break;
 		case ztApplication:
 			first = info->shared_val1 + curappvolstart;
@@ -203,7 +214,7 @@ restore_generate_zone_maps (struct backup_info *info)
 		if (info->shared_val1 > curapplastsector || curapplastsector - info->shared_val1 + 1 < maplength * 2)
 		{
 			info->err_msg = "No MFS application space for new media zone";
-			info->err_arg1 = (void *)(loop + 1);
+			info->err_arg1 = (int64_t)(loop + 1);
 			return -1;
 		}
 		if (mfs_new_zone_map (info->mfs, info->shared_val1 + curappvolstart, curappvolstart + curapplastsector - maplength + 1, curmediavolstart, zonesize, mediaminalloc, ztMedia, 0))
@@ -387,7 +398,7 @@ restore_state_begin_v3 (struct backup_info *info, void *data, unsigned size, uns
 /* Allocate storage for backup description */
 	info->parts = calloc (sizeof (struct backup_partition), info->nparts);
 	info->zonemaps = calloc (sizeof (struct zone_map_info), info->nzones);
-	info->mfsparts = calloc (sizeof (struct backup_partition), info->nmfs);
+	info->mfsparts = calloc (sizeof (struct backup_partition), 32);
 	info->extrainfo = calloc (sizeof (*info->extrainfo), info->nextrainfo);
 	info->extrainfodata = calloc (sizeof (*info->extrainfo), info->extrainfosize);
 
@@ -687,9 +698,9 @@ restore_state_volume_header_v3 (struct backup_info *info, void *data, unsigned s
 	{
 		info->err_msg = "%s writing MFS volume header";
 		if (errno)
-			info->err_arg1 = strerror (errno);
+			info->err_arg1 = (size_t) strerror (errno);
 		else
-			info->err_arg1 = "Unknown error";
+			info->err_arg1 = (size_t) "Unknown error";
 		return bsError;
 	}
 
@@ -697,9 +708,9 @@ restore_state_volume_header_v3 (struct backup_info *info, void *data, unsigned s
 	{
 		info->err_msg = "%s writing MFS volume header";
 		if (errno)
-			info->err_arg1 = strerror (errno);
+			info->err_arg1 = (size_t) strerror (errno);
 		else
-			info->err_arg1 = "Unknown error";
+			info->err_arg1 = (size_t) "Unknown error";
 		return bsError;
 	}
 
@@ -714,10 +725,10 @@ restore_state_volume_header_v3 (struct backup_info *info, void *data, unsigned s
 	info->mfs = mfs_init (info->devs[0].devname, info->ndevs > 1? info->devs[1].devname: NULL, O_RDWR);
 
 	if (!info->mfs ||
-		do64bit && !mfs_is_64bit (info->mfs) ||
-		!do64bit && mfs_is_64bit (info->mfs) ||
-		mfs_is_64bit (info->mfs) && !MFS_check_crc (&info->mfs->vol_hdr.v64, sizeof (info->mfs->vol_hdr.v64), info->mfs->vol_hdr.v64.checksum) ||
-		!mfs_is_64bit (info->mfs) && !MFS_check_crc (&info->mfs->vol_hdr.v32, sizeof (info->mfs->vol_hdr.v32), info->mfs->vol_hdr.v32.checksum))
+	    (do64bit && !mfs_is_64bit (info->mfs)) ||
+	    (!do64bit && mfs_is_64bit (info->mfs)) ||
+	    (mfs_is_64bit (info->mfs) && !MFS_check_crc (&info->mfs->vol_hdr.v64, sizeof (info->mfs->vol_hdr.v64), info->mfs->vol_hdr.v64.checksum)) ||
+	    (!mfs_is_64bit (info->mfs) && !MFS_check_crc (&info->mfs->vol_hdr.v32, sizeof (info->mfs->vol_hdr.v32), info->mfs->vol_hdr.v32.checksum)))
 	{
 		if (!info->mfs || !mfs_has_error (info->mfs))
 		{
@@ -1198,8 +1209,8 @@ restore_state_complete_v3 (struct backup_info *info, void *data, unsigned size, 
 	if (compute_crc (data, 512, info->crc) != CRC32_RESIDUAL)
 	{
 		info->err_msg = "Backup CRC check failed: %08x != %08x";
-		info->err_arg1 = (void *)compute_crc (data, 512, info->crc);
-		info->err_arg2 = (void *)CRC32_RESIDUAL;
+		info->err_arg1 = (size_t)compute_crc (data, 512, info->crc);
+		info->err_arg2 = (size_t)CRC32_RESIDUAL;
 		return -1;
 	}
 

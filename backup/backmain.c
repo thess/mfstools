@@ -7,6 +7,9 @@
 #include <fcntl.h>
 #include <string.h>
 #include <errno.h>
+#include <inttypes.h>
+#include <time.h>
+
 #ifdef HAVE_ASM_TYPES_H
 #include <asm/types.h>
 #endif
@@ -103,7 +106,7 @@ display_backup_info (struct backup_info *info)
 			zonefirst = intswap32 (hdr->z32.first);
 		}
 
-		if (zonetype)
+		if (zonetype == ztMedia)
 		{
 			if (zonefirst < backupmfs)
 				backuptot += zonesize;
@@ -119,15 +122,15 @@ display_backup_info (struct backup_info *info)
 	if (sizes[0] > 0)
 	{
 		uint64_t running = sizes[0];
-		fprintf (stderr, "Source drive size is %lld hours\n", sectors_no_reserved (running) / SABLOCKSEC);
+		fprintf (stderr, "Source drive size is %" PRIu64 " hours\n", sectors_no_reserved (running) / SABLOCKSEC);
 		if (count > 1)
 			for (loop = 1; loop < count; loop++)
 			{
 				running += sizes[loop];
-				fprintf (stderr, "       - Upgraded to %lld hours\n", sectors_no_reserved (running) / SABLOCKSEC);
+				fprintf (stderr, "       - Upgraded to %" PRIu64 " hours\n", sectors_no_reserved (running) / SABLOCKSEC);
 			}
 		if (info->back_flags & BF_SHRINK)
-			fprintf (stderr, "Backup image will be %lld hours\n", sectors_no_reserved (backuptot) / SABLOCKSEC);
+			fprintf (stderr, "Backup image will be %" PRIu64 " hours\n", sectors_no_reserved (backuptot) / SABLOCKSEC);
 	}
 }
 
@@ -303,7 +306,7 @@ backup_main (int argc, char **argv)
 	else
 	{
 		unsigned starttime;
-		char buf[BUFSIZE];
+		unsigned char buf[BUFSIZE];
 		uint64_t cursec = 0, curcount;
 		int fd;
 
@@ -341,7 +344,7 @@ backup_main (int argc, char **argv)
 			display_backup_info (info);
 
 		if (quiet < 2)
-			fprintf (stderr, "Uncompressed backup size: %d megabytes\n", info->nsectors / 2048);
+			fprintf (stderr, "Uncompressed backup size: %" PRIu64 " megabytes\n", info->nsectors / 2048);
 
 		starttime = time(NULL);
 
@@ -360,14 +363,14 @@ backup_main (int argc, char **argv)
 			{
 				unsigned timedelta = time(NULL) - starttime;
 				if (compressed)
-					fprintf (stderr, "     \rBacking up %d of %d mb (%d.%02d%%) (%d.%02d%% comp)", info->cursector / 2048, info->nsectors / 2048, prcnt / 100, prcnt % 100, compr / 100, compr % 100);
+				  fprintf (stderr, "     \rBacking up %" PRId64 " of %" PRId64 " mb (%d.%02d%%) (%d.%02d%% comp)", info->cursector / 2048, info->nsectors / 2048, prcnt / 100, prcnt % 100, compr / 100, compr % 100);
 				else
-					fprintf (stderr, "     \rBacking up %d of %d mb (%d.%02d%%)", info->cursector / 2048, info->nsectors / 2048, prcnt / 100, prcnt % 100);
+					fprintf (stderr, "     \rBacking up %" PRId64 " of %" PRId64 " mb (%d.%02d%%)", info->cursector / 2048, info->nsectors / 2048, prcnt / 100, prcnt % 100);
 
 				if (prcnt > 10 && timedelta > 15)
 				{
 					unsigned ETA = timedelta * (10000 - prcnt) / prcnt;
-					fprintf (stderr, " %d mb/sec (ETA %d:%02d:%02d)", info->cursector / timedelta / 2048, ETA / 3600, ETA / 60 % 60, ETA % 60);
+					fprintf (stderr, " %" PRId64 " mb/sec (ETA %d:%02d:%02d)", info->cursector / timedelta / 2048, ETA / 3600, ETA / 60 % 60, ETA % 60);
 				}
 			}
 		}

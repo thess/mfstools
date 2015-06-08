@@ -23,6 +23,8 @@
 
 #include "mfs.h"
 
+char* tivo_devnames[] = { "/dev/hda", "/dev/hdb" };
+
 /*************************************/
 /* Write the volume header back out. */
 int
@@ -45,13 +47,13 @@ mfs_write_volume_header (struct mfs_handle *mfshnd)
 	if (mfsvol_write_data (mfshnd->vols, buf, 0, 1) != 512)
 	{
 		mfshnd->err_msg = "%s writing volume header";
-		mfshnd->err_arg1 = strerror (errno);
+		mfshnd->err_arg1 = (size_t)strerror (errno);
 		return -1;
 	}
 	if (mfsvol_write_data (mfshnd->vols, buf, mfsvol_volume_size (mfshnd->vols, 0) - 1, 1) != 512)
 	{
 		mfshnd->err_msg = "%s writing volume header";
-		mfshnd->err_arg1 = strerror (errno);
+		mfshnd->err_arg1 = (size_t) strerror (errno);
 		return -1;
 	}
 
@@ -60,18 +62,18 @@ mfs_write_volume_header (struct mfs_handle *mfshnd)
 
 /**************************************/
 /* Load and verify the volume header. */
-int
+int64_t
 mfs_load_volume_header (struct mfs_handle *mfshnd, int flags)
 {
 	unsigned char buf[512];
-	unsigned char *volume_names;
-	unsigned int total_sectors = 0;
+	char *volume_names;
+	u_int64_t total_sectors = 0;
 
 /* Read in the volume header. */
 	if (mfsvol_read_data (mfshnd->vols, buf, 0, 1) != 512)
 	{
 		mfshnd->err_msg = "%s reading volume header";
-		mfshnd->err_arg1 = strerror (errno);
+		mfshnd->err_arg1 = (size_t) strerror (errno);
 		return -1;
 	}
 
@@ -80,25 +82,25 @@ mfs_load_volume_header (struct mfs_handle *mfshnd, int flags)
 	memcpy ((void *) &mfshnd->vol_hdr, buf, sizeof (mfshnd->vol_hdr));
 
 /* Verify the checksum. */
-	if (!(mfshnd->vol_hdr.v32.magic == intswap32 (MFS32_MAGIC)
-		&& MFS_check_crc (&mfshnd->vol_hdr.v32, sizeof (mfshnd->vol_hdr.v32), mfshnd->vol_hdr.v32.checksum)
-		|| mfshnd->vol_hdr.v64.magic == intswap32 (MFS64_MAGIC)
-		&& MFS_check_crc (&mfshnd->vol_hdr.v64, sizeof (mfshnd->vol_hdr.v64), mfshnd->vol_hdr.v64.checksum)))
+	if (!( (mfshnd->vol_hdr.v32.magic == intswap32 (MFS32_MAGIC)
+		&& MFS_check_crc (&mfshnd->vol_hdr.v32, sizeof (mfshnd->vol_hdr.v32), mfshnd->vol_hdr.v32.checksum))
+	       || (mfshnd->vol_hdr.v64.magic == intswap32 (MFS64_MAGIC)
+		   && MFS_check_crc (&mfshnd->vol_hdr.v64, sizeof (mfshnd->vol_hdr.v64), mfshnd->vol_hdr.v64.checksum))))
 	{
 /* If the checksum doesn't match, try the backup. */
 		if (mfsvol_read_data (mfshnd->vols, buf, mfsvol_volume_size (mfshnd->vols, 0) - 1, 1) != 512)
 		{
 			mfshnd->err_msg = "%s reading volume header";
-			mfshnd->err_arg1 = strerror (errno);
+			mfshnd->err_arg1 = (size_t) strerror (errno);
 			return -1;
 		}
 
 		memcpy ((void *) &mfshnd->vol_hdr, buf, sizeof (mfshnd->vol_hdr));
 
-		if (!(mfshnd->vol_hdr.v32.magic == intswap32 (MFS32_MAGIC)
-			&& MFS_check_crc (&mfshnd->vol_hdr.v32, sizeof (mfshnd->vol_hdr.v32), mfshnd->vol_hdr.v32.checksum)
-			|| mfshnd->vol_hdr.v64.magic == intswap32 (MFS64_MAGIC)
-			&& MFS_check_crc (&mfshnd->vol_hdr.v64, sizeof (mfshnd->vol_hdr.v64), mfshnd->vol_hdr.v64.checksum)))
+		if (!((mfshnd->vol_hdr.v32.magic == intswap32 (MFS32_MAGIC)
+		       && MFS_check_crc (&mfshnd->vol_hdr.v32, sizeof (mfshnd->vol_hdr.v32), mfshnd->vol_hdr.v32.checksum))
+		      || (mfshnd->vol_hdr.v64.magic == intswap32 (MFS64_MAGIC)
+			  && MFS_check_crc (&mfshnd->vol_hdr.v64, sizeof (mfshnd->vol_hdr.v64), mfshnd->vol_hdr.v64.checksum))))
 		{
 /* Backup checksum doesn't match either.  It's the end of the world! */
 			mfshnd->err_msg = "Volume header corrupt";
@@ -158,8 +160,8 @@ mfs_load_volume_header (struct mfs_handle *mfshnd, int flags)
 		if (total_sectors != intswap64 (mfshnd->vol_hdr.v64.total_sectors))
 		{
 			mfshnd->err_msg = "Volume size (%u) mismatch with reported size (%u)";
-			mfshnd->err_arg1 = (void *)total_sectors;
-			mfshnd->err_arg2 = (void *)intswap64 (mfshnd->vol_hdr.v64.total_sectors);
+			mfshnd->err_arg1 = (int64_t) total_sectors;
+			mfshnd->err_arg2 = (int64_t) intswap64 (mfshnd->vol_hdr.v64.total_sectors);
 		}
 	}
 	else
@@ -168,12 +170,12 @@ mfs_load_volume_header (struct mfs_handle *mfshnd, int flags)
 		if (total_sectors != intswap32 (mfshnd->vol_hdr.v32.total_sectors))
 		{
 			mfshnd->err_msg = "Volume size (%u) mismatch with reported size (%u)";
-			mfshnd->err_arg1 = (void *)total_sectors;
-			mfshnd->err_arg2 = (void *)intswap32 (mfshnd->vol_hdr.v32.total_sectors);
+			mfshnd->err_arg1 = (int64_t) total_sectors;
+			mfshnd->err_arg2 = (int64_t) intswap32 (mfshnd->vol_hdr.v32.total_sectors);
 		}
 	}
 
-	return total_sectors;
+	return (int64_t) total_sectors;
 }
 
 /***********************************************************************/
@@ -345,7 +347,6 @@ mfs_cleanup (struct mfs_handle *mfshnd)
 int
 mfs_reinit (struct mfs_handle *mfshnd, int flags)
 {
-	int ret = 0;
 	struct volume_handle *vols = mfshnd->vols;
 
 	mfs_cleanup_zone_maps (mfshnd);

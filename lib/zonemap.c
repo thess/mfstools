@@ -21,6 +21,7 @@
 
 #include "mfs.h"
 #include "macpart.h"
+#include "log.h"
 
 zone_header *
 mfs_next_zone (struct mfs_handle *mfshnd, zone_header *cur)
@@ -45,14 +46,14 @@ mfs_next_zone (struct mfs_handle *mfshnd, zone_header *cur)
 unsigned int
 mfs_sa_hours_estimate (struct mfs_handle *mfshnd)
 {
-	unsigned int sectors = mfshnd->zones[ztMedia].size;
+	uint64_t sectors = mfshnd->zones[ztMedia].size;
 
 	if (sectors > 72 * 1024 * 1024 * 2)
 		sectors -= 12 * 1024 * 1024 * 2;
 	else if (sectors > 14 * 1024 * 1024 * 2)
 		sectors -= (sectors - 14 * 1024 * 1024 * 2) / 4;
 
-	return sectors / SABLOCKSEC;
+	return (unsigned int) (sectors / SABLOCKSEC);
 }
 
 /*****************************************************************************/
@@ -111,7 +112,7 @@ mfs_inode_to_sector (struct mfs_handle *mfshnd, unsigned int inode)
 
 /* This should never happen. */
 	mfshnd->err_msg = "Inode %d out of bounds";
-	mfshnd->err_arg1 = (void *)inode;
+	mfshnd->err_arg1 = inode;
 	return 0;
 }
 
@@ -142,25 +143,25 @@ mfs_zone_for_block (struct mfs_handle *mfshnd, uint64_t sector, uint64_t size)
 	if (!zone)
 	{
 		mfshnd->err_msg = "Sector %u out of bounds for zone map";
-		mfshnd->err_arg1 = (void *)sector;
+		mfshnd->err_arg1 = (int64_t) sector;
 		return NULL;
 	}
 
-	if (mfshnd->is_64 && sector + size - 1 > intswap64 (zone->map->z64.last) ||
-		!mfshnd->is_64 && sector + size - 1 > intswap32 (zone->map->z32.last))
+	if ((mfshnd->is_64 && sector + size - 1 > intswap64 (zone->map->z64.last)) ||
+	    (!mfshnd->is_64 && sector + size - 1 > intswap32 (zone->map->z32.last)))
 	{
 		mfshnd->err_msg = "Sector %u size %d crosses zone map boundry";
-		mfshnd->err_arg1 = (void *)sector;
-		mfshnd->err_arg2 = (void *)(uint32_t)size;
+		mfshnd->err_arg1 = (int64_t) sector;
+		mfshnd->err_arg2 = (int64_t) size;
 		return NULL;
 	}
 	
-	if (mfshnd->is_64 && (sector - intswap64 (zone->map->z64.first)) % size ||
-		!mfshnd->is_64 && (sector - intswap32 (zone->map->z32.first)) % size)
+	if ( (mfshnd->is_64 && (sector - intswap64 (zone->map->z64.first)) % size) ||
+	     (!mfshnd->is_64 && (sector - intswap32 (zone->map->z32.first)) % size))
 	{
 		mfshnd->err_msg = "Sector %u size %d not aligned with zone map";
-		mfshnd->err_arg1 = (void *)sector;
-		mfshnd->err_arg2 = (void *)(uint32_t)size;
+		mfshnd->err_arg1 = (int64_t) sector;
+		mfshnd->err_arg2 = (int64_t) size;
 		return NULL;
 	}
 
@@ -235,7 +236,6 @@ mfs_zone_map_bit_state_clear (bitmap_header *bitmap, unsigned int bit)
 int
 mfs_zone_map_block_state (struct mfs_handle *mfshnd, uint64_t sector, uint64_t size)
 {
-	int bitno;
 	int order;
 	unsigned int minalloc;
 	unsigned int numbitmaps;
@@ -270,16 +270,16 @@ mfs_zone_map_block_state (struct mfs_handle *mfshnd, uint64_t sector, uint64_t s
 	{
 		/* Should be caught by above check that it crosses the zone map boundry */
 		mfshnd->err_msg = "Sector %u size %d too large for zone map";
-		mfshnd->err_arg1 = (void *)sector;
-		mfshnd->err_arg2 = (void *)(uint32_t)size;
+		mfshnd->err_arg1 = sector;
+		mfshnd->err_arg2 = size;
 		return -1;
 	}
 
 	if (((uint64_t)minalloc << order) != size)
 	{
 		mfshnd->err_msg = "Sector %u size %d not multiple of zone map allocation";
-		mfshnd->err_arg1 = (void *)sector;
-		mfshnd->err_arg2 = (void *)(uint32_t)size;
+		mfshnd->err_arg1 = sector;
+		mfshnd->err_arg2 = size;
 		return -1;
 	}
 
@@ -295,7 +295,6 @@ mfs_zone_map_update (struct mfs_handle *mfshnd, uint64_t sector, uint64_t size, 
 	struct zone_map *zone;
 	int order;
 	int orderfree;
-	int loop;
 	unsigned int mapbit;
 
 	unsigned int minalloc;
@@ -308,8 +307,8 @@ mfs_zone_map_update (struct mfs_handle *mfshnd, uint64_t sector, uint64_t size, 
 	/* Check the logstamp to see if this has already been updated...  */
 	/* Sure, there could be some integer wrap... */
 	/* After a hundred or so years */
-	if (mfshnd->is_64 && logstamp <= intswap32 (zone->map->z64.logstamp) ||
-		!mfshnd->is_64 && logstamp <= intswap32 (zone->map->z32.logstamp))
+	if ( (mfshnd->is_64 && logstamp <= intswap32 (zone->map->z64.logstamp)) ||
+	     (!mfshnd->is_64 && logstamp <= intswap32 (zone->map->z32.logstamp)))
 		return 1;
 
 	/* From this point on, it is assumed that the request makes sense */
@@ -341,16 +340,16 @@ mfs_zone_map_update (struct mfs_handle *mfshnd, uint64_t sector, uint64_t size, 
 	{
 		/* Should be caught by above check that it crosses the zone map boundry */
 		mfshnd->err_msg = "Sector %u size %d too large for zone map";
-		mfshnd->err_arg1 = (void *)sector;
-		mfshnd->err_arg2 = (void *)(uint32_t)size;
+		mfshnd->err_arg1 = sector;
+		mfshnd->err_arg2 = size;
 		return 0;
 	}
 
 	if (((uint64_t)minalloc << order) != size)
 	{
 		mfshnd->err_msg = "Sector %u size %d not multiple of zone map allocation";
-		mfshnd->err_arg1 = (void *)sector;
-		mfshnd->err_arg2 = (void *)(uint32_t)size;
+		mfshnd->err_arg1 = sector;
+		mfshnd->err_arg2 = size;
 		return 0;
 	}
 
@@ -528,7 +527,6 @@ mfs_zone_map_sync (struct mfs_handle *mfshnd, unsigned int logstamp)
 		if (zone->dirty)
 		{
 			int towrite;
-			int nwrit;
 			uint64_t sector, sbackup;
 
 			if (mfshnd->is_64)
@@ -617,7 +615,7 @@ mfs_new_zone_map_size (struct mfs_handle *mfshnd, unsigned int blocks)
 int
 mfs_new_zone_map (struct mfs_handle *mfshnd, uint64_t sector, uint64_t backup, uint64_t first, uint64_t size, unsigned int minalloc, zone_type type, unsigned int fsmem_base)
 {
-	unsigned int blocks = size / minalloc;
+	uint64_t blocks = size / minalloc;
 	int zonesize = (mfs_new_zone_map_size (mfshnd, blocks) + 511) & ~511;
 	unsigned char *buf;
 	zone_header *zone;
@@ -860,7 +858,7 @@ mfs_new_zone_map (struct mfs_handle *mfshnd, uint64_t sector, uint64_t backup, u
 	return 0;
 }
 
-unsigned int
+uint64_t
 mfs_volume_pair_app_size (struct mfs_handle *mfshnd, uint64_t blocks, unsigned int minalloc)
 {
 	if (minalloc == 0)
@@ -882,8 +880,8 @@ mfs_can_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsi
 	}
 
 /* Make sure the volumes being added don't overflow the 128 bytes. */
-	if (mfshnd->is_64 && strlen (mfshnd->vol_hdr.v64.partitionlist) + strlen (app) + strlen (media) + 3 >= sizeof (mfshnd->vol_hdr.v64.partitionlist) ||
-		!mfshnd->is_64 && strlen (mfshnd->vol_hdr.v32.partitionlist) + strlen (app) + strlen (media) + 3 >= sizeof (mfshnd->vol_hdr.v32.partitionlist))
+	if ((mfshnd->is_64 && strlen (mfshnd->vol_hdr.v64.partitionlist) + strlen (app) + strlen (media) + 3 >= sizeof (mfshnd->vol_hdr.v64.partitionlist)) ||
+	    (!mfshnd->is_64 && strlen (mfshnd->vol_hdr.v32.partitionlist) + strlen (app) + strlen (media) + 3 >= sizeof (mfshnd->vol_hdr.v32.partitionlist)))
 	{
 		mfshnd->err_msg = "No space in volume list for new volumes";
 		return -1;
@@ -909,8 +907,8 @@ mfs_can_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsi
 
 /* Check that the last zone map is writable.  This is needed for adding the */
 /* new pointer. */
-	if (mfshnd->is_64 && !mfsvol_is_writable (mfshnd->vols, intswap64 (cur->map->z64.sector))||
-		!mfshnd->is_64 && !mfsvol_is_writable (mfshnd->vols, intswap32 (cur->map->z32.sector)))
+	if ((mfshnd->is_64 && !mfsvol_is_writable (mfshnd->vols, intswap64 (cur->map->z64.sector))) ||
+	    (!mfshnd->is_64 && !mfsvol_is_writable (mfshnd->vols, intswap32 (cur->map->z32.sector))))
 	{
 		mfshnd->err_msg = "Readonly volume set";
 		return -1;
@@ -930,7 +928,7 @@ mfs_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsigned
 	uint64_t appstart, mediastart;
 	uint64_t appsize, mediasize, mapsize;
 	char *tmp;
-	unsigned char foo[512];
+	char foo[512];
 
 /* If no minalloc, make it default. */
 	if (minalloc == 0)
@@ -939,8 +937,8 @@ mfs_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsigned
 	}
 
 /* Make sure the volumes being added don't overflow the 128 bytes. */
-	if (mfshnd->is_64 && strlen (mfshnd->vol_hdr.v64.partitionlist) + strlen (app) + strlen (media) + 3 >= sizeof (mfshnd->vol_hdr.v64.partitionlist) ||
-		!mfshnd->is_64 && strlen (mfshnd->vol_hdr.v32.partitionlist) + strlen (app) + strlen (media) + 3 >= sizeof (mfshnd->vol_hdr.v32.partitionlist))
+	if ((mfshnd->is_64 && strlen (mfshnd->vol_hdr.v64.partitionlist) + strlen (app) + strlen (media) + 3 >= sizeof (mfshnd->vol_hdr.v64.partitionlist)) ||
+	    (!mfshnd->is_64 && strlen (mfshnd->vol_hdr.v32.partitionlist) + strlen (app) + strlen (media) + 3 >= sizeof (mfshnd->vol_hdr.v32.partitionlist)))
 	{
 		mfshnd->err_msg = "No space in volume list for new volumes";
 		return -1;
@@ -966,8 +964,8 @@ mfs_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsigned
 
 /* Check that the last zone map is writable.  This is needed for adding the */
 /* new pointer. */
-	if (mfshnd->is_64 && !mfsvol_is_writable (mfshnd->vols, intswap64 (cur->map->z64.sector)) ||
-		!mfshnd->is_64 && !mfsvol_is_writable (mfshnd->vols, intswap32 (cur->map->z32.sector)))
+	if ((mfshnd->is_64 && !mfsvol_is_writable (mfshnd->vols, intswap64 (cur->map->z64.sector))) ||
+	    (!mfshnd->is_64 && !mfsvol_is_writable (mfshnd->vols, intswap32 (cur->map->z32.sector))))
 	{
 		mfshnd->err_msg = "Readonly volume set";
 		return -1;
@@ -981,8 +979,8 @@ mfs_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsigned
 	if (!tpApp)
 	{
 		mfshnd->err_msg = "%s: %s";
-		mfshnd->err_arg1 = tmp;
-		mfshnd->err_arg2 = strerror (errno);
+		mfshnd->err_arg1 = (size_t) tmp;
+		mfshnd->err_arg2 = (size_t) strerror (errno);
 		return -1;
 	}
 
@@ -991,8 +989,8 @@ mfs_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsigned
 	if (!tpMedia)
 	{
 		mfshnd->err_msg = "%s: %s";
-		mfshnd->err_arg1 = tmp;
-		mfshnd->err_arg2 = strerror (errno);
+		mfshnd->err_arg1 = (size_t) tmp;
+		mfshnd->err_arg2 = (size_t) strerror (errno);
 		return -1;
 	}
 
@@ -1023,7 +1021,7 @@ mfs_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsigned
 	if (mapsize * 2 + 2 > appsize)
 	{
 		mfshnd->err_msg = "New app size too small, need %d more bytes";
-		mfshnd->err_arg1 = (void *)(uint32_t)((mapsize * 2 + 2 - appsize) * 512);
+		mfshnd->err_arg1 = ((mapsize * 2 + 2 - appsize) * 512);
 		mfs_reinit (mfshnd, O_RDWR);
 		return -1;
 	}
@@ -1101,15 +1099,15 @@ mfs_load_zone_map (struct mfs_handle *mfshnd, uint64_t sector, uint64_t sbackup,
 	mfsvol_read_data (mfshnd->vols, (unsigned char *) hdr, sector, length);
 
 /* Verify the CRC matches. */
-	if (mfshnd->is_64 && !MFS_check_crc ((unsigned char *) hdr, length * 512, hdr->z64.checksum) ||
-		!mfshnd->is_64 && !MFS_check_crc ((unsigned char *) hdr, length * 512, hdr->z32.checksum))
+	if ((mfshnd->is_64 && !MFS_check_crc ((unsigned char *) hdr, length * 512, hdr->z64.checksum)) ||
+	    (!mfshnd->is_64 && !MFS_check_crc ((unsigned char *) hdr, length * 512, hdr->z32.checksum)))
 	{
 
 /* If the CRC doesn't match, try the backup map. */
 		mfsvol_read_data (mfshnd->vols, (unsigned char *) hdr, sbackup, length);
 
-		if (mfshnd->is_64 && !MFS_check_crc ((unsigned char *) hdr, length * 512, hdr->z64.checksum) ||
-			!mfshnd->is_64 && !MFS_check_crc ((unsigned char *) hdr, length * 512, hdr->z32.checksum))
+		if ((mfshnd->is_64 && !MFS_check_crc ((unsigned char *) hdr, length * 512, hdr->z64.checksum)) ||
+		    (!mfshnd->is_64 && !MFS_check_crc ((unsigned char *) hdr, length * 512, hdr->z32.checksum)))
 		{
 			mfshnd->err_msg = "Zone map checksum error";
 			free (hdr);
@@ -1160,7 +1158,7 @@ mfs_load_zone_maps (struct mfs_handle *mfshnd)
 	while (ptrsector && ptrsbackup != 0xdeadbeef && ptrlength)
 	{
 		struct zone_map *newmap;
-		unsigned long *bitmap_ptrs;
+		uint32_t *bitmap_ptrs;
 		int loop2;
 		int type;
 		int numbitmaps;
@@ -1187,7 +1185,7 @@ mfs_load_zone_maps (struct mfs_handle *mfshnd)
 		if (type < 0 || type >= ztMax)
 		{
 			mfshnd->err_msg = "Bad map type %d";
-			mfshnd->err_arg1 = (void *)type;
+			mfshnd->err_arg1 = type;
 			free (cur);
 			return -1;
 		}
@@ -1226,16 +1224,16 @@ mfs_load_zone_maps (struct mfs_handle *mfshnd)
 		{
 			if (mfshnd->is_64)
 			{
-				bitmap_ptrs = (unsigned long *)(&cur->z64 + 1);
+				bitmap_ptrs = (uint32_t *)(&cur->z64 + 1);
 			}
 			else
 			{
-				bitmap_ptrs = (unsigned long *)(&cur->z32 + 1);
+				bitmap_ptrs = (uint32_t *)(&cur->z32 + 1);
 			}
 			newmap->bitmaps[0] = (bitmap_header *)&bitmap_ptrs[numbitmaps];
 			for (loop2 = 1; loop2 < numbitmaps; loop2++)
 			{
-				newmap->bitmaps[loop2] = (bitmap_header *)((unsigned long)newmap->bitmaps[0] + (intswap32 (bitmap_ptrs[loop2]) - intswap32 (bitmap_ptrs[0])));
+				newmap->bitmaps[loop2] = (bitmap_header *)((size_t)newmap->bitmaps[0] + (intswap32 (bitmap_ptrs[loop2]) - intswap32 (bitmap_ptrs[0])));
 			}
 
 /* Allocate head pointers for changes for each level of the map */

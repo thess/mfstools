@@ -24,10 +24,12 @@
 #include <linux/fs.h>
 #endif
 #include <ctype.h>
+#include <inttypes.h>
 
 #include "mfs.h"
 #include "macpart.h"
 #include "backup.h"
+#include "log.h"
 
 /***********************************************************/
 /* Queries the mfs code for the list of partitions in use. */
@@ -36,9 +38,17 @@ add_mfs_partitions_to_backup_info (struct backup_info *info)
 {
 	char *mfs_partitions;
 	int loop;
-	unsigned int cursector = 0;
+	uint64_t cursector = 0;
 
 	mfs_partitions = mfs_partition_list (info->mfs);
+	if (! strncmp(mfs_partitions, "/dev/sd", 7))
+	{
+		info->back_flags |= BF_PREMIERE;
+#if DEBUG
+		fprintf (stderr, "Setting Premiere flag\n" );
+#endif
+
+	}
 
 	if (info->nmfs == 0)
 	{
@@ -71,14 +81,15 @@ add_mfs_partitions_to_backup_info (struct backup_info *info)
 /* it actually fills out the structures. */
 	for (loop = 0; loop < info->nmfs; loop++)
 	{
-		if (strncmp (mfs_partitions, "/dev/hd", 7))
+		if (strncmp (mfs_partitions, "/dev/hd", 7) &&
+		    strncmp (mfs_partitions, "/dev/sd", 7) )
 		{
 			free (info->mfsparts);
 			info->mfsparts = 0;
 			info->nmfs = 0;
 			info->err_msg = "Bad partition name (%.*s) in partition list";
-			info->err_arg1 = (void *)strcspn (mfs_partitions, " ");
-			info->err_arg2 = mfs_partitions;
+			info->err_arg1 = (int64_t)(size_t)strcspn (mfs_partitions, " ");
+			info->err_arg2 = (int64_t)(size_t)mfs_partitions;
 			return -1;
 		}
 
@@ -89,12 +100,13 @@ add_mfs_partitions_to_backup_info (struct backup_info *info)
 			info->mfsparts[loop].devno = 0;
 			break;
 		case 'b':
+		case 'c':  // For S3
 			info->mfsparts[loop].devno = 1;
 			break;
 		default:
 			info->err_msg = "Bad partition name (%.*s) in partition list";
-			info->err_arg1 = (void *)strcspn (mfs_partitions, " ");
-			info->err_arg2 = mfs_partitions;
+			info->err_arg1 = (int64_t)strcspn (mfs_partitions, " ");
+			info->err_arg2 = (int64_t)(size_t)mfs_partitions;
 			free (info->mfsparts);
 			info->mfsparts = 0;
 			info->nmfs = 0;
@@ -108,8 +120,8 @@ add_mfs_partitions_to_backup_info (struct backup_info *info)
 		if (*mfs_partitions && !isspace (*mfs_partitions))
 		{
 			info->err_msg = "Bad partition name (%.*s) in partition list";
-			info->err_arg1 = (void *)strcspn (mfs_partitions, " ");
-			info->err_arg2 = mfs_partitions;
+			info->err_arg1 = (int64_t)strcspn (mfs_partitions, " ");
+			info->err_arg2 = (int64_t)(size_t)mfs_partitions;
 			free (info->mfsparts);
 			info->mfsparts = 0;
 			info->nmfs = 0;
@@ -124,8 +136,8 @@ add_mfs_partitions_to_backup_info (struct backup_info *info)
 		if (info->mfsparts[loop].sectors == 0)
 		{
 			info->err_msg = "Empty MFS partition %.*s";
-			info->err_arg1 = (void *)strcspn (mfs_partitions, " ");
-			info->err_arg2 = mfs_partitions;
+			info->err_arg1 = (int64_t)strcspn (mfs_partitions, " ");
+			info->err_arg2 = (int64_t)(size_t)mfs_partitions;
 			free (info->mfsparts);
 			info->mfsparts = 0;
 			info->nmfs = 0;
@@ -158,15 +170,26 @@ add_partitions_to_backup_info (struct backup_info *info, char *device)
 	char bootsector[512];
 	int rootdev;
 	char *tmpc;
+	char *mfs_partitions;
 
 /* Four.  Always Four.  Or three. */
+/* But sometimes five */
+	info->nparts = 3;
 	if (info->back_flags & BF_BACKUPVAR)
 	{
-		info->nparts = 4;
+		info->nparts++;
 	}
-	else
+	mfs_partitions = mfs_partition_list (info->mfs);
+	if (! strncmp(mfs_partitions, "/dev/sd", 7))
 	{
-		info->nparts = 3;
+		info->back_flags |= BF_PREMIERE;
+#if DEBUG
+		fprintf (stderr, "Setting Premiere flag\n" );
+#endif
+	}
+	if (info->back_flags & BF_PREMIERE)
+	{
+		info->nparts++;
 	}
 /* One.  No more, no less. */
 	info->ndevs = 1;
@@ -242,14 +265,16 @@ add_partitions_to_backup_info (struct backup_info *info, char *device)
 
 /* Scan boot sector for root device.  2.5 seems to need this. */
 	tmpc = &bootsector[4];
-	while (tmpc && *tmpc && strncmp (tmpc, "root=/dev/hda", 13))
+	while (tmpc && *tmpc && 
+	       (strncmp (tmpc, "root=/dev/hda", 13) &&
+		strncmp (tmpc, "root=/dev/sda", 13)))
 	{
 		tmpc = strchr (tmpc, ' ');
 		if (tmpc)
 			tmpc++;
 	}
 
-	if (*tmpc)
+	if (tmpc && *tmpc)
 	{
 		if (((tmpc[13] == '4' || tmpc[13] == '7') && tmpc[14] == 0) || isspace (tmpc[14]))
 		{
@@ -266,10 +291,21 @@ add_partitions_to_backup_info (struct backup_info *info, char *device)
 	info->parts[1].devno = 0;
 	info->parts[2].partno = rootdev;
 	info->parts[2].devno = 0;
-	if (info->nparts > 3)
+	if (info->back_flags & BF_BACKUPVAR)
 	{
 		info->parts[3].partno = 9;
 		info->parts[3].devno = 0;
+	}
+	mfs_partitions = mfs_partition_list (info->mfs);
+	if (! strncmp(mfs_partitions, "/dev/sd", 7))
+	{
+		info->back_flags |= BF_PREMIERE;
+	}
+	if (info->back_flags & BF_PREMIERE)
+	{
+		info->parts[0].partno = 5;  /* we may use 2 ourselves in restore */
+		info->parts[info->nparts-1].partno = 14;
+		info->parts[info->nparts-1].devno = 0;
 	}
 
 	for (loop = 0; loop < info->nparts; loop++)
@@ -289,14 +325,19 @@ add_partitions_to_backup_info (struct backup_info *info, char *device)
 			info->ndevs = 0;
 			info->nparts = 0;
 			info->err_msg = "Error opening partition %s%d";
-			info->err_arg1 = device;
-			info->err_arg2 = (void *)(unsigned)info->parts[loop].partno;
+			info->err_arg1 = (int64_t)(size_t)device;
+			info->err_arg2 = (int64_t)info->parts[loop].partno;
 			return -1;
 		}
 
 		info->devs[0].files[(int)info->parts[loop].partno] = file;
 		info->parts[loop].sectors = tivo_partition_size (file);
 		info->nsectors += info->parts[loop].sectors;
+
+#if DEBUG
+		fprintf (stderr, "adding partno: %d size: %" PRIu64 " nsectors: %" PRIu64 "\n", info->parts[loop].partno, info->parts[loop].sectors, info->nsectors );
+#endif
+
 	}
 
 	return 0;
@@ -350,13 +391,13 @@ backup_verify_zone_maps (struct backup_info *info)
 			switch (zonetype)
 			{
 			case ztInode:
-				info->err_arg1 = "Inode";
+				info->err_arg1 = (size_t)"Inode";
 				break;
 			case ztApplication:
-				info->err_arg1 = "Application";
+				info->err_arg1 = (size_t)"Application";
 				break;
 			default:
-				info->err_arg1 = "Unknown";
+				info->err_arg1 = (size_t)"Unknown";
 				break;
 			}
 
@@ -419,8 +460,8 @@ backup_start (struct backup_info *info)
 		if (ret != bsError)
 		{
 			info->err_msg = "Internal error scanning MFS volume: %d %d";
-			info->err_arg1 = (void *)ret;
-			info->err_arg2 = (void *)consumed;
+			info->err_arg1 = (int64_t)ret;
+			info->err_arg2 = (int64_t)consumed;
 		}
 		return -1;
 	}
@@ -583,8 +624,8 @@ backup_state_partitions (struct backup_info *info, void *data, unsigned size, un
 		if (!file)
 		{
 			info->err_msg = "Internal error opening partition %s%d";
-			info->err_arg1 = info->devs[(int)info->parts[info->state_val1].devno].devname;
-			info->err_arg2 = (void *)(unsigned)info->parts[info->state_val1].partno;
+			info->err_arg1 = (size_t)info->devs[(int)info->parts[info->state_val1].devno].devname;
+			info->err_arg2 = (int64_t)info->parts[info->state_val1].partno;
 			return bsError;
 		}
 	}
@@ -593,9 +634,9 @@ backup_state_partitions (struct backup_info *info, void *data, unsigned size, un
 	{
 		info->err_msg = "%s backing up partitions";
 		if (errno)
-			info->err_arg1 = strerror (errno);
+			info->err_arg1 = (size_t)strerror (errno);
 		else
-			info->err_arg1 = "Unknown error";
+			info->err_arg1 = (size_t)"Unknown error";
 		return bsError;
 	}
 
@@ -620,7 +661,7 @@ backup_state_partitions (struct backup_info *info, void *data, unsigned size, un
 /* reads the data from the info structure.  Compression is handled */
 /* elsewhere. */
 static unsigned int
-backup_next_sectors (struct backup_info *info, char *buf, int sectors)
+backup_next_sectors (struct backup_info *info, unsigned char *buf, int sectors)
 {
 	enum backup_state_ret ret;
 	unsigned consumed;
@@ -636,7 +677,7 @@ backup_next_sectors (struct backup_info *info, char *buf, int sectors)
 		if (consumed > sectors)
 		{
 			info->err_msg = "Internal error: State %d consumed too much buffer";
-			info->err_arg1 = (void *)info->state;
+			info->err_arg1 = (int64_t)info->state;
 			return -1;
 		}
 
@@ -663,15 +704,15 @@ backup_next_sectors (struct backup_info *info, char *buf, int sectors)
 
 		default:
 			info->err_msg = "Internal error: State %d returned %d";
-			info->err_arg1 = (void *)info->state;
-			info->err_arg2 = (void *)ret;
+			info->err_arg1 = (int64_t)info->state;
+			info->err_arg2 = (int64_t)ret;
 			return -1;
 		}
 
 /* Deal with consumed buffer */
 		if (consumed > 0)
 		{
-			info->crc = compute_crc (buf, consumed * 512, info->crc);
+		  info->crc = compute_crc ((unsigned char *)buf, consumed * 512, info->crc);
 			info->cursector += consumed;
 			backup_blocks += consumed;
 			sectors -= consumed;
@@ -686,7 +727,7 @@ backup_next_sectors (struct backup_info *info, char *buf, int sectors)
 /* Pass the data to the front-end program.  This handles compression and */
 /* all that fun stuff. */
 unsigned int
-backup_read (struct backup_info *info, char *buf, unsigned int size)
+backup_read (struct backup_info *info, unsigned char *buf, unsigned int size)
 {
 	unsigned int retval = 0;
 
@@ -746,8 +787,8 @@ backup_read (struct backup_info *info, char *buf, unsigned int size)
 			return retval;
 		}
 
-		info->comp->avail_out = size;
-		info->comp->next_out = buf;
+		info->comp->avail_out = (unsigned) size;
+		info->comp->next_out = (unsigned char *)buf;
 		while (info->comp && info->comp->avail_out > 0)
 		{
 			if (info->comp->avail_in)
@@ -772,8 +813,8 @@ backup_read (struct backup_info *info, char *buf, unsigned int size)
 					continue;
 				}
 
-				info->comp->avail_in = 512 * nread;
-				info->comp->next_in = info->comp_buf;
+				info->comp->avail_in = (unsigned) (512 * nread);
+				info->comp->next_in = (unsigned char *)info->comp_buf;
 			}
 			else
 			{

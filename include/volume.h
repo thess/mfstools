@@ -47,9 +47,9 @@ struct volume_handle
 	char *hdb;
 
 	char *err_msg;
-	void *err_arg1;
-	void *err_arg2;
-	void *err_arg3;
+	int64_t err_arg1;
+	int64_t err_arg2;
+	int64_t err_arg3;
 };
 
 char *mfsvol_device_translate (struct volume_handle *hnd, char *dev);
@@ -58,8 +58,8 @@ struct volume_info *mfsvol_get_volume (struct volume_handle *hnd, uint64_t secto
 int mfsvol_is_writable (struct volume_handle *hnd, uint64_t sector);
 uint64_t mfsvol_volume_size (struct volume_handle *hnd, uint64_t sector);
 uint64_t mfsvol_volume_set_size (struct volume_handle *hnd);
-int mfsvol_read_data (struct volume_handle *hnd, void *buf, uint64_t sector, int count);
-int mfsvol_write_data (struct volume_handle *hnd, void *buf, uint64_t sector, int count);
+int mfsvol_read_data (struct volume_handle *hnd, void *buf, uint64_t sector, uint32_t count);
+int mfsvol_write_data (struct volume_handle *hnd, void *buf, uint64_t sector, uint32_t count);
 void mfsvol_enable_memwrite (struct volume_handle *hnd);
 void mfsvol_discard_memwrite (struct volume_handle *hnd);
 void mfsvol_cleanup (struct volume_handle *hnd);

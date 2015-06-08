@@ -4,6 +4,8 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <inttypes.h>
+
 #if HAVE_MALLOC_H
 #include <malloc.h>
 #endif
@@ -32,6 +34,14 @@
 
 #define RESTORE
 #include "backup.h"
+
+/**
+ * Tivo device names.
+ * Defaults to /dev/hd{a,b}.  For a Premier backup, we'll replace these
+ * with /dev/sd{a,b}.
+ */
+extern char* tivo_devnames[];
+
 
 /*************************************************/
 /* Initializes the backup structure for restore. */
@@ -196,6 +206,14 @@ restore_state_info_end (struct backup_info *info, void *data, unsigned size, uns
 		}
 	}
 
+
+	if (info->back_flags & BF_PREMIERE) 
+	{
+		info->back_flags |= RF_SWAPV1;  /* premiere doesn't support V0 swap */
+		tivo_devnames[0] = "/dev/sda";
+		tivo_devnames[1] = "/dev/sdb";
+	}
+
 	return bsNextState;
 }
 
@@ -217,7 +235,7 @@ restore_state_boot_block (struct backup_info *info, void *data, unsigned size, u
 	if (tivo_partition_write_bootsector (info->devs[0].devname, data) != 512)
 	{
 		info->err_msg = "Error writing boot block: %s";
-		info->err_arg1 = strerror (errno);
+		info->err_arg1 = (size_t)strerror (errno);
 		return bsError;
 	}
 
@@ -263,8 +281,8 @@ restore_state_partitions (struct backup_info *info, void *data, unsigned size, u
 		if (!file)
 		{
 			info->err_msg = "Internal error opening partition %s%d for writing";
-			info->err_arg1 = info->devs[(int)info->parts[info->state_val1].devno].devname;
-			info->err_arg2 = (void *)(unsigned)info->parts[info->state_val1].partno;
+			info->err_arg1 = (size_t)info->devs[(int)info->parts[info->state_val1].devno].devname;
+			info->err_arg2 = (size_t)info->parts[info->state_val1].partno;
 			return bsError;
 		}
 	}
@@ -273,9 +291,9 @@ restore_state_partitions (struct backup_info *info, void *data, unsigned size, u
 	{
 		info->err_msg = "%s backing up partitions";
 		if (errno)
-			info->err_arg1 = strerror (errno);
+			info->err_arg1 = (size_t)strerror (errno);
 		else
-			info->err_arg1 = "Unknown error";
+			info->err_arg1 = (size_t)"Unknown error";
 		return bsError;
 	}
 
@@ -318,7 +336,7 @@ restore_state_mfs_init (struct backup_info *info, void *data, unsigned size, uns
 		int devno = info->mfsparts[loop].devno;
 		int partno = info->mfsparts[loop].partno;
 
-		sprintf (devname, "%s%d", devno == 0? "/dev/hda": "/dev/hdb", partno);
+		sprintf (devname, "%s%d", tivo_devnames[devno], partno);
 		mfsvol_add_volume (info->vols, devname, O_RDWR);
 	}
 
@@ -331,7 +349,7 @@ restore_state_mfs_init (struct backup_info *info, void *data, unsigned size, uns
 /* reads the data from the info structure.  Compression is handled */
 /* elsewhere. */
 static unsigned int
-restore_next_sectors (struct backup_info *info, char *buf, int sectors)
+restore_next_sectors (struct backup_info *info, unsigned char *buf, int sectors)
 {
 	enum backup_state_ret ret;
 	unsigned consumed;
@@ -352,7 +370,7 @@ restore_next_sectors (struct backup_info *info, char *buf, int sectors)
 		if (consumed > sectors)
 		{
 			info->err_msg = "Internal error: State %d consumed too much buffer";
-			info->err_arg1 = (void *)info->state;
+			info->err_arg1 = (size_t)info->state;
 			return -1;
 		}
 
@@ -379,8 +397,8 @@ restore_next_sectors (struct backup_info *info, char *buf, int sectors)
 
 		default:
 			info->err_msg = "Internal error: State %d returned %d";
-			info->err_arg1 = (void *)info->state;
-			info->err_arg2 = (void *)ret;
+			info->err_arg1 = (size_t)info->state;
+			info->err_arg2 = (size_t)ret;
 			return -1;
 		}
 
@@ -389,7 +407,7 @@ restore_next_sectors (struct backup_info *info, char *buf, int sectors)
 		{
 /* Probably should be before for restore, but some day this may be merged */
 /* with backup, so keep the code identical */
-			info->crc = compute_crc (buf, consumed * 512, info->crc);
+		  info->crc = compute_crc ( (unsigned char *)buf, consumed * 512, info->crc);
 			info->cursector += consumed;
 			restore_blocks += consumed;
 			sectors -= consumed;
@@ -404,7 +422,7 @@ restore_next_sectors (struct backup_info *info, char *buf, int sectors)
 /* Pass the data to the front-end program.  This handles compression and */
 /* all that fun stuff. */
 unsigned int
-restore_write (struct backup_info *info, char *buf, unsigned int size)
+restore_write (struct backup_info *info, unsigned char *buf, unsigned int size)
 {
 	unsigned int retval = 0;
 
@@ -418,14 +436,14 @@ restore_write (struct backup_info *info, char *buf, unsigned int size)
 		}
 
 		info->comp->avail_in = size;
-		info->comp->next_in = buf;
+		info->comp->next_in = (unsigned char *) buf;
 		while ((info->comp && info->comp->avail_in > 0) ||
 			(((info->back_flags & RF_NOMORECOMP) || !(info->back_flags & RF_INITIALIZED)) &&
-			(unsigned int)info->comp->next_out - (unsigned int)info->comp_buf > 512))
+			(size_t)info->comp->next_out - (size_t)info->comp_buf > 512))
 		{
-			if ((unsigned int)info->comp->next_out - (unsigned int)info->comp_buf > 512)
+			if ((size_t)info->comp->next_out - (size_t)info->comp_buf > 512)
 			{
-				int nread = restore_next_sectors (info, info->comp_buf, ((unsigned int)info->comp->next_out - (unsigned int)info->comp_buf) / 512);
+				int nread = restore_next_sectors (info, info->comp_buf, ((size_t)info->comp->next_out - (size_t)info->comp_buf) / 512);
 				if (nread < 0)
 				{
 					return -1;
@@ -436,9 +454,9 @@ restore_write (struct backup_info *info, char *buf, unsigned int size)
 				}
 
 				nread *= 512;
-				if ((unsigned int)info->comp->next_out - (unsigned int)info->comp_buf > nread)
+				if ((size_t)info->comp->next_out - (size_t)info->comp_buf > nread)
 				{
-					int nleft = (unsigned int)info->comp->next_out - (unsigned int)info->comp_buf - nread;
+					int nleft = (size_t)info->comp->next_out - (size_t)info->comp_buf - nread;
 
 					memmove (info->comp_buf, info->comp->next_out - nleft, nleft);
 				}
@@ -477,7 +495,7 @@ restore_write (struct backup_info *info, char *buf, unsigned int size)
 					return retval;
 				default:
 					info->err_msg = "Unknown zlib_error %d";
-					info->err_arg1 = (void *)zres;
+					info->err_arg1 = (size_t)(size_t)zres;
 					break;
 				}
 			}
@@ -692,6 +710,10 @@ find_optimal_partitions (struct backup_info *info, unsigned int min1, unsigned i
 
 			count += 2;
 			loop3 += 2;
+			if (info->back_flags & BF_PREMIERE && loop3 == 14)
+			{
+				loop3++;
+			}
 		}
 	}
 
@@ -729,12 +751,12 @@ find_optimal_partitions (struct backup_info *info, unsigned int min1, unsigned i
 int
 restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 {
-	unsigned int secs1 = 0;
-	unsigned int secs2 = 0;
+	uint64_t secs1 = 0;
+	uint64_t secs2 = 0;
 	int swab1 = 0;
 	int swab2 = 0;
-	unsigned int min1 = 0;
-	unsigned int count;
+	uint64_t min1 = 0;
+	uint64_t count;
 	int loop;
 
 /* Make sure this is a first potentially sucessful run. */
@@ -788,7 +810,7 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 	if (tivo_partition_table_init (dev1, swab1) < 0)
 	{
 		info->err_msg = "Unable to open %s for writing";
-		info->err_arg1 = dev1;
+		info->err_arg1 = (size_t)dev1;
 		return -1;
 	}
 
@@ -797,7 +819,7 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 	secs1 = tivo_partition_total_free (dev1);
 
 #if DEBUG
-	fprintf (stderr, "Drive 1 size: %d\n", secs1);
+	fprintf (stderr, "Drive 1 size: %lld\n", secs1);
 #endif
 
 /* If there is a second device, do the same. */
@@ -806,14 +828,14 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 		if (tivo_partition_table_init (dev2, swab2) < 0)
 		{
 			info->err_msg = "Unable to open %s for writing";
-			info->err_arg1 = dev2;
+			info->err_arg1 = (size_t)dev2;
 			return -1;
 		}
 
 		secs2 = tivo_partition_total_free (dev2);
 
 #if DEBUG
-		fprintf (stderr, "Drive 2 size: %d\n", secs2);
+		fprintf (stderr, "Drive 2 size: %lld\n", secs2);
 #endif
 	}
 
@@ -834,8 +856,8 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 			if (info->varsize && info->varsize != info->parts[loop].sectors)
 			{
 				info->err_msg = "Varsize in backup (%d) mis-matches requested varsize(%d)";
-				info->err_arg1 = (void *)(info->varsize / 2048);
-				info->err_arg2 = (void *)(info->parts[loop].sectors / 2048);
+				info->err_arg1 = (size_t)(size_t)(info->varsize / 2048);
+				info->err_arg2 = (size_t)(size_t)(info->parts[loop].sectors / 2048);
 				return -1;
 			}
 
@@ -850,10 +872,10 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 
 /* If there are 3 partitions, double it.  No backup currently has both */
 /* sets of root.  If they do in the future, this will be changed. */
-	if (count == 3 || count == 4)
+	if (count <= 5)
 	{
 #if DEBUG
-		fprintf (stderr, "Size of non-var partitions in backup: %d\n", min1);
+		fprintf (stderr, "Size of non-var partitions in backup: %lld\n", min1);
 #endif
 		min1 *= 2;
 	}
@@ -874,15 +896,15 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 	min1 += info->swapsize + info->varsize + info->mfsparts[0].sectors + info->mfsparts[1].sectors;
 
 #if DEBUG
-	fprintf (stderr, "Minimum drive 1 size: %d\n", min1);
+	fprintf (stderr, "Minimum drive 1 size: %" PRId64 "\n", min1);
 #endif
 
 /* Make sure the first drive is big enough for the basics. */
 	if (min1 > secs1)
 	{
 		info->err_msg = "First target drive too small (%dmb) require %dmb minimum";
-		info->err_arg1 = (void *)(secs1 / 2048);
-		info->err_arg2 = (void *)((min1 + 2047) / 2048);
+		info->err_arg1 = (size_t)(secs1 / 2048);
+		info->err_arg2 = (size_t)((min1 + 2047) / 2048);
 		return -1;
 	}
 
@@ -891,7 +913,11 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 	if (info->newparts == NULL)
 	{
 		info->nnewparts = 8 + info->nmfs;
-		info->newparts = calloc (info->nnewparts, sizeof (struct backup_partition));
+		if (info->back_flags & BF_PREMIERE)
+		{
+		  info->nnewparts++;
+		}
+		info->newparts = calloc (32, sizeof (struct backup_partition));
 		if (!info->newparts)
 		{
 			info->err_msg = "Memory exhausted";
@@ -906,7 +932,7 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 	}
 
 #if DEBUG
-	fprintf (stderr, "Size needed for single drive restore: %d\n", count);
+	fprintf (stderr, "Size needed for single drive restore: %lld\n", count);
 #endif
 
 /* Initialize the initial new partitions.  The values are just defaults and */
@@ -928,10 +954,22 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 	info->newparts[6].sectors = info->swapsize;
 	info->newparts[7].partno = 9;
 	info->newparts[7].sectors = info->varsize;
+	if (info->back_flags & BF_PREMIERE) 
+	{
+		info->newparts[8].partno = 14;
+	}
+
 /* Override for the odd size partitions. */
 	for (loop = 0; loop < info->nparts; loop++)
 	{
+		if (info->parts[loop].partno == 14)
+		{
+			info->newparts[8] = info->parts[loop];
+		} 
+		else
+		{
 		info->newparts[info->parts[loop].partno - 2] = info->parts[loop];
+		}
 
 /* If it's part of a partition set and only one was backed up, set the */
 /* alternate set size. */
@@ -944,18 +982,35 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 		}
 	}
 /* First MFS pair. */
-	info->newparts[8].partno = 10;
-	info->newparts[8].sectors = info->mfsparts[0].sectors;
-	info->newparts[9].partno = 11;
-	info->newparts[9].sectors = info->mfsparts[1].sectors;
-
-/* If it fits on the first drive, yay us. */
-	if (count <= secs1 && info->nmfs <= 6 && (!(info->back_flags & RF_NOFILL) || info->nmfs <= 4))
+	int firstmfs = 8;
+	if (info->back_flags & BF_PREMIERE) 
 	{
+		firstmfs = 9;
+	}
+
+	info->newparts[firstmfs].partno = 10;
+	info->newparts[firstmfs].sectors = info->mfsparts[0].sectors;
+	info->newparts[firstmfs+1].partno = 11;
+	info->newparts[firstmfs+1].sectors = info->mfsparts[1].sectors;
+
+/* Quick and dirty hack for expanded V3 restores */
+	if (info->format == bfV3)
+	{
+		uint64_t left = secs1 - min1 + info->mfsparts[1].sectors - info->mfsparts[2].sectors - 2048;
+		info->newparts[firstmfs+1].sectors = left/2;
+		info->newparts[firstmfs+2].partno = 12;
+		info->newparts[firstmfs+2].sectors = info->mfsparts[2].sectors;
+		info->newparts[firstmfs+3].partno = 13;
+		info->newparts[firstmfs+3].sectors = left/2;
+		info->nnewparts = firstmfs+4;
+
 		if (info->devs)
 			free (info->devs);
 
 		info->ndevs = 1;
+		if (secs2 > 0)
+		  info->ndevs++;
+		
 		info->devs = calloc (1, sizeof (struct device_info));
 
 		if (!info->devs)
@@ -971,12 +1026,75 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2)
 		info->devs->swab = swab1;
 
 /* Add the MFS partitions to the partition table. */
+		info->nmfs = 4;
 		for (loop = 0; loop < info->nmfs; loop++)
 		{
 			info->mfsparts[loop].devno = 0;
 			info->mfsparts[loop].partno = 10 + loop;
-			info->newparts[loop + 8].sectors = info->mfsparts[loop].sectors;
-			info->newparts[loop + 8].partno = loop + 10;
+		}
+
+		if (info->ndevs > 1) 
+		{
+			info->devs[1].nparts = 2;
+			info->devs[1].devname = dev2;
+			info->devs[1].sectors = secs2;
+			info->devs[1].swab = swab2;
+
+			info->newparts[info->nnewparts].devno = 1;
+			info->newparts[info->nnewparts].partno = 2;
+			info->newparts[info->nnewparts].sectors = 2048;
+			info->newparts[++info->nnewparts].devno = 1;
+			info->newparts[info->nnewparts].partno = 3;
+			info->newparts[info->nnewparts].sectors = secs2 - 2*2048;
+			info->nnewparts++;
+
+/* Add the MFS partitions to the partition table on second drive. */	
+			info->mfsparts[info->nmfs].devno = 1;
+			info->mfsparts[info->nmfs].partno = 2;
+			info->mfsparts[++info->nmfs].devno = 1;
+			info->mfsparts[info->nmfs].partno = 3;
+			++info->nmfs;
+		}
+
+/* In business. */
+		return 1;
+	}
+
+/* If it fits on the first drive, yay us. */
+	if (count <= secs1 && info->nmfs <= 6 && (!(info->back_flags & RF_NOFILL) || info->nmfs <= 4))
+	{
+		if (info->devs)
+			free (info->devs);
+
+		info->ndevs = 1;
+		info->devs = calloc ( info->ndevs, sizeof (struct device_info));
+
+		if (!info->devs)
+		{
+			info->err_msg = "Memory exhausted";
+			return -1;
+		}
+
+/* Basic info for the device. */
+		info->devs[0].nparts = info->nnewparts;
+		info->devs[0].devname = dev1;
+		info->devs[0].sectors = secs1;
+		info->devs[0].swab = swab1;
+		
+
+/* Add the MFS partitions to the partition table. */
+		for (loop = 0; loop < info->nmfs; loop++)
+		{
+			info->mfsparts[loop].devno = 0;
+			info->mfsparts[loop].partno = 10 + loop;
+			info->newparts[loop + firstmfs].sectors = info->mfsparts[loop].sectors;
+			info->newparts[loop + firstmfs].partno = loop + 10;
+			if ( (info->back_flags & BF_PREMIERE)  &&
+			     (info->newparts[loop + firstmfs].partno >= 14) )
+			{
+				info->newparts[loop + firstmfs].partno++;
+				info->mfsparts[loop].partno++;
+			}
 		}
 
 /* In business. */
@@ -1147,10 +1265,17 @@ build_partition_table (struct backup_info *info, int devno)
 				tmppartno--;
 
 			if (partitions[tmppartno] < 255)
-				memmove (&partitions[tmppartno + 1], &partitions[tmppartno], 15 - tmppartno);
+				memmove (&partitions[tmppartno + 1], &partitions[tmppartno], 16 - tmppartno);
 			partitions[tmppartno] = partno;
+			const char *pname = partition_strings[devno][partno][0];
+			const char *ptype = partition_strings[devno][partno][1];
+			if (partno == 14 && (info->back_flags & BF_PREMIERE)) 
+			{	 /* special case for Gen07 SQLite partition */
+				pname = "SQLite";
+				ptype = "Ext2";
+			}
 
-			tivo_partition_add (info->devs[devno].devname, info->newparts[loop].sectors, tmppartno, partition_strings[devno][partno][0], partition_strings[devno][partno][1]);
+			tivo_partition_add (info->devs[devno].devname, info->newparts[loop].sectors, tmppartno, pname, ptype );
 		}
 	}
 
@@ -1187,7 +1312,10 @@ restore_start (struct backup_info *info)
 
 		if (!info->devs[loop].files)
 		{
-			info->devs[loop].files = calloc (sizeof (struct tivo_partition_file *), info->devs[loop].nparts);
+			/** This needs to be allocated large enough for the maximum partition # used.
+			 *  16 would be enough for all current tivos.
+			 */
+			info->devs[loop].files = calloc (sizeof (struct tivo_partition_file *), 32);
 			if (!info->devs[loop].files)
 			{
 				info->err_msg = "Memory exhausted";
@@ -1281,11 +1409,11 @@ restore_cleanup_parts(struct backup_info *info)
 
 	bzero (buf, sizeof (buf));
 
-	for (loop = 2 - 1; loop < 10 - 1; loop++)
+	for (loop = 2; loop < 10; loop++)
 	{
 		for (loop2 = 0; loop2 < info->nparts; loop2++)
 		{
-			if (info->parts[loop2].devno == 0 && info->parts[loop2].partno == loop + 1)
+			if (info->parts[loop2].devno == 0 && info->parts[loop2].partno == loop)
 				break;
 		}
 
@@ -1295,16 +1423,16 @@ restore_cleanup_parts(struct backup_info *info)
 			int tot;
 
 			if (!file)
-				file = tivo_partition_open_direct (info->devs[0].devname, loop + 1, O_RDWR);
+				file = tivo_partition_open_direct (info->devs[0].devname, loop, O_RDWR);
 			if (!file)
 			{
 				info->err_msg = "Error cleaning up partitions";
 				return -1;
 			}
 
-			if (info->back_flags & RF_ZEROPART)
 				tot = tivo_partition_size (file);
-			else
+
+			if  (! (info->back_flags & RF_ZEROPART) && tot > (2048/512))
 				tot = 2048 / 512;
 
 			for (loop2 = 0; loop2 < tot; loop2 += sizeof (buf) / 512)
@@ -1332,7 +1460,7 @@ restore_finish(struct backup_info *info)
 	if (info->state < bsComplete)
 	{
 		info->err_msg = "Internal error: State machine in state %d, expecting complete";
-		info->err_arg1 = (void *)info->state;
+		info->err_arg1 = (size_t)info->state;
 		return -1;
 	}
 
@@ -1344,16 +1472,16 @@ restore_finish(struct backup_info *info)
 
 		switch (ret)
 		{
-		bsError:
+		case bsError:
 			return -1;
 			break;
 
-		bsNextState:
+		case bsNextState:
 			break;
 
 		default:
 			info->err_msg = "Bad return from state machine: %d";
-			info->err_arg1 = (void *)ret;
+			info->err_arg1 = (size_t)ret;
 		}
 	}
 

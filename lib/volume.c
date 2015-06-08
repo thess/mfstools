@@ -7,6 +7,8 @@
 #include <string.h>
 #include <fcntl.h>
 #include <ctype.h>
+#include <inttypes.h>
+
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
@@ -40,7 +42,7 @@ mfsvol_device_translate (struct volume_handle *hnd, char *dev)
 	int dev_len = strcspn (dev, " ");
 
 /* See if it is in /dev, to be relocated. */
-	if (!strncmp (dev, "/dev/hd", 7))
+	if (!strncmp (dev, "/dev/hd", 7) || !strncmp (dev, "/dev/sd", 7))
 	{
 		char *devbase = NULL;
 
@@ -71,8 +73,8 @@ mfsvol_device_translate (struct volume_handle *hnd, char *dev)
 
 	// Only hda and hdb allowed as device names.
 	hnd->err_msg = "Unknown MFS partition device %.*s";
-	hnd->err_arg1 = (void *)dev_len;
-	hnd->err_arg2 = dev;
+	hnd->err_arg1 = (size_t)dev_len;
+	hnd->err_arg2 = (size_t)dev;
 
 	return 0;
 }
@@ -114,8 +116,8 @@ mfsvol_add_volume (struct volume_handle *hnd, char *path, int flags)
 	if (!newvol->file)
 	{
 		hnd->err_msg = "%s: %s";
-		hnd->err_arg1 = path;
-		hnd->err_arg2 = strerror (errno);
+		hnd->err_arg1 = (size_t) path;
+		hnd->err_arg2 = (size_t)strerror (errno);
 		return -1;
 	}
 
@@ -130,8 +132,8 @@ mfsvol_add_volume (struct volume_handle *hnd, char *path, int flags)
 	if (newvol->sectors == 0)
 	{
 		hnd->err_msg = "%s: %s";
-		hnd->err_arg1 = path;
-		hnd->err_arg2 = strerror (errno);
+		hnd->err_arg1 = (size_t) path;
+		hnd->err_arg2 = (size_t) strerror (errno);
 	}
 
 /* TiVo rounds off the size of the partition to even counts of 1024 sectors. */
@@ -141,7 +143,7 @@ mfsvol_add_volume (struct volume_handle *hnd, char *path, int flags)
 	if (!newvol->sectors)
 	{
 		hnd->err_msg = "Empty partition %s";
-		hnd->err_arg1 = path;
+		hnd->err_arg1 = (size_t) path;
 		tivo_partition_close (newvol->file);
 		free (newvol);
 		return -1;
@@ -370,7 +372,7 @@ mfsvol_locate_mem_data_for_write (struct volume_info *volume, uint64_t sector, i
 /* Read data from the MFS volume set.  It must be in whole sectors, and must */
 /* not cross a volume boundry. */
 int
-mfsvol_read_data (struct volume_handle *hnd, void *buf, uint64_t sector, int count)
+mfsvol_read_data (struct volume_handle *hnd, void *buf, uint64_t sector, uint32_t count)
 {
 	struct volume_info *vol;
 	struct volume_mem_data *block;
@@ -391,7 +393,7 @@ mfsvol_read_data (struct volume_handle *hnd, void *buf, uint64_t sector, int cou
 	if (sector + count > vol->sectors)
 	{
 #if DEBUG
-		fprintf (stderr, "Attempt to read across volume boundry %d %d %d %d!", sector + vol->start, count, vol->start, vol->sectors);
+		fprintf (stderr, "Attempt to read across volume boundry %"  PRIu64 "%d %" PRIu64 " %" PRIu64 "!", sector + vol->start, count, vol->start, vol->sectors);
 #else
 		fprintf (stderr, "Attempt to read across volume boundry!");
 #endif
@@ -482,7 +484,7 @@ hexdump (unsigned char *buf, unsigned int sector)
 /* Write data to the MFS volume set.  It must be in whole sectors, and must */
 /* not cross a volume boundry. */
 int
-mfsvol_write_data (struct volume_handle *hnd, void *buf, uint64_t sector, int count)
+mfsvol_write_data (struct volume_handle *hnd, void *buf, uint64_t sector, uint32_t count)
 {
 	struct volume_info *vol;
 
@@ -603,8 +605,6 @@ mfsvol_init (const char *hda, const char *hdb)
 void
 mfsvol_perror (struct volume_handle *hnd, char *str)
 {
-	int err = 0;
-
 	if (hnd->err_msg)
 	{
 		fprintf (stderr, "%s: ", str);

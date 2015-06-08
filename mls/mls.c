@@ -20,7 +20,7 @@ mls_usage ()
 }
 
 fs_entry *
-find_file_by_name (unsigned char *dir, unsigned int dirlen, unsigned char *name)
+find_file_by_name (char *dir, unsigned int dirlen, char *name)
 {
 	int offset = 4;
 
@@ -42,8 +42,8 @@ find_file_by_name (unsigned char *dir, unsigned int dirlen, unsigned char *name)
 void
 print_file_details (fs_entry * file)
 {
-	unsigned char *type = "ty???";
-	unsigned char date[17] = "xx/xx/xx xx:xx";
+	char *type = "ty???";
+	char date[17] = "xx/xx/xx xx:xx";
 	mfs_inode *nfo;
 	time_t modtime;
 
@@ -87,11 +87,11 @@ print_file_details (fs_entry * file)
 }
 
 void
-list_file (unsigned char *name)
+list_file (char *name)
 {
 	mfs_inode *cur_nfo = 0;
-	unsigned char *cur_dir = 0;
-	unsigned int cur_dir_length = 0;
+	char *cur_dir = 0;
+	int cur_dir_length = 0;
 	fs_entry *cur_file = 0;
 	int trailingslash = 0;
 	if (!name)
@@ -124,7 +124,7 @@ list_file (unsigned char *name)
 
 		if (cur_dir)
 			free (cur_dir);
-		cur_dir = mfs_read_inode_data (mfs, cur_nfo, &cur_dir_length);
+		cur_dir = (char *) mfs_read_inode_data (mfs, cur_nfo, &cur_dir_length);
 		if (!cur_dir)
 		{
 			mfs_perror (mfs, "Read directory");
@@ -181,7 +181,7 @@ list_file (unsigned char *name)
 		}
 		if (cur_dir)
 			free (cur_dir);
-		cur_dir = mfs_read_inode_data (mfs, cur_nfo, &cur_dir_length);
+		cur_dir = (char *) mfs_read_inode_data (mfs, cur_nfo, &cur_dir_length);
 		if (!cur_dir)
 		{
 			fprintf (stderr, "No such file or directory!\n");

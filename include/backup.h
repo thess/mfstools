@@ -137,8 +137,8 @@ extern backup_state_handler restore_v3;
 struct backup_info
 {
 /* Backup size */
-	int cursector;
-	int nsectors;
+	int64_t cursector;
+	int64_t nsectors;
 
 /* Backup state machine */
 	uint64_t state_val1;
@@ -190,15 +190,15 @@ struct backup_info
 
 /* Compression */
 	struct z_stream_s *comp;
-	char *comp_buf;
+	unsigned char *comp_buf;
 
 	struct mfs_handle *mfs;
 
 /* Error reporting */
 	char *err_msg;
-	void *err_arg1;
-	void *err_arg2;
-	void *err_arg3;
+	int64_t err_arg1;
+	int64_t err_arg2;
+	int64_t err_arg3;
 
 #ifdef RESTORE
 	struct volume_handle *vols;
@@ -278,6 +278,7 @@ struct backup_head_v3
 #define BF_NOBSWAP		0x00000080	/* Source isn't byte swapped. */
 #define BF_TRUNCATED	0x00000100	/* Backup from incomplete volume. */
 #define BF_64			0x00000200	/* Backup is from a 64 bit system */
+#define BF_PREMIERE	0x00000800	/* Premier backup: backup db (sql db) in backup and use /dev/sd* */
 #define BF_COMPLVL(f)	(((f) >> 12) & 0xf)
 #define BF_SETCOMP(l)	((((l) & 0xf) << 12) | BF_COMPRESSED)
 #define BF_FLAGS		0x0000ffff
@@ -293,20 +294,25 @@ struct backup_head_v3
 struct backup_info *init_backup_v1 (char *device, char *device2, int flags);
 struct backup_info *init_backup_v3 (char *device, char *device2, int flags);
 void backup_set_thresh (struct backup_info *info, unsigned int thresh);
-void backup_check_truncated (struct backup_info *info);
+void backup_check_truncated_volume (struct backup_info *info);
+
 int backup_start (struct backup_info *info);
-unsigned int backup_read (struct backup_info *info, char *buf, unsigned int size);
+unsigned int backup_read (struct backup_info *info, unsigned char *buf, unsigned int size);
 int backup_finish (struct backup_info *info);
 void backup_perror (struct backup_info *info, char *str);
 int backup_strerror (struct backup_info *info, char *str);
 int backup_has_error (struct backup_info *info);
 void backup_clearerror (struct backup_info *info);
+int add_partitions_to_backup_info (struct backup_info *info, char *device);
+int add_mfs_partitions_to_backup_info (struct backup_info *info);
 
 struct backup_info *init_restore (unsigned int flags);
 void restore_set_varsize (struct backup_info *info, int size);
 void restore_set_swapsize (struct backup_info *info, int size);
 void restore_set_mfs_type (struct backup_info *info, int bits);
-unsigned int restore_write (struct backup_info *info, char *buf, unsigned int size);
+void restore_set_bswap (struct backup_info *info, int bswap);
+
+unsigned int restore_write (struct backup_info *info, unsigned char *buf, unsigned int size);
 int restore_trydev (struct backup_info *info, char *dev1, char *dev2);
 int restore_start (struct backup_info *info);
 int restore_finish(struct backup_info *info);
@@ -314,4 +320,13 @@ void restore_perror (struct backup_info *info, char *str);
 int restore_strerror (struct backup_info *info, char *str);
 int restore_has_error (struct backup_info *info);
 void restore_clearerror (struct backup_info *info);
+
+
+int restore_cleanup_parts(struct backup_info *info);
+int restore_make_swap (struct backup_info *info);
+int restore_fudge_inodes (struct backup_info *info);
+int restore_fudge_transactions (struct backup_info *info);
+int restore_fixup_vol_list (struct backup_info *info);
+int restore_fixup_zone_maps(struct backup_info *info);
+
 #endif

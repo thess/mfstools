@@ -81,7 +81,7 @@ mfs_log_read (struct mfs_handle *mfshnd, void *buf, unsigned int logstamp)
 	if (!MFS_check_crc (buf, 512, tmp->crc))
 	{
 		mfshnd->err_msg = "MFS transaction logstamp %ud has invalid checksum";
-		mfshnd->err_arg1 = (void *)logstamp;
+		mfshnd->err_arg1 = logstamp;
 		return 0;
 	}
 
@@ -117,6 +117,7 @@ mfs_log_write_current_log (struct mfs_handle *mfshnd)
 
 	/* Zero out the data portion */
 	memset (mfshnd->current_log + 1, 0, 512 - sizeof (log_hdr));
+	return 1;
 }
 
 int
@@ -133,8 +134,6 @@ mfs_log_add_entry (struct mfs_handle *mfshnd, log_entry *entry)
 	/* Deal with overflow */
 	while (intswap16 (entry->length) + 2 - copystart >= 512 - intswap32 (mfshnd->current_log->size) - sizeof (log_hdr))
 	{
-		int left;
-
 		/* Copy the partial data */
 		memcpy ((unsigned char *)(mfshnd->current_log + 1) + intswap32 (mfshnd->current_log->size), (unsigned char *)entry + copystart, 512 - intswap32 (mfshnd->current_log->size) - sizeof (log_hdr));
 		copystart += 512 - sizeof (log_hdr) - intswap32 (mfshnd->current_log->size);
@@ -408,8 +407,8 @@ mfs_log_sync_inode (struct mfs_handle *mfshnd, log_inode_update *entry)
 	if (!inode)
 	{
 		mfshnd->err_msg = "Error loading inode %d for fsid %d";
-		mfshnd->err_arg1 = (void *)intswap32 (entry->inode);
-		mfshnd->err_arg2 = (void *)intswap32 (entry->fsid);
+		mfshnd->err_arg1 = intswap32 (entry->inode);
+		mfshnd->err_arg2 = intswap32 (entry->fsid);
 		return 0;
 	}
 
@@ -565,7 +564,7 @@ mfs_log_fssync_list (struct mfs_handle *mfshnd, struct log_entry_list *list)
 				break;
 			default:
 				mfshnd->err_msg = "Unknown transaction log type %d";
-				mfshnd->err_arg1 = (void *)intswap32 (cur->entry.log.transtype);
+				mfshnd->err_arg1 = intswap32 (cur->entry.log.transtype);
 				return 0;
 		}
 	}
@@ -635,7 +634,7 @@ mfs_log_load_list (struct mfs_handle *mfshnd, unsigned int start, unsigned int e
 				{
 					/* Not the first entry and we missed something - that's bad */
 					mfshnd->err_msg = "Error reading from log entry %d";
-					mfshnd->err_arg1 = (void *)start;
+					mfshnd->err_arg1 = (size_t)start;
 					while (*list)
 					{
 						cur = *list;
@@ -666,7 +665,7 @@ mfs_log_load_list (struct mfs_handle *mfshnd, unsigned int start, unsigned int e
 		{
 			/* Existing entry that doesn't look like it's properly continued */
 			mfshnd->err_msg = "Error reading from log entry %d";
-			mfshnd->err_arg1 = (void *)start;
+			mfshnd->err_arg1 = (size_t)start;
 			while (*list)
 			{
 				cur = *list;
@@ -771,6 +770,7 @@ mfs_log_find_inode_log_type (struct mfs_handle *mfshnd, unsigned int logstamp)
 
 		free (cur);
 	}
+	return 1;
 }
 
 /************************************************************************/

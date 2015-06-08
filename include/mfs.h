@@ -22,7 +22,7 @@ typedef struct volume_header_32_s
 	uint32_t firstpartsize;	/* Size of first partition / 1024 sectors */
 	uint32_t off1c;
 	uint32_t off20;
-	unsigned char partitionlist[128];
+	char partitionlist[128];
 	uint32_t total_sectors;
 	uint32_t offa8;
 	uint32_t logstart;
@@ -52,7 +52,7 @@ typedef struct volume_header_64_s
 	uint32_t firstpartsize;	/* Size of first partition / 1024 sectors */
 	uint32_t off1c;
 	uint32_t off20;
-	unsigned char partitionlist[132];
+	char partitionlist[132];
 	uint64_t total_sectors;
 	uint64_t logstart;
 	uint32_t offb8;
@@ -138,9 +138,9 @@ struct mfs_handle
 	uint32_t lastlogcommit;
 
 	char *err_msg;
-	void *err_arg1;
-	void *err_arg2;
-	void *err_arg3;
+	int64_t err_arg1;
+	int64_t err_arg2;
+	int64_t err_arg3;
 };
 
 #define SABLOCKSEC 1630000
@@ -151,8 +151,8 @@ struct mfs_handle
 void data_swab (void *data, int size);
 
 int mfs_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, uint32_t minalloc);
-unsigned int mfs_volume_pair_app_size (struct mfs_handle *mfshnd, uint64_t blocks, unsigned int minalloc);
-int mfs_load_volume_header (struct mfs_handle *mfshnd, int flags);
+uint64_t mfs_volume_pair_app_size (struct mfs_handle *mfshnd, uint64_t blocks, unsigned int minalloc);
+int64_t  mfs_load_volume_header (struct mfs_handle *mfshnd, int flags);
 struct mfs_handle *mfs_init (char *hda, char *hdb, int flags);
 int mfs_reinit (struct mfs_handle *mfshnd, int flags);
 void mfs_cleanup (struct mfs_handle *mfshnd);
@@ -171,5 +171,7 @@ void mfs_clearerror (struct mfs_handle *mfshnd);
 #define mfs_discard_memwrite(mfshnd) mfsvol_discard_memwrite ((mfshnd)->vols)
 #define mfs_is_64bit(mfshnd) ((mfshnd)->is_64)
 #define mfs_volume_header(mfshnd) (&(mfshnd)->vol_hdr)
+
+int mfs_write_volume_header (struct mfs_handle *mfshnd);
 
 #endif	/* MFS_H */

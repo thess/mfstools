@@ -17,7 +17,7 @@
 #if DEBUG
 #define EXTERNINLINE static inline
 #else
-#define EXTERNINLINE extern inline
+#define EXTERNINLINE static inline
 #endif
 #endif
 
@@ -25,7 +25,7 @@
 EXTERNINLINE u_int16_t
 Endian16_Swap (u_int16_t var)
 {
-	var = (var << 8) | (var >> 8);
+	var = (u_int16_t) ((var << 8) | (var >> 8));
 	return var;
 }
 #endif

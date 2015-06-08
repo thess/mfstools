@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdio.h>
+#include <inttypes.h>
+
 #if HAVE_MALLOC_H
 #include <malloc.h>
 #endif
@@ -134,7 +136,7 @@ backup_add_block (struct blocklist **blocks, uint64_t *partstart, struct blockli
 
 /* A little debug here and there never hurt anything. */
 #if DEBUG
-	fprintf (stderr, "Adding block %d of %d from volume at %d\n", sector, count, partstart[0]);
+	fprintf (stderr, "Adding block %" PRId64 " of %" PRId64 " from volume at %" PRId64 "\n", sector, count, partstart[0]);
 #endif
 
 /* Find where in the list this block fits.  This will return with &loop */
@@ -460,8 +462,8 @@ backup_scan_inode_blocks (struct backup_info *info)
 		if (highest > set_size)
 		{
 			info->err_msg = "Required data at %ld beyond end of the device (%ld)";
-			info->err_arg1 = (void *)highest;
-			info->err_arg2 = (void *)set_size;
+			info->err_arg1 = (int64_t)(size_t)highest;
+			info->err_arg2 = (int64_t)(size_t)set_size;
 
 			free_block_list_array (blocks);
 			free_block_list (&pool);
@@ -492,7 +494,7 @@ backup_scan_inode_blocks (struct backup_info *info)
 			else
 			{
 #if DEBUG
-				fprintf (stderr, "Checking zone at %ld of type %d for region %ld-%ld\n", intswap32 (hdr->z32.sector), intswap32 (hdr->z32.type), intswap32 (hdr->z32.first), intswap32 (hdr->z32.last));
+				fprintf (stderr, "Checking zone at %" PRIu32 " of type %d for region %" PRId32 "-%" PRId32 "\n", intswap32 (hdr->z32.sector), intswap32 (hdr->z32.type), intswap32 (hdr->z32.first), intswap32 (hdr->z32.last));
 #endif
 				if (intswap32 (hdr->z32.type) != ztMedia)
 				{
@@ -513,7 +515,7 @@ backup_scan_inode_blocks (struct backup_info *info)
 			if ((info->back_flags & BF_SHRINK) && loop >= highest)
 			{
 #if DEBUG
-				fprintf (stderr, "Truncating MFS at %d\n", loop);
+				fprintf (stderr, "Truncating MFS at %" PRId64 "\n", loop);
 #endif
 				break;
 			}

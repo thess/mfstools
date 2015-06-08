@@ -11,6 +11,8 @@
 #ifdef HAVE_STDINT_H
 #include <stdint.h>
 #endif
+#include <inttypes.h>
+
 #include "mfs.h"
 #include "macpart.h"
 #include "log.h"
@@ -236,23 +238,23 @@ scan_zone_maps (struct mfs_handle *mfs, zone_bitmap **ckbitmaps)
 		/* Check the current zone against the previous zone's pointer */
 		if (sector != nextsector)
 		{
-			printf ("Zone %d sector (%lld) mismatch to zone %d nextsector (%lld)\n", sector, zoneno, nextsector);
+			printf ("Zone %d sector (%" PRId64 ") mismatch to zone %d nextsector (%" PRId64 ")\n", zoneno, sector, zoneno-1, nextsector);
 		}
 		if (sbackup != nextsbackup)
 		{
-			printf ("Zone %d alternate sector (%lld) mismatch to zone %d next alternate sector (%lld)\n", sbackup, zoneno, nextsbackup);
+			printf ("Zone %d alternate sector (%" PRId64 ") mismatch to zone %d next alternate sector (%" PRId64 ")\n", zoneno, sbackup, zoneno-1, nextsbackup);
 		}
 		if (length != nextlength)
 		{
-			printf ("Zone %d length (%d) mismatch to zone %d next length (%d)\n", length, zoneno, nextlength);
+			printf ("Zone %d length (%d) mismatch to zone %d next length (%d)\n", zoneno, length, zoneno-1, nextlength);
 		}
 		if (size != nextsize)
 		{
-			printf ("Zone %d size (%d) mismatch to zone %d next size (%d)\n", size, zoneno, nextsize);
+			printf ("Zone %d size (%" PRId64 ") mismatch to zone %d next size (%" PRId64 ")\n", zoneno, size, zoneno-1, nextsize);
 		}
 		if (blocksize != nextblocksize)
 		{
-			printf ("Zone %d block size (%d) mismatch to zone %d next block size (%d)\n", blocksize, zoneno, nextblocksize);
+			printf ("Zone %d block size (%d) mismatch to zone %d next block size (%d)\n", zoneno, blocksize, zoneno-1, nextblocksize);
 		}
 
 		if (mfs_is_64bit (mfs))
@@ -275,19 +277,19 @@ scan_zone_maps (struct mfs_handle *mfs, zone_bitmap **ckbitmaps)
 		/* Check a few values for sanity */
 		if (first > last)
 		{
-			printf ("Zone %d start sector > end sector (%lld > %lld)\n", zoneno, first, last);
+			printf ("Zone %d start sector > end sector (%" PRId64 " > %" PRId64 ")\n", zoneno, first, last);
 		}
 		if (size != last - first + 1)
 		{
-			printf ("Zone %d size (%lld) mismatches difference between start and end sectors (%lld-%lld)\n", zoneno, size, first, last);
+			printf ("Zone %d size (%" PRId64 ") mismatches difference between start and end sectors (%" PRId64 "-%" PRId64 ")\n", zoneno, size, first, last);
 		}
 		if (last >= vol_set_size)
 		{
-			printf ("Zone %d end sector (%lld) past end of MFS volume (%lld)\n", zoneno, last, vol_set_size);
+			printf ("Zone %d end sector (%" PRId64 ") past end of MFS volume (%" PRId64 ")\n", zoneno, last, vol_set_size);
 		}
 		if (size % blocksize)
 		{
-			printf ("Zone %d size is not divisible by blocksize (%d / %d remainder = %d)\n", zoneno, size, blocksize, size % blocksize);
+			printf ("Zone %d size is not divisible by blocksize (%" PRId64 " / %d remainder = %d)\n", zoneno, size, blocksize, (int) (size % blocksize));
 		}
 
 		/* Make sure this zone doesn't overlap with any others */
@@ -295,7 +297,7 @@ scan_zone_maps (struct mfs_handle *mfs, zone_bitmap **ckbitmaps)
 		{
 			if (first <= (*bitmaploop)->last && last >= (*bitmaploop)->first)
 			{
-				printf ("Zone %d (%lld-%lld) overlaps with zone %d (%lld-%lld)\n", zoneno, first, last, loop, (*bitmaploop)->first, (*bitmaploop)->last);
+				printf ("Zone %d (%" PRId64 "-%" PRId64 ") overlaps with zone %d (%" PRId64 "-%" PRId64 ")\n", zoneno, first, last, loop, (*bitmaploop)->first, (*bitmaploop)->last);
 			}
 		}
 
@@ -314,13 +316,13 @@ scan_zone_maps (struct mfs_handle *mfs, zone_bitmap **ckbitmaps)
 			unsigned int nbits, nints, setbits, foundbits;
 			unsigned int curint;
 
-			bitmap_header *bitmaphdr = (bitmap_header *)((unsigned)&fsmem_ptrs[numbitmaps] + intswap32 (fsmem_ptrs[loop]) - intswap32 (fsmem_ptrs[0]));
+			bitmap_header *bitmaphdr = (bitmap_header *)((size_t)&fsmem_ptrs[numbitmaps] + intswap32 (fsmem_ptrs[loop]) - intswap32 (fsmem_ptrs[0]));
 
 			unsigned int *ints = (unsigned int *)(bitmaphdr + 1);
 
 			/* Check to make sure it's not pointing off into random memory */
-			if ((unsigned)ints >= (unsigned)curzone + length * 512 ||
-				(unsigned)ints + intswap32 (bitmaphdr->nints) * 4 >= (unsigned)curzone + length * 512)
+			if ((size_t)ints >= (size_t)curzone + length * 512 ||
+				(size_t)ints + intswap32 (bitmaphdr->nints) * 4 >= (size_t)curzone + length * 512)
 			{
 				printf ("Zone %d bitmap %d is beyond end of the zone map\n", zoneno, loop);
 				continue;
@@ -339,7 +341,7 @@ scan_zone_maps (struct mfs_handle *mfs, zone_bitmap **ckbitmaps)
 
 			if (nbits < size)
 			{
-				printf ("Zone %d bitmap %d has fewer bits (%d) than needed (%d)\n", zoneno, loop, nbits, size);
+				printf ("Zone %d bitmap %d has fewer bits (%d) than needed (%" PRId64 ")\n", zoneno, loop, nbits, size);
 			}
 
 			/* Scan for set bits on a coarse level */
@@ -365,7 +367,7 @@ scan_zone_maps (struct mfs_handle *mfs, zone_bitmap **ckbitmaps)
 
 						if ((curbit & 1) && lastbit == curbit - 1)
 						{
-							printf ("Zone %d bitmap %d bits %d-%d (%lld-%lld) has blocks that could be combined\n", zoneno, loop, bitno - 1, bitno, (bitno - 1) * blocksize + (*bitmaploop)->first, (bitno + 1) * blocksize - 1 + (*bitmaploop)->first);
+							printf ("Zone %d bitmap %d bits %d-%d (%" PRId64 "-%" PRId64 ") has blocks that could be combined\n", zoneno, loop, bitno - 1, bitno, (bitno - 1) * blocksize + (*bitmaploop)->first, (bitno + 1) * blocksize - 1 + (*bitmaploop)->first);
 						}
 						lastbit = curbit;
 
@@ -375,14 +377,14 @@ scan_zone_maps (struct mfs_handle *mfs, zone_bitmap **ckbitmaps)
 						/* Make sure it is within the bitmap */
 						if (bitno >= size)
 						{
-							printf ("Zone %d bitmap %d has free space beyond the zone - bit %d (%lld-%lld)\n", zoneno, loop, bitno, bitno * blocksize + (*bitmaploop)->first, (bitno + 1) * blocksize - 1 + (*bitmaploop)->first);
+							printf ("Zone %d bitmap %d has free space beyond the zone - bit %d (%" PRId64 "-%" PRId64 ")\n", zoneno, loop, bitno, bitno * blocksize + (*bitmaploop)->first, (bitno + 1) * blocksize - 1 + (*bitmaploop)->first);
 							continue;
 						}
 
 						/* Make sure the bit wasn't already set */
 						if (!scan_bit_range (*bitmaploop, bitno << loop, ((bitno + 1) << loop) - 1, 0))
 						{
-							printf ("Zone %d bitmap %d bit %d (%lld-%lld) overlaps with previous bitmap\n", zoneno, loop, bitno, bitno * blocksize + (*bitmaploop)->first, (bitno + 1) * blocksize - 1 + (*bitmaploop)->first);
+							printf ("Zone %d bitmap %d bit %d (%" PRId64 "-%" PRId64 ") overlaps with previous bitmap\n", zoneno, loop, bitno, bitno * blocksize + (*bitmaploop)->first, (bitno + 1) * blocksize - 1 + (*bitmaploop)->first);
 						}
 
 						/* Track this bitmap's bit */
@@ -408,7 +410,7 @@ scan_zone_maps (struct mfs_handle *mfs, zone_bitmap **ckbitmaps)
 		totalfree += foundfree;
 	}
 
-	printf ("Total: %lld free sectors in %d chunks across %d zone maps\n", totalfree, totalbits, zoneno + 1);
+	printf ("Total: %" PRId64 " free sectors in %d chunks across %d zone maps\n", totalfree, totalbits, zoneno + 1);
 }
 
 void
@@ -442,15 +444,15 @@ scan_inode_overlap (zone_bitmap *bitmap, unsigned int curinode, mfs_inode *inode
 			newfsid = bitmap->fsids[bitno];
 		}
 
-		if (newfsid != rangefsid && (rangefsid != 0 || rangestart >= 0) || rangestart >= 0 && isclear)
+		if (((newfsid != rangefsid && (rangefsid != 0 || rangestart >= 0))) || (rangestart >= 0 && isclear))
 		{
 			if (rangefsid > 0)
 			{
-				printf ("Inode %d fsid %d data block %lld size %d overlaps with fsid %d\n", curinode, intswap32 (inode->fsid), bitno * bitmap->blocksize + bitmap->first, (bitno - rangestart) * bitmap->blocksize, rangefsid);
+				printf ("Inode %d fsid %d data block %" PRId64 " size %d overlaps with fsid %d\n", curinode, intswap32 (inode->fsid), bitno * bitmap->blocksize + bitmap->first, (bitno - rangestart) * bitmap->blocksize, rangefsid);
 			}
 			else
 			{
-				printf ("Inode %d fsid %d data block %lld size %d marked free in zone map\n", curinode, intswap32 (inode->fsid), bitno * bitmap->blocksize + bitmap->first, (bitno - rangestart) * bitmap->blocksize);
+				printf ("Inode %d fsid %d data block %" PRId64 " size %d marked free in zone map\n", curinode, intswap32 (inode->fsid), bitno * bitmap->blocksize + bitmap->first, (bitno - rangestart) * bitmap->blocksize);
 			}
 			if (isclear)
 			{
@@ -480,11 +482,11 @@ scan_inode_overlap (zone_bitmap *bitmap, unsigned int curinode, mfs_inode *inode
 
 	if (rangefsid > 0)
 	{
-		printf ("Inode %d fsid %d data block %lld size %d overlaps with fsid %d\n", curinode, intswap32 (inode->fsid), bitno * bitmap->blocksize + bitmap->first, (bitno - rangestart) * bitmap->blocksize, rangefsid);
+		printf ("Inode %d fsid %d data block %" PRId64 " size %d overlaps with fsid %d\n", curinode, intswap32 (inode->fsid), bitno * bitmap->blocksize + bitmap->first, (bitno - rangestart) * bitmap->blocksize, rangefsid);
 	}
 	else
 	{
-		printf ("Inode %d fsid %d data block %lld size %d marked free in zone map\n", curinode, intswap32 (inode->fsid), bitno * bitmap->blocksize + bitmap->first, (bitno - rangestart) * bitmap->blocksize);
+		printf ("Inode %d fsid %d data block %" PRId64 " size %d marked free in zone map\n", curinode, intswap32 (inode->fsid), bitno * bitmap->blocksize + bitmap->first, (bitno - rangestart) * bitmap->blocksize);
 	}
 }
 
@@ -533,7 +535,7 @@ scan_inodes (struct mfs_handle *mfs, zone_bitmap *bitmaps)
 			}
 			else
 			{
-				printf ("Error reading inode %d: Unknown\n");
+				printf ("Error reading inode %d: Unknown\n", curinode);
 			}
 			continue;
 		}
@@ -642,7 +644,7 @@ scan_inodes (struct mfs_handle *mfs, zone_bitmap *bitmaps)
 
 				if (intswap32 (inode->size) + sizeof (*inode) > 512)
 				{
-					printf ("Inode %d fsid %d has data in inode block but size %d greather than max allowed %d\n", curinode, intswap32 (inode->fsid), intswap32 (inode->size), 512 - sizeof (*inode));
+					printf ("Inode %d fsid %d has data in inode block but size %d greather than max allowed %d\n", curinode, intswap32 (inode->fsid), intswap32 (inode->size), (int) (512 - sizeof (*inode)));
 				}
 
 				if (inode->type == tyStream)
@@ -656,7 +658,7 @@ scan_inodes (struct mfs_handle *mfs, zone_bitmap *bitmaps)
 			}
 			else
 			{
-				uint64_t totalsize;
+				uint64_t totalsize=0;;
 
 				for (loop = 0; loop < intswap32 (inode->numblocks); loop++)
 				{
@@ -684,7 +686,7 @@ scan_inodes (struct mfs_handle *mfs, zone_bitmap *bitmaps)
 
 					if (!bitmapforblock)
 					{
-						printf ("Inode %d fsid %d extent %d (Sector %lld size %d) not within any zone\n", curinode, intswap32 (inode->fsid), loop, sector, count);
+						printf ("Inode %d fsid %d extent %d (Sector %" PRId64 " size %d) not within any zone\n", curinode, intswap32 (inode->fsid), loop, sector, count);
 						continue;
 					}
 
@@ -695,13 +697,13 @@ scan_inodes (struct mfs_handle *mfs, zone_bitmap *bitmaps)
 
 					if ((sector - bitmapforblock->first) % bitmapforblock->blocksize)
 					{
-						printf ("Inode %d fsid %d extent %d (Sector %lld size %d) not aligned inside zone\n", curinode, intswap32 (inode->fsid), loop, sector, count);
+						printf ("Inode %d fsid %d extent %d (Sector %" PRId64 " size %d) not aligned inside zone\n", curinode, intswap32 (inode->fsid), loop, sector, count);
 						continue;
 					}
 
 					if (count % bitmapforblock->blocksize)
 					{
-						printf ("Inode %d fsid %d extent %d (Sector %lld size %d) size not a multiple of zone block size\n", curinode, intswap32 (inode->fsid), loop, sector, count);
+						printf ("Inode %d fsid %d extent %d (Sector %" PRId64 " size %d) size not a multiple of zone block size\n", curinode, intswap32 (inode->fsid), loop, sector, count);
 						continue;
 					}
 
@@ -718,16 +720,16 @@ scan_inodes (struct mfs_handle *mfs, zone_bitmap *bitmaps)
 
 				if (inode->type == tyStream)
 				{
-					if (totalsize < intswap32 (inode->size) * intswap32 (inode->unk3))
+					if (totalsize*512 < intswap32 (inode->size) * intswap32 (inode->unk3))
 					{
-						printf ("Inode %d fsid %d allocated size (%lld) less than data size (%lld)\n", curinode, intswap32 (inode->fsid), totalsize, (uint64_t)intswap32 (inode->size) * (uint64_t)intswap32 (inode->unk3));
+						printf ("Inode %d fsid %d allocated size (%" PRId64 ") less than data size (%" PRId64 ")\n", curinode, intswap32 (inode->fsid), totalsize*512, (uint64_t)intswap32 (inode->size) * (uint64_t)intswap32 (inode->unk3));
 					}
 				}
 				else
 				{
-					if (totalsize < intswap32 (inode->size))
+					if (totalsize*512 < intswap32 (inode->size))
 					{
-						printf ("Inode %d fsid %d allocated size (%lld) less than data size (%lld)\n", curinode, intswap32 (inode->fsid), totalsize, (uint64_t)intswap32 (inode->size));
+						printf ("Inode %d fsid %d allocated size (%" PRId64 ") less than data size (%" PRId64 ")\n", curinode, intswap32 (inode->fsid), totalsize*512, (uint64_t)intswap32 (inode->size));
 					}
 				}
 			}
@@ -736,12 +738,12 @@ scan_inodes (struct mfs_handle *mfs, zone_bitmap *bitmaps)
 		{
 			if (inode->refcount)
 			{
-				printf ("Inode %d has %d references and no fsid\n", inode, intswap32 (inode->refcount));
+				printf ("Inode %d has %d references and no fsid\n", curinode, intswap32 (inode->refcount));
 			}
 
 			if (inode->numblocks)
 			{
-				printf ("Inode %d free but has datablocks allocated to it\n");
+				printf ("Inode %d free but has datablocks allocated to it\n", curinode);
 			}
 		}
 
@@ -803,21 +805,21 @@ scan_unclaimed_blocks (struct mfs_handle *mfs, zone_bitmap *bitmap)
 					}
 					else if (startunclaimed >= 0)
 					{
-						printf ("Block type %d at %lld for %lld sectors unclaimed by zone maps or inodes\n", bitmap->type, (uint64_t)startunclaimed * bitmap->blocksize + bitmap->first, (uint64_t)(loop2 + loop * 32 - startunclaimed) * bitmap->blocksize);
+						printf ("Block type %d at %" PRId64 " for %" PRId64 " sectors unclaimed by zone maps or inodes\n", bitmap->type, (uint64_t)startunclaimed * bitmap->blocksize + bitmap->first, (uint64_t)(loop2 + loop * 32 - startunclaimed) * bitmap->blocksize);
 						startunclaimed = -1;
 					}
 				}
 			}
 			else if (startunclaimed >= 0)
 			{
-				printf ("Block type %d at %lld for %lld sectors unclaimed by zone maps or inodes\n", bitmap->type, (uint64_t)startunclaimed * bitmap->blocksize + bitmap->first, (uint64_t)(loop * 32 - startunclaimed) * bitmap->blocksize);
+				printf ("Block type %d at %" PRId64 " for %" PRId64 " sectors unclaimed by zone maps or inodes\n", bitmap->type, (uint64_t)startunclaimed * bitmap->blocksize + bitmap->first, (uint64_t)(loop * 32 - startunclaimed) * bitmap->blocksize);
 				startunclaimed = -1;
 			}
 		}
 
 		if (startunclaimed >= 0)
 		{
-			printf ("Block type %d at %lld for %lld sectors unclaimed by zone maps or inodes\n", bitmap->type, (uint64_t)startunclaimed * bitmap->blocksize + bitmap->first, (uint64_t)(nbits - startunclaimed) * bitmap->blocksize);
+			printf ("Block type %d at %" PRId64 " for %" PRId64 " sectors unclaimed by zone maps or inodes\n", bitmap->type, (uint64_t)startunclaimed * bitmap->blocksize + bitmap->first, (uint64_t)(nbits - startunclaimed) * bitmap->blocksize);
 			startunclaimed = -1;
 		}
 
