@@ -22,9 +22,15 @@
 void
 mfsck_usage (char *progname)
 {
+	fprintf (stderr, "%s %s\n", PACKAGE, VERSION);
 	fprintf (stderr, "Usage: %s [options] Adrive [Bdrive]\n", progname);
 	fprintf (stderr, "Options:\n");
 	fprintf (stderr, " -h        Display this help message\n");
+	fprintf (stderr, " -r        Revalidate TiVo partitions on Adrive [Bdrive]\n");
+#if DEBUG
+	fprintf (stderr, " -m [1-5]  Set volume header magic to OK, FS_CHK, LOG_CHK, DB_CHK, or CLEAN\n");
+	fprintf (stderr, " -e [1-3]  Set vol_hdr.v64.off0c to 0x00000010, TiVo, or Dish\n");
+#endif
 }
 
 int
@@ -635,7 +641,7 @@ scan_inodes (struct mfs_handle *mfs, zone_bitmap *bitmaps)
 				break;
 			}
 
-			if (inode->inode_flags & intswap32 (INODE_DATA))
+			if (inode->inode_flags & intswap32 (INODE_DATA) || inode->inode_flags & intswap32 (INODE_DATA2))
 			{
 				if (inode->numblocks)
 				{
@@ -658,7 +664,7 @@ scan_inodes (struct mfs_handle *mfs, zone_bitmap *bitmaps)
 			}
 			else
 			{
-				uint64_t totalsize=0;;
+				uint64_t totalsize=0;
 
 				for (loop = 0; loop < intswap32 (inode->numblocks); loop++)
 				{
@@ -669,7 +675,7 @@ scan_inodes (struct mfs_handle *mfs, zone_bitmap *bitmaps)
 
 					if (mfs_is_64bit (mfs))
 					{
-						sector = intswap64 (inode->datablocks.d64[loop].sector);
+						sector = sectorswap64 (inode->datablocks.d64[loop].sector);
 						count = intswap32 (inode->datablocks.d64[loop].count);
 					}
 					else
@@ -729,7 +735,7 @@ scan_inodes (struct mfs_handle *mfs, zone_bitmap *bitmaps)
 				{
 					if (totalsize*512 < intswap32 (inode->size))
 					{
-						printf ("Inode %d fsid %d allocated size (%" PRId64 ") less than data size (%" PRId64 ")\n", curinode, intswap32 (inode->fsid), totalsize*512, (uint64_t)intswap32 (inode->size));
+						printf ("Inode %d fsid %d allocated size (%" PRId64 ") less than data%s size (%" PRId64 ")\n", curinode, intswap32 (inode->fsid), totalsize*512, intswap32 (inode->numblocks) ? "" : " (in inode)", (uint64_t)intswap32 (inode->size));
 					}
 				}
 			}
@@ -830,28 +836,86 @@ scan_unclaimed_blocks (struct mfs_handle *mfs, zone_bitmap *bitmap)
 int
 mfsck_main (int argc, char **argv)
 {
-	int opt;
+	int opt = 0;
 	struct mfs_handle *mfs;
 	zone_bitmap *usedblocks;
+	char *tmp;
+	int inconsistent = 0;
+	int esata = 0;
+	int doreval = 0;
 
-	while ((opt = getopt (argc, argv, "h")) > 0)
+	tivo_partition_direct ();
+
+#if DEBUG
+	while ((opt = getopt (argc, argv, "hm:e:r")) > 0)
+#else
+	while ((opt = getopt (argc, argv, "hr")) > 0)
+#endif
 	{
 		switch (opt)
 		{
+#if DEBUG
+		case 'm':
+			inconsistent = strtoul (optarg, &tmp, 10);
+			if (tmp && *tmp)
+			{
+				fprintf (stderr, "%s: Integer argument expected for -m.\n", argv[0]);
+				return 1;
+			}
+			if (inconsistent < 1 || inconsistent > 5)
+			{
+				fprintf (stderr, "%s: The value for -m must be in the range of 1 to 5.\n", argv[0]);
+				return 1;
+			}
+			break;
+		case 'e':
+			esata = strtoul (optarg, &tmp, 10);
+			if (tmp && *tmp)
+			{
+				fprintf (stderr, "%s: Integer argument expected for -s.\n", argv[0]);
+				return 1;
+			}
+			if (esata < 1 || esata > 3)
+			{
+				fprintf (stderr, "%s: The value for -s must be in the range of 1 to 3.\n", argv[0]);
+				return 1;
+			}
+			break;
+#endif
+		case 'r':
+			doreval = 1;
+			break;
 		default:
 			mfsck_usage (argv[0]);
 			return 1;
 		}
 	}
 
-	if (optind == argc || optind >= argc + 2)
+	if (optind == argc || argc > optind + 2)
 	{
 		mfsck_usage (argv[0]);
 		return 4;
 	}
 
-	mfs = mfs_init (argv[optind], optind + 1 < argc? argv[optind + 1] : NULL
-, O_RDONLY);
+	if (doreval)
+	{
+		fprintf (stderr, "Revalidating partion table on %s...  ", argv[optind]);
+		if (revalidate_drive(argv[optind]) < 0)
+			fprintf (stderr, "Failed!\n");
+		else
+			fprintf (stderr, "Success!\n");
+		if (optind + 1 < argc)
+		{
+			fprintf (stderr, "Revalidating partion table on %s...  ", argv[optind + 1]);
+			if (revalidate_drive(argv[optind + 1]) < 0)
+				fprintf (stderr, "Failed!\n");
+			else
+				fprintf (stderr, "Success!\n");
+		}
+		return 0;
+	}
+	
+	mfs = mfs_init (argv[optind], optind + 1 < argc? argv[optind + 1] : NULL, (O_RDONLY | MFS_ERROROK));
 
 	if (!mfs)
 	{
@@ -864,6 +928,93 @@ mfsck_main (int argc, char **argv)
 		mfs_perror (mfs, argv[0]);
 		return 1;
 	}
+	
+#if DEBUG
+  // Advanced option to (re)set the volume header magic.  Left in because I still have v3 backups without shrink forced...
+	if (inconsistent>0)
+	{
+		uint32_t magic = 0;
+		switch (inconsistent)
+		{
+		case 2:
+			// Filesystem is inconsistent - cannot mount!
+			// Filesystem is inconsistent, will attempt repair! 
+			// Green Screen mfscheck will occur
+			printf ("\nSetting volume magic to  magic to MFS_MAGIC_FS_CHK(");
+			magic=MFS_MAGIC_FS_CHK;
+			break;
+		case 3:
+			// Filesystem is inconsistent - cannot mount!
+			// Filesystem logs are bad - log roll-forward inhibited!
+			// Green Screen mfscheck will occur
+			// NOTE: May result in a magic=MFS_MAGIC_FS_CHK and 2nd Green Screen
+			printf ("\nSetting volume magic to  magic to MFS_MAGIC_LOG_CHK(");
+			magic=MFS_MAGIC_LOG_CHK;
+			break;
+		case 4:
+			// Database is inconsistent - cannot mount! 
+			// fsfix:  mounted MFS volume, starting consistency checks.
+			// Green Screen mfscheck will occur
+			printf ("\nSetting volume magic to  magic to MFS_MAGIC_DB_CHK(");
+			magic=MFS_MAGIC_DB_CHK;
+			break;
+		case 5:
+			// No consistency warnings or fsfix messages
+			// Cleans up recordings with no tystream, but does not cause a Green Screen mfscheck
+			// NOTE: Experimientally determined to no be valid for S1.
+			printf ("\nSetting volume magic to  magic to MFS_MAGIC_CLEAN(");
+			magic=MFS_MAGIC_CLEAN;
+			break;
+		default:
+			printf ("\nSetting volume magic to  magic to MFS_MAGIC_OK(");
+			magic=MFS_MAGIC_OK;
+		}
+		
+		if (mfs_is_64bit (mfs))
+			magic=magic | MFS_MAGIC_64BIT;
+
+		printf("0x%08x)\n", magic);
+		// Doesn't matter if the header is 32 or 64, as long as we write to the correct endianness version
+		mfs_reinit (mfs, O_RDWR);
+		if (mfsLSB)
+			mfs->vol_hdr.v32.magicLSB = intswap32 (magic);
+		else
+			mfs->vol_hdr.v32.magicMSB = intswap32 (magic);
+		mfs_write_volume_header (mfs);
+		mfs_reinit (mfs, O_RDONLY);
+		if (esata == 0)
+			exit(0);
+	}
+	
+	if (esata>0 && mfs->is_64)
+	{
+		mfs_reinit (mfs, O_RDWR);
+		switch (esata)
+		{
+		case 1:
+			fprintf (stderr, "Previous off0c = 0x%08x (0x%08x) new off0c = 0x%08x (0x%08x)\n", intswap32 (mfs->vol_hdr.v64.off0c), intswap32 (mfs->vol_hdr.v64.off14), 0x10, 0x40);
+			mfs->vol_hdr.v64.off0c = intswap32 (0x00000010);
+			mfs->vol_hdr.v64.off14 = intswap32 (0x00000040);
+			break;
+		case 2:
+			fprintf (stderr, "Previous off0c = 0x%08x (0x%08x) new off0c = 0x%08x (0x%08x)\n", intswap32 (mfs->vol_hdr.v64.off0c), intswap32 (mfs->vol_hdr.v64.off14), 0x5469566F, 0x0);
+			mfs->vol_hdr.v64.off0c = intswap32 (0x5469566F);
+			mfs->vol_hdr.v64.off14 = intswap32 (0x0);
+			break;
+		case 3:
+			fprintf (stderr, "Previous off0c = 0x%08x (0x%08x) new off0c = 0x%08x (0x%08x)\n", intswap32 (mfs->vol_hdr.v64.off0c), intswap32 (mfs->vol_hdr.v64.off14), 0x44697368, 0xffffffff);
+			mfs->vol_hdr.v64.off0c = intswap32 (0x44697368);
+			mfs->vol_hdr.v64.off14 = intswap32 (0xffffffff);
+			break;
+		default:
+			printf ("\nInvalid setting, bailing...");
+			exit(0);
+		}
+		mfs_write_volume_header (mfs);
+		mfs_reinit (mfs, O_RDONLY);
+		exit(0);
+	}
+#endif
 
 	printf ("\nChecking zone maps...\n");
 	scan_zone_maps (mfs, &usedblocks);

@@ -31,6 +31,9 @@
 #include "backup.h"
 #include "log.h"
 
+unsigned int resource_cnt;
+unsigned int resources[100];
+
 /***********************************************************/
 /* Queries the mfs code for the list of partitions in use. */
 int
@@ -41,14 +44,6 @@ add_mfs_partitions_to_backup_info (struct backup_info *info)
 	uint64_t cursector = 0;
 
 	mfs_partitions = mfs_partition_list (info->mfs);
-	if (! strncmp(mfs_partitions, "/dev/sd", 7))
-	{
-		info->back_flags |= BF_PREMIERE;
-#if DEBUG
-		fprintf (stderr, "Setting Premiere flag\n" );
-#endif
-
-	}
 
 	if (info->nmfs == 0)
 	{
@@ -68,6 +63,15 @@ add_mfs_partitions_to_backup_info (struct backup_info *info)
 		}
 	}
 
+/* If there is an odd number of mfs partitions we will not backup using v1 */
+	if ((info->nmfs & 1) == 1 && info->format != bfV3)
+	{
+		info->err_msg = "Odd number (%d) of MFS partitions in source only supported in v3 backups.";
+		info->err_arg1 = info->nmfs;
+		info->nmfs = 0;
+		return -1;
+	}
+	
 	info->mfsparts = calloc (sizeof (struct backup_partition), info->nmfs);
 
 	if (!info->mfsparts)
@@ -163,34 +167,25 @@ add_mfs_partitions_to_backup_info (struct backup_info *info)
 /* (One of the bootstrap/kernel/root sets) and 9 (/var) - 8 is skipped */
 /* because it can easily be re-created.  It is, after all, just swap space. */
 /* Nothing else is supported. */
+/* Update - This now allows for backing up the other boot/kernel/root */
+/* and any other non-mfs partition on drive 1, using the BF_BACKUPALL flag. */
+/* It also allows for /db (partition 14 named SQLite). */
+
 int
 add_partitions_to_backup_info (struct backup_info *info, char *device)
 {
 	int loop;
 	char bootsector[512];
 	int rootdev;
+	int altpart = 3;
+	int altpartno = 2;
 	char *tmpc;
 	char *mfs_partitions;
+	char *pname;
+	char *ptype;
+	int part=0;
+	int prevpart=0;
 
-/* Four.  Always Four.  Or three. */
-/* But sometimes five */
-	info->nparts = 3;
-	if (info->back_flags & BF_BACKUPVAR)
-	{
-		info->nparts++;
-	}
-	mfs_partitions = mfs_partition_list (info->mfs);
-	if (! strncmp(mfs_partitions, "/dev/sd", 7))
-	{
-		info->back_flags |= BF_PREMIERE;
-#if DEBUG
-		fprintf (stderr, "Setting Premiere flag\n" );
-#endif
-	}
-	if (info->back_flags & BF_PREMIERE)
-	{
-		info->nparts++;
-	}
 /* One.  No more, no less. */
 	info->ndevs = 1;
 
@@ -199,16 +194,6 @@ add_partitions_to_backup_info (struct backup_info *info, char *device)
 	{
 		info->ndevs = 0;
 		info->nparts = 0;
-		info->err_msg = "Memory exhausted";
-		return -1;
-	}
-
-	info->parts = calloc (sizeof (struct backup_partition), info->nparts);
-	if (!info->parts)
-	{
-		info->nparts = 0;
-		info->ndevs = 0;
-		free (info->devs);
 		info->err_msg = "Memory exhausted";
 		return -1;
 	}
@@ -281,43 +266,122 @@ add_partitions_to_backup_info (struct backup_info *info, char *device)
 			rootdev = tmpc[13] - '0';
 #if DEBUG
 			fprintf (stderr, "Using root partition %d from boot sector.\n", rootdev);
+			if (info->back_flags & BF_BACKUPALL) fprintf (stderr, "Backing up ALL non-mfs partitions.\n");
 #endif
 		}
 	}
 
-	info->parts[0].partno = bootsector[2] - 1;
-	info->parts[0].devno = 0;
-	info->parts[1].partno = bootsector[2];
-	info->parts[1].devno = 0;
-	info->parts[2].partno = rootdev;
-	info->parts[2].devno = 0;
-	if (info->back_flags & BF_BACKUPVAR)
-	{
-		info->parts[3].partno = 9;
-		info->parts[3].devno = 0;
-	}
 	mfs_partitions = mfs_partition_list (info->mfs);
 	if (! strncmp(mfs_partitions, "/dev/sd", 7))
 	{
-		info->back_flags |= BF_PREMIERE;
-	}
-	if (info->back_flags & BF_PREMIERE)
-	{
-		info->parts[0].partno = 5;  /* we may use 2 ourselves in restore */
-		info->parts[info->nparts-1].partno = 14;
-		info->parts[info->nparts-1].devno = 0;
+		info->back_flags |= BF_SQLITE;
+#if DEBUG
+		fprintf (stderr, "Setting BF_SQLITE flag\n" );
+#endif
 	}
 
-	for (loop = 0; loop < info->nparts; loop++)
+	/* Count the number of non-mfs partitions to include. */	
+	for (loop = 2; loop < info->devs[0].nparts+1; loop++)
+	{
+		/* Skip MFS partitions (those will be done later) */
+		ptype = tivo_partition_type(device, loop);
+		if (strcmp(ptype, "MFS")==0) continue;
+		pname = tivo_partition_name(device, loop);
+		
+		if (loop<5 && rootdev==4)
+			info->nparts++;
+		else if (loop>4 && loop<8 && rootdev==7)
+			 info->nparts++;
+		else if (loop==9 && (info->back_flags & BF_BACKUPVAR))
+			 info->nparts++;
+		else if (loop==14 && strcmp(pname, "SQLite")==0)
+		{
+			if (! (info->back_flags & BF_SQLITE)) 
+				fprintf (stderr, "BF_SQLITE flag not set but SQLite partition was found.\nYou should use '-F v3p' option to force the BF_SQLITE flag\n");
+			if (info->skipdb == 0)
+				info->nparts++;
+		}
+		else if (strcmp(ptype, "Apple_Free")==0)
+		{
+#if DEBUG
+			fprintf (stderr, "skipping partno: %d because type is Apple_Free\n", loop);
+#endif
+			continue;
+		}
+		else if (!(loop==8||loop==9) && (info->back_flags & BF_BACKUPALL))
+			 info->nparts++;
+	}
+	
+	info->parts = calloc (sizeof (struct backup_partition), info->nparts);
+	if (!info->parts)
+	{
+		info->nparts = 0;
+		info->ndevs = 0;
+		free (info->devs);
+		info->err_msg = "Memory exhausted";
+		return -1;
+	}
+
+/* This loop looks almost the same as the last one...  Except this time, */
+/* it actually fills out the structures. */
+	for (loop = 2; loop < info->devs[0].nparts+1; loop++)
 	{
 		tpFILE *file;
+		int add=0;
 
-		file = tivo_partition_open_direct (device, info->parts[loop].partno, O_RDONLY);
+		/* Skip MFS partitions (those will be done later) */
+		ptype = tivo_partition_type(device, loop);
+		if (strcmp(ptype, "MFS")==0) continue;
+		pname = tivo_partition_name(device, loop);
 
+		if (loop<5 && rootdev==4) 
+			add=1;
+		else if (loop>4 && loop<8 && rootdev==7)
+			add=1;
+		else if (loop==9 && (info->back_flags & BF_BACKUPVAR))
+			add=1;
+		else if (loop==14 && strcmp(pname, "SQLite")==0)
+		{
+			if (info->skipdb == 0)
+				add=1;
+		}
+		else if (strcmp(ptype, "Apple_Free")==0)
+		{
+			continue;
+		}
+		else if (!(loop==8||loop==9) && (info->back_flags & BF_BACKUPALL))
+			add=1;
+		if (add==1) {
+			// Sanity check to make sure we don't create a backup that would cause restore to fail.
+			if (loop == 10 || loop == 11) {
+				prevpart=-1;
+				info->err_msg = "Error partitions 10 and 11 must be mfs.";
+			} else if (loop > 11 && prevpart != 0 && loop != prevpart + 1) {
+				prevpart=-1;
+				info->err_msg = "Error all non-mfs partitions above 11 must be consecutive.";
+			}
+			if (prevpart == -1) {
+				while (part-- > 0)
+				{
+					tivo_partition_close (info->devs[0].files[(int)info->parts[part].partno]);
+				}
+				free (info->devs[0].files);
+				free (info->devs);
+				free (info->parts);
+				info->ndevs = 0;
+				info->nparts = 0;
+				return -1;
+			}
+			if (loop>11) 
+				prevpart=loop;
+			info->parts[part].partno = loop;
+			info->parts[part].devno = 0;
+
+			file = tivo_partition_open_direct (device, loop, O_RDONLY);
 		if (!file) {
-			while (loop-- > 0)
+				while (part-- > 0)
 			{
-				tivo_partition_close (info->devs[0].files[(int)info->parts[loop].partno]);
+					tivo_partition_close (info->devs[0].files[(int)info->parts[part].partno]);
 			}
 			free (info->devs[0].files);
 			free (info->devs);
@@ -326,20 +390,113 @@ add_partitions_to_backup_info (struct backup_info *info, char *device)
 			info->nparts = 0;
 			info->err_msg = "Error opening partition %s%d";
 			info->err_arg1 = (int64_t)(size_t)device;
-			info->err_arg2 = (int64_t)info->parts[loop].partno;
+				info->err_arg2 = (int64_t)loop;
 			return -1;
 		}
 
-		info->devs[0].files[(int)info->parts[loop].partno] = file;
-		info->parts[loop].sectors = tivo_partition_size (file);
-		info->nsectors += info->parts[loop].sectors;
+			info->devs[0].files[loop] = file;
+			info->parts[part].sectors = tivo_partition_size (file);
+			info->nsectors += info->parts[part].sectors;
 
 #if DEBUG
-		fprintf (stderr, "adding partno: %d size: %" PRIu64 " nsectors: %" PRIu64 "\n", info->parts[loop].partno, info->parts[loop].sectors, info->nsectors );
+			fprintf (stderr, "adding partno: %d size: %" PRIu32 " (%" PRIu32 " MiB)\n", loop, info->parts[part].sectors, info->parts[part].sectors/2048);
 #endif
-
+			part++;
+		}
 	}
 
+#if DEBUG
+	fprintf (stderr, "Total non mfs sectors: %" PRIu64 " (%" PRIu64 " MiB)\n", (uint64_t)info->nsectors, (uint64_t)info->nsectors/2048 );
+#endif
+	return 0;
+}
+
+/*********************************************************/
+/* Walk / and /Resource/VideoClip and note any tyStreams */
+int
+backup_set_resource_check(struct backup_info *info)
+{
+	mfs_dirent *dir;
+	int fsid;
+	uint32_t count, i;
+
+	// Loop through the root directory and add any tyStreams
+	fsid = mfs_resolve(info->mfs, "/");
+	dir = mfs_dir(info->mfs, fsid, &count);
+	for (i=0;i<count;i++) {
+		if (dir[i].type == tyStream)
+		{
+			resources[resource_cnt] = dir[i].fsid;
+#if DEBUG
+			fprintf (stderr, "Adding /%s (%d)\n", dir[i].name, resources[resource_cnt]);
+#endif
+			resource_cnt++;
+		}
+	}
+	if (dir) mfs_dir_free(dir);
+
+	// Walk /Resource/VideoClip and add any file subobjects found
+	fsid = mfs_resolve(info->mfs, "/Resource/VideoClip");
+	dir = mfs_dir(info->mfs, fsid, &count);
+	for (i=0;i<count;i++) {
+		if (dir[i].type == tyDb)
+		{
+			unsigned int ofs = 0;
+			unsigned int len = 0;
+			unsigned char *buf;
+			int size = 0;		
+			mfs_subobj_header *subobj = 0;
+			mfs_inode *inode = 0;
+			mfs_obj_header *obj = 0;
+			mfs_attr_header *attr = 0;
+			inode=mfs_read_inode_by_fsid (info->mfs, dir[i].fsid);					
+
+			if (inode)
+			{
+				if (intswap32 (inode->unk3) == 0x20000) 
+					size = intswap32 (inode->size) * intswap32 (inode->unk3);
+				else
+					size = intswap32 (inode->size);
+				buf = mfs_read_inode_data(info->mfs, inode, &size);
+				obj = (mfs_obj_header *) buf;
+				ofs = sizeof(*obj);
+
+				while (ofs < intswap32 (obj->size))
+				{
+					subobj = (mfs_subobj_header *) (buf + ofs);
+					ofs += sizeof(*subobj);
+					while ( ofs < intswap32 (obj->size))
+					{
+						attr = (mfs_attr_header *) (buf + ofs);
+						if ((intswap16 (attr->attreltype) >> 14)==TYPE_FILE)
+						{
+							resources[resource_cnt] = intswap32 (*(uint32_t *) &buf[ofs + 4]);
+#if DEBUG
+							fprintf (stderr, "Adding /Resource/VideoClip/%s (%d)\n", dir[i].name, resources[resource_cnt]);
+#endif
+							resource_cnt++;								
+						}
+						ofs += (intswap16 (attr->len)+3)&~3;
+					}							
+				}
+				free(buf);
+				free(inode);
+			}
+		}
+	}
+	if (dir) mfs_dir_free(dir);
+	}
+
+int
+is_resource(unsigned int fsid)
+{
+	int i = 0;
+
+	for (i=0; i<resource_cnt; i++)
+	{
+		if (fsid == resources[i])
+			return 1;
+	}
 	return 0;
 }
 
@@ -347,6 +504,12 @@ void
 backup_set_thresh (struct backup_info *info, unsigned int thresh)
 {
 	info->thresh = thresh;
+}
+
+void
+backup_set_skipdb (struct backup_info *info, unsigned int skipdb)
+{
+	info->skipdb = skipdb;
 }
 
 /*************************************************************/
@@ -358,7 +521,7 @@ backup_verify_zone_maps (struct backup_info *info)
 	zone_header *zone;
 
 #if DEBUG
-	fprintf (stderr, "Volume set size %lld\n", volume_size);
+	fprintf (stderr, "Volume set size %" PRIu64 "\n", volume_size);
 #endif
 
 	for (zone = mfs_next_zone (info->mfs, NULL); zone; zone = mfs_next_zone (info->mfs, zone))
@@ -382,7 +545,7 @@ backup_verify_zone_maps (struct backup_info *info)
 			continue;
 
 #if DEBUG
-		fprintf (stderr, "Zone type %d at %lld\n", zonetype, zonefirst);
+		fprintf (stderr, "Zone type %d at %" PRIu64 "\n", zonetype, zonefirst);
 #endif
 
 		if (zonefirst >= volume_size)
@@ -421,7 +584,7 @@ backup_check_truncated_volume (struct backup_info *info)
 	}
 
 	// Shrinking a truncated volume implied.
-	info->back_flags |= BF_SHRINK;;
+	info->back_flags |= BF_SHRINK;
 
 	// Clear any errors.
 	backup_clearerror (info);

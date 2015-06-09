@@ -26,6 +26,9 @@ extern int mfsadd_main (int, char **);
 #if BUILD_MLS
 extern int mls_main (int, char **);
 #endif
+#if BUILD_SUPERSIZE
+extern int supersize_main (int, char **);
+#endif
 #if BUILD_MFSD
 extern int mfsd_main (int, char **);
 #endif
@@ -58,6 +61,9 @@ struct {
 #endif
 #if BUILD_MLS
 	{"mls", mls_main, "List files in the MFS volume."},
+#endif
+#if BUILD_SUPERSIZE
+	{"supersize", supersize_main, "Supersize a TiVo drive."},
 #endif
 #if BUILD_MFSD
 	{"d", mfsd_main, "Dump raw data from MFS volume."},

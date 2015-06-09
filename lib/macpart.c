@@ -106,6 +106,8 @@ file_or_dev_size (int fd, uint64_t *size)
 	if (fstat (fd, &st) == 0)
 #endif
 	{
+		//TODO: Should this be 
+		//*size = st.st_blocks / 512;
 		*size = st.st_blocks;
 		return 0;
 	}
@@ -209,8 +211,49 @@ tivo_read_partition_table (const char *device, int flags)
 /* It is the right magic.  Do nothing. */
 			break;
 		case TIVO_BOOT_AMIGC:
-/* It is the right magic, but it is byte-swapped.  Enable byte-swapping. */
+/* It is the right magic, but it is byte-swapped (swab) or the wrong endianness. */
+			data_swab(buf, 512);
+			if (strstr((char *)buf+4, "/hda"))
+			{
+				// Series 1 
 			table->vol_flags |= VOL_SWAB;
+			}
+			else
+			{
+				struct mac_partition *part;
+
+				// You would think if the boot magic is swapped then so is the mac magic, but we had better not assume that...
+				// Should be safe to assume the MFS is little endian.
+				mfsLSB=1;
+#if DEBUG
+				fprintf (stderr, "MFS detected as LSB (Roamio or newer?).  Switching MFS to little endian.\n");
+#endif
+				// Load the first parttion, so we can inspect it's endianness
+				lseek (*fd, 512, SEEK_SET);
+				if (read (*fd, buf, 512) != 512)
+				{
+					close (*fd);
+					free (table);
+					return 0;
+				}
+				part = (struct mac_partition *) buf;
+				
+				if (partintswap16 (part->signature) == MAC_PARTITION_AMIGC || partintswap16 (part->signature) == TIVO_BIGPARTITION_AMIGC)
+				{
+					partLSB = 1;
+				}
+				else if (partintswap16 (part->signature) == MAC_PARTITION_MAGIC || partintswap16 (part->signature) == TIVO_BIGPARTITION_MAGIC)
+				{
+#if DEBUG
+					fprintf (stderr, "MAC_PARTITION_MAGIC is not the same endianness as TIVO_BOOT_MAGIC.\n");
+#endif
+					partLSB = 0;
+				}
+				else
+				{					
+					return 0;
+				}
+			}
 			break;
 		default:
 /* Wrong magic.  Bail. */
@@ -242,31 +285,37 @@ tivo_read_partition_table (const char *device, int flags)
 /* If this is the first, update the max. */
 			if (cursec == 1)
 			{
-				maxsec = intswap32 (part->map_count);
+				maxsec = partintswap32 (part->map_count);
 			}
 
 /* If it doesn't have the magic, it's not hip.  No more partitions. */
-			if (intswap16 (part->signature) == MAC_PARTITION_MAGIC)
+			if (partintswap16 (part->signature) == MAC_PARTITION_MAGIC)
 			{
 
 /* Add it to the list. */
-			parts[partitions].start = intswap32 (part->start_block);
-			parts[partitions].sectors = intswap32 (part->block_count);
+				parts[partitions].start = partintswap32 (part->start_block);
+				parts[partitions].sectors = partintswap32 (part->block_count);
 			parts[partitions].name = strdup (part->name);
 			parts[partitions].type = strdup (part->type);
 			parts[partitions].refs = 1;
+#if DEBUG
+				fprintf (stderr, "Part %s(%s) signature == MAC_PARTITION_MAGIC %u %u.\n", parts[partitions].name, parts[partitions].type, parts[partitions].start, parts[partitions].sectors);
+#endif
 			partitions++;
 		}
-			else if (intswap16 (part->signature) == TIVO_BIGPARTITION_MAGIC)
+			else if (partintswap16 (part->signature) == TIVO_BIGPARTITION_MAGIC)
 			{
 				bigpart = (struct tivo_bigpartition *) buf;
 
 /* Add it to the list. */
-				parts[partitions].start = intswap64 (bigpart->start_block);
-				parts[partitions].sectors = intswap64 (bigpart->block_count);
+				parts[partitions].start = partintswap64 (bigpart->start_block);
+				parts[partitions].sectors = partintswap64 (bigpart->block_count);
 				parts[partitions].name = strdup (bigpart->name);
 				parts[partitions].type = strdup (bigpart->type);
 				parts[partitions].refs = 1;
+#if DEBUG
+				fprintf (stderr, "Part %s(%s) signature == TIVO_BIGPARTITION_MAGIC %llu %llu.\n", parts[partitions].name, parts[partitions].type, parts[partitions].start, parts[partitions].sectors);
+#endif
 				partitions++;
 
 			} else 
@@ -304,7 +353,6 @@ tivo_read_partition_table (const char *device, int flags)
 		table->device = strdup (device);
 		table->next = partition_tables;
 		partition_tables = table;
-	       
 	}
 	else
 	{
@@ -435,7 +483,7 @@ tivo_partition_validate (struct tivo_partition_table *table)
 		partsused[partno] = 1;
 
 /* If there was a gap, create a partition to fill it. */
-		if (table->partitions[loop2].start > loop)
+		if (table->partitions[loop2].start > loop && table->partitions[loop2].start - loop > 3)
 		{
 /* If the table is too big for the first partition or for a max of 256, */
 /* which is very generous since TiVo only allows 15 max, report an error. */
@@ -472,7 +520,7 @@ tivo_partition_validate (struct tivo_partition_table *table)
 		return -1;
 
 /* If the partition table describes too few partitions, create a filler. */
-	if (loop < table->devsize)
+	if (loop < table->devsize && table->devsize - loop > 3)
 	{
 /* If the table is too big for the first partition or for a max of 256, */
 /* which is very generous since TiVo only allows 15 max, report an error. */
@@ -787,7 +835,7 @@ tivo_partition_add (const char *device, uint64_t size, int before, const char *n
 		}
 		else
 		{
-			first = (table->partitions[nextpart].start + 3 ) & ~0x03;;  /* round to 2K boundary for modern disks */
+			first = (table->partitions[nextpart].start + 7 ) & ~0x07;  /* round to 4K boundary for modern disks */
 			last = first + table->partitions[nextpart].sectors;
 		}
 	}
@@ -963,42 +1011,47 @@ tivo_partition_table_write (const char *device)
 		if (loop < table->count)
 		{
 			char *p, *name;
-			// Use the old format if the partition doesn't touch blocks above the old format limit.
-			if (table->partitions[loop].start < UINT_MAX &&
-			    (table->partitions[loop].start + table->partitions[loop].sectors) < UINT_MAX )
+			// Use the old format if the partition doesn't start above and isn't bigger that the old UINT_MAX limit
+			// TODO: This appears to be safe comapared to pdisk64, but keep a watch on it, as it be be
+			//       necessary to use the new format if any part goes above UINT_MAX.
+			//       pdisk64 has been replaced by tdisk, with no source available to confirm..
+			//if (table->partitions[loop].start < UINT_MAX &&
+			//		(table->partitions[loop].start + table->partitions[loop].sectors) < UINT_MAX )
+			if (table->partitions[loop].start <= UINT_MAX &&
+					table->partitions[loop].sectors <= UINT_MAX )
 			{
-			mp->signature = intswap16 (MAC_PARTITION_MAGIC);
-			mp->map_count = intswap32 (table->count);
-			mp->start_block = intswap32 (table->partitions[loop].start);
-			mp->block_count = intswap32 (table->partitions[loop].sectors);
+				mp->signature = partintswap16 (MAC_PARTITION_MAGIC);
+				mp->map_count = partintswap32 (table->count);
+				mp->start_block = partintswap32 (table->partitions[loop].start);
+				mp->block_count = partintswap32 (table->partitions[loop].sectors);
 /* One smaller so the result is null terminated, due to the bzero(). */
 			strncpy (mp->name, table->partitions[loop].name, sizeof (mp->name) - 1);
 			strncpy (mp->type, table->partitions[loop].type, sizeof (mp->type) - 1);
 			mp->data_count = mp->block_count;
-			mp->status = intswap32 (0x33);
+				mp->status = partintswap32 (0x33);
 				// Set special tivo AV status bit for media partitions.
 				name = strdup(mp->name);
 				for(p=name; *p != 0; p++)
 					*p = tolower(*p);
 				if(strstr(name,"media") != 0)
-					mp->status |= intswap32(0x100);
+					mp->status |= partintswap32 (0x100);
 				free(name);
 			} else 	{
-				tbp->signature = intswap16 (TIVO_BIGPARTITION_MAGIC);
-				tbp->map_count = intswap32 (table->count);
-				tbp->start_block = intswap64 (table->partitions[loop].start);
-				tbp->block_count = intswap64 (table->partitions[loop].sectors);
+				tbp->signature = partintswap16 (TIVO_BIGPARTITION_MAGIC);
+				tbp->map_count = partintswap32 (table->count);
+				tbp->start_block = partintswap64 (table->partitions[loop].start);
+				tbp->block_count = partintswap64 (table->partitions[loop].sectors);
 /* One smaller so the result is null terminated, due to the bzero(). */
 				strncpy (tbp->name, table->partitions[loop].name, sizeof (tbp->name) - 1);
 				strncpy (tbp->type, table->partitions[loop].type, sizeof (tbp->type) - 1);
 				tbp->data_count = tbp->block_count;
-				tbp->status = intswap32 (0x33);
+				tbp->status = partintswap32 (0x33);
 				// Set special tivo AV status bit for media partitions.
 				name = strdup(tbp->name);
 				for(p=name; *p != 0; p++)
 					*p = tolower(*p);
 				if(strstr(name,"media") != 0)
-					tbp->status |= intswap32(0x100);
+					tbp->status |= partintswap32 (0x100);
 				free(name);
 			}
 
@@ -1114,7 +1167,7 @@ tivo_partition_open (char *path, int flags)
 					strcpy (devpath + partoff - 5, "/disc");
 				}
 /* Likewise, the old devfs naming scheme called partitions /dev/XX/cXbXtXuXpX */
-/* and whole drives /dev/XX/cXbXtXuX.  Even though this naming is depricated, */
+/* and whole drives /dev/XX/cXbXtXuX.  Even though this naming is deprecated, */
 /* it is still an option in devfsd, which creates a compatibility namespace. */
 				else if (devpath[partoff - 1] == 'p' && isdigit (devpath[partoff - 2]))
 				{
@@ -1573,5 +1626,11 @@ revalidate_drive (const char *device) {
         if (table)
            free(table);        
         close (fd);
+	
+	//USB flash drive fix ???
+	//sleep(3);
+	//fd = open(device, O_RDONLY);
+	//close (fd);
+	
         return 1;
 }

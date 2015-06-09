@@ -6,7 +6,9 @@
 #define TIVO_BOOT_MAGIC         0x1492
 #define TIVO_BOOT_AMIGC         0x9214
 #define MAC_PARTITION_MAGIC     0x504d
+#define MAC_PARTITION_AMIGC     0x4d50
 #define TIVO_BIGPARTITION_MAGIC 0x504E
+#define TIVO_BIGPARTITION_AMIGC 0x4E50
 
 /* Format of mac partition table. */
 struct mac_partition

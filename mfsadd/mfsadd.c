@@ -25,12 +25,16 @@ extern char* tivo_devnames[];
 void
 mfsadd_usage (char *progname)
 {
+	fprintf (stderr, "%s %s\n", PACKAGE, VERSION);
 	fprintf (stderr, "Usage: %s [options] Adrive [Bdrive] [NewApp NewMedia]\n", progname);
 	fprintf (stderr, "Options:\n");
 	fprintf (stderr, " -h        Display this help message\n");
-	fprintf (stderr, " -r scale  Set scale factor of media block size\n");
-	fprintf (stderr, " -x        Create partitions to fill all drives\n");
-	fprintf (stderr, " -X drive  Create partitions to fill specific drive\n");
+	fprintf (stderr, " -r scale  Override media blocksize of 20480 with 2048<<scale (scale=0 to 4)\n");
+	fprintf (stderr, " -x        Create partition(s) on all drives\n");
+	fprintf (stderr, " -X drive  Create partition(s) on a specific drive\n");
+	fprintf (stderr, " -m size   Maximum media partition size in GiB\n");
+	fprintf (stderr, " -M size   Maximum drive size in GiB (ie lba28 would be 128)\n");
+	fprintf (stderr, " -f        Use with -m to fill the drive multiple media partitions\n");
 	fprintf (stderr, "NewApp / NewMedia\n");
 #if TARGET_OS_MAC
 	fprintf (stderr, "  Existing partitions (Such as /dev/disk1s14 /dev/disk1s15) to add to\n");
@@ -68,7 +72,8 @@ mfsadd_scan_partitions (struct mfs_handle *mfs, int *used, char *seconddrive)
 			loop++;
 		}
 
-		if (strncmp (loop, "/dev/hd", 7))
+		// Premiere and later use /dev/sd*
+		if (!(strncmp (loop, "/dev/hd", 7)==0 || strncmp (loop, "/dev/sd", 7)==0))
 		{
 			fprintf (stderr, "Non-standard drive in MFS - giving up.\n");
 			return -1;
@@ -127,44 +132,96 @@ mfsadd_scan_partitions (struct mfs_handle *mfs, int *used, char *seconddrive)
 }
 
 int
-mfsadd_add_extends (struct mfs_handle *mfs, char **drives, char **xdevs, char **pairs, char *pairnums, int *npairs, int minalloc)
+mfsadd_add_extends (struct mfs_handle *mfs, char **drives, char **xdevs, char **pairs, char *pairnums, int *npairs, int minalloc,	int64_t maxdisk , int64_t maxmedia, int fill)
 {
-	int loop;
+	int loop = 0;
+	int loop2 = 0;
 	char tmp[MAXPATHLEN];
+	char appname[32];
+	char medianame[32];
+	int nparts = 0;
+	char *mfs_partitions;
+
+	// Get the current mfs partition count, so we can name the adds and make sure we don't exceed the max allowed
+	mfs_partitions = mfs_partition_list (mfs);
+	loop = 0;
+	while (mfs_partitions[loop])
+	{
+		nparts++;
+		while (mfs_partitions[loop] && !isspace (mfs_partitions[loop]))
+			loop++;
+		while (mfs_partitions[loop] && isspace (mfs_partitions[loop]))
+			loop++;
+	}
 
 	for (loop = 0; loop < 2 && xdevs[loop]; loop++)
 	{
-		unsigned int maxfree = tivo_partition_largest_free (xdevs[loop]);
-		unsigned int totalfree = tivo_partition_total_free (xdevs[loop]);
-		unsigned int used = maxfree & ~(minalloc - 1);
-		unsigned int required = mfs_volume_pair_app_size (mfs, used, minalloc);
+		do 
+		{
+			uint64_t maxfree = tivo_partition_largest_free (xdevs[loop]);
+			uint64_t totalfree = tivo_partition_total_free (xdevs[loop]);
+			uint64_t totalused = tivo_partition_total_used (xdevs[loop]);
+			uint64_t mediasize = 0;
+			uint64_t appsize = 0;
 		unsigned int part1, part2;
 		int devn = xdevs[loop] == drives[0]? 0: 1;
 
 		if (maxfree < 1024 * 1024 * 2)
-			continue;
+				break;
+			
+			// Limit the total disk size if set
+			if (maxdisk && maxdisk < totalfree + totalused)
+			{
+				if (maxdisk > totalused)
+					totalfree = maxdisk - totalused;
+				else
+					totalfree = 0;
+				if (maxfree > totalfree)
+					maxfree = totalfree;
+			}
+			
+			// Limit the parttion size if needed
+			if (maxmedia && maxmedia < maxfree)
+				maxfree = maxmedia;
 
-		if (totalfree - maxfree < required && maxfree - used < required)
+			// TODO: Change mediasize to this in order to round to the nearest chunk size (TiVo doesn't bother, so neither do we for now)
+			//mediasize = maxfree & ~(minalloc - 1); /* only works when minalloc is base-2, which it might not be now, better to use the next one */
+			//mediasize = maxfree / minalloc * minalloc; /* this math works better for rounding down to the nearest minalloc, but doesn't take into account rounding to 4K boundary for modern disks, which tivo_partition_add will do, move along */
+			//mediasize = (maxfree / minalloc * minalloc) / 8 * 8; /* That should do it for rounding to the nearest chunk size (minalloc), if we must */
+			mediasize = maxfree / 8 * 8; /* Round down to the nearest 4K boundary because tivo_partition_add does */
+			appsize = mfs_volume_pair_app_size (mfs, mediasize, minalloc);
+
+			if (totalfree - maxfree < appsize && maxfree - mediasize < appsize)
 		{
-			used = (maxfree - required) & ~(minalloc - 1);
-			required = mfs_volume_pair_app_size (mfs, used, minalloc);
+				//TODO: Change mediasize to this in order to round to the nearest chunk size (TiVo doesn't bother, so neither do we for now)
+				//mediasize = (maxfree - required) & ~(minalloc - 1);; /* only works when minalloc is base-2, which it might not be now, better to use the next one */
+				//mediasize = (maxfree - required) / minalloc * minalloc; /* this math works better for rounding down to the nearest minalloc, but doesn't take into account rounding to 4K boundary for modern disks, which tivo_partition_add will do, move along */
+				//mediasize = ((maxfree - required) / minalloc * minalloc) / 8 * 8; /* That should do it for rounding to the nearest chunk size (minalloc), if we must */
+				mediasize = (maxfree - appsize) / 8 * 8; /* Round down to the nearest 4K boundary because tivo_partition_add does */
+				appsize = mfs_volume_pair_app_size (mfs, mediasize, minalloc);
 		}
 
-		if (totalfree - maxfree >= required && maxfree - used < required)
+			// Friendly partition names
+			sprintf (appname, "MFS application region  %d", (*npairs / 2) + (nparts / 2) + 1);
+			sprintf (medianame, "MFS media region %d", (*npairs / 2) + (nparts / 2) + 1);
+
+			if (totalfree - maxfree >= appsize && maxfree - mediasize < appsize)
 		{
-			part2 = tivo_partition_add (xdevs[loop], used, 0, "New MFS Media", "MFS");
-			part1 = tivo_partition_add (xdevs[loop], required, part2, "New MFS Application", "MFS");
+				part2 = tivo_partition_add (xdevs[loop], mediasize, 0, medianame, "MFS");
+				part1 = tivo_partition_add (xdevs[loop], appsize, part2, appname, "MFS");
 
 			part2++;
 		}
 		else
 		{
-			part1 = tivo_partition_add (xdevs[loop], required, 0, "New MFS Application", "MFS");
-			part2 = tivo_partition_add (xdevs[loop], used, 0, "New MFS Media", "MFS");
+				part1 = tivo_partition_add (xdevs[loop], appsize, 0, appname, "MFS");
+				part2 = tivo_partition_add (xdevs[loop], mediasize, 0, medianame, "MFS");
 		}
 
 		if (part1 < 2 || part2 < 2 || part1 > 16 || part2 > 16)
 		{
+				if (*npairs)
+					break; // We were able to expand, just not in this iteration
 			fprintf (stderr, "Expand of %s would result in too many partitions.\n", xdevs[loop]);
 			return -1;
 		}
@@ -184,9 +241,21 @@ mfsadd_add_extends (struct mfs_handle *mfs, char **drives, char **xdevs, char **
 #endif
 		if (!pairs[*npairs - 2] || !pairs[*npairs - 1])
 		{
+				if (*npairs)
+					break; // We were able to expand, just not in this iteration
 			fprintf (stderr, "Memory exhausted!\n");
 			return -1;
 		}
+
+			if (fill == 0)
+				break; // Not asked to create multiple mfs partitions on a drive
+			if (totalfree - mediasize - appsize < minalloc + 4)
+				break; // Out of space
+			if (part2 + 2 > 16)
+				break; // Reached the max partitions for this drive
+			if (nparts + *npairs + 2 > 12)
+				break; // Reached the max total partitions
+		} while (1);
 	}
 
 	return 0;
@@ -219,7 +288,7 @@ check_partition_count (struct mfs_handle *mfs, char *pairnums, int npairs)
 int
 mfsadd_main (int argc, char **argv)
 {
-	unsigned int minalloc = 0x800 << 2;
+	unsigned int minalloc = 20480;
 	int opt;
 	int init_b_part = 0;
 	int extendall = 0;
@@ -238,10 +307,13 @@ mfsadd_main (int argc, char **argv)
 	int changed[2] = {0, 0};
 	int usecdrive = 0;
 	char seconddrive = 0;
+	int64_t maxdisk = 0;
+	int64_t maxmedia = 0;
+	int fill = 0;
 
 	tivo_partition_direct ();
 
-	while ((opt = getopt (argc, argv, "xX:r:he")) > 0)
+	while ((opt = getopt (argc, argv, "xX:r:hem:M:f")) > 0)
 	{
 		switch (opt)
 		{
@@ -262,17 +334,38 @@ mfsadd_main (int argc, char **argv)
 			minalloc = 0x800 << strtoul (optarg, &tmp, 10);
 			if (tmp && *tmp)
 			{
-				fprintf (stderr, "%s: Integer argument expected for -s.\n", argv[0]);
+				fprintf (stderr, "%s: Integer argument expected for -r.\n", argv[0]);
 				return 1;
 			}
 			if (minalloc < 0x800 || minalloc > (0x800 << 4))
 			{
-				fprintf (stderr, "%s: Value for -s must be between 1 and 4.\n", argv[0]);
+				fprintf (stderr, "%s: Value for -r must be between 0 and 4.\n", argv[0]);
 				return 1;
 			}
 			break;
 		case 'e':
 			usecdrive = 1;
+			break;
+		case 'm':
+			maxmedia = strtoull (optarg, &tmp, 10);
+			if (tmp && *tmp)
+			{
+				fprintf (stderr, "%s: Integer argument expected for -m.\n", argv[0]);
+				return 1;
+			}
+			maxmedia = maxmedia * 1024 * 1024 * 1024 / 512; //Convert GiB to sectors
+			break;
+		case 'M':
+			maxdisk = strtoull (optarg, &tmp, 10);
+			if (tmp && *tmp)
+			{
+				fprintf (stderr, "%s: Integer argument expected for -M.\n", argv[0]);
+				return 1;
+			}
+			maxdisk = (maxdisk * 1024 * 1024 * 1024 / 512) - 1; //Convert GiB to sectors, subtract one to make sure we end below the requested size
+			break;
+		case 'f':
+			fill = 1;
 			break;
 		default:
 			mfsadd_usage (argv[0]);
@@ -433,7 +526,7 @@ mfsadd_main (int argc, char **argv)
 		}
 	}
 
-	mfs = mfs_init (drives[0], drives[1], O_RDWR);
+	mfs = mfs_init (drives[0], drives[1], (O_RDWR | MFS_ERROROK));
 
 	if (!mfs)
 	{
@@ -535,7 +628,7 @@ mfsadd_main (int argc, char **argv)
 		}
 	}
 
-	if (mfsadd_add_extends (mfs, drives, xdevs, pairs, pairnums, &npairs, minalloc) < 0)
+	if (mfsadd_add_extends (mfs, drives, xdevs, pairs, pairnums, &npairs, minalloc, maxdisk, maxmedia, fill) < 0)
 		return 1;
 
 	if (check_partition_count (mfs, pairnums, npairs) < 0)
@@ -581,7 +674,22 @@ mfsadd_main (int argc, char **argv)
 	if (npairs < 1)
 		fprintf (stderr, "Nothing to add!\n");
 	else
+	{
 		fprintf (stderr, "Done!  Estimated standalone gain: %d hours\n", loop2 - hours);
+		fprintf (stderr, "Revalidating partion table on %s...  ", drives[0]);
+		if (revalidate_drive(drives[0]) < 0)
+			fprintf (stderr, "Failed!\n");
+		else
+			fprintf (stderr, "Success!\n");
+		if (drives[1])
+		{
+			fprintf (stderr, "Revalidating partion table on %s...  ", drives[1]);
+			if (revalidate_drive(drives[1]) < 0)
+				fprintf (stderr, "Failed!\n");
+			else
+				fprintf (stderr, "Success!\n");
+		}
+	}
 
 	return 0;
 }

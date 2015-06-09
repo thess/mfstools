@@ -74,6 +74,7 @@ typedef struct log_inode_update_s
 		d32[0];
 		struct
 		{
+			// *NOTE*  Little endian drives (Roamio) have reversed hi an lo 32 bits
 			uint64_t sector;
 			uint32_t count;
 		}
@@ -98,7 +99,7 @@ typedef enum log_trans_types_e
 	/* Rollback = 3? */
 	ltFsSync = 4,
 	ltLogReplay = 5,
-	/* ? = 6 */
+	ltUnknownType6 = 6, /* ? = 6 */
 	ltMapUpdate64 = 7,
 	ltInodeUpdate2 = 8
 }

@@ -93,6 +93,9 @@ tivo_partition_read (tpFILE * file, void *buf, uint64_t sector, int count)
 #endif
 	int retval;
 
+	//patch submitted by terativo (http://mfslive.org/forums/viewtopic.php?f=4&t=955)
+	unsigned int orig_sector = sector;
+
 	if (sector + count > tivo_partition_size (file))
 	{
 		fprintf (stderr, "Attempt to read across partition boundry!");
@@ -143,6 +146,46 @@ tivo_partition_read (tpFILE * file, void *buf, uint64_t sector, int count)
 	}
 
 	retval = read (_tivo_partition_fd (file), buf, count * 512);
+	
+	/* rescue begin by terativo(http://mfslive.org/forums/viewtopic.php?f=4&t=955)*/
+	if (retval < 0 && errno == EIO)
+	{
+		int error = errno;
+		if (count == 1)
+		{
+			fprintf(stderr, "read failure at sector %u(%#x) of %d(%#x): %s; zeroing sector\n",
+			sector, sector, count*512, count*512, strerror(errno));
+			memset(buf, 0, count * 512);
+			retval = count * 512;
+		}
+		else
+		{
+			int i;
+			
+			fprintf(stderr, "read failure at sector %u(%#x) of %d(%#x): %s; trying sector-by-sector\n",
+			sector, sector, count*512, count*512, strerror(errno));
+			for (i = 0; i < count; i++)
+			{
+				int r;
+				r = tivo_partition_read(file, (char *) buf + i * 512, orig_sector + i, 1);
+				if (r < 0)
+				{
+					 fprintf(stderr, "sector scan failed\n");
+					 errno = error;
+					 break;
+				}
+			}
+
+			if (i >= count)
+			{
+				fprintf(stderr, "sector scan done\n");
+				retval = count * 512;
+			}
+		}
+	}
+	/* rescue end */
+
+
 	if (_tivo_partition_swab (file))
 	{
 		data_swab (buf, count * 512);

@@ -254,7 +254,7 @@ backup_add_block (struct blocklist **blocks, uint64_t *partstart, struct blockli
 			newblock->sector = sector;
 
 			newblock->next->sector = sector + count;
-			newblock->next->next = (*loop)->next;;
+			newblock->next->next = (*loop)->next;
 
 /* Insert this block at the beginning of the list.  Also trick out the loop */
 /* variable, since it is expected to point to the newly adjusted block to be */
@@ -378,7 +378,7 @@ backup_scan_inode_blocks (struct backup_info *info)
 					streamsize = intswap32 (inode->blocksize) / 512 * intswap32 (inode->blockused);
 
 /* Only backup streams that are smaller than the threshhold. */
-				if (streamsize > 0 && (((info->back_flags & BF_THRESHSIZE) && streamsize < info->thresh) || (!(info->back_flags & BF_THRESHSIZE) && intswap32 (inode->fsid) <= info->thresh)))
+				if (streamsize > 0 && (((info->back_flags & BF_THRESHSIZE) && streamsize <= info->thresh) || (!(info->back_flags & BF_THRESHSIZE) && intswap32 (inode->fsid) <= info->thresh) || is_resource(intswap32 (inode->fsid))))
 				{
 /* Add all blocks. */
 
@@ -393,7 +393,7 @@ backup_scan_inode_blocks (struct backup_info *info)
 						if (mfs_is_64bit (info->mfs))
 						{
 							thiscount = intswap32 (inode->datablocks.d64[loop2].count);
-							thissector = intswap64 (inode->datablocks.d64[loop2].sector);
+							thissector = sectorswap64 (inode->datablocks.d64[loop2].sector);
 						}
 						else
 						{
@@ -437,7 +437,7 @@ backup_scan_inode_blocks (struct backup_info *info)
 					if (mfs_is_64bit (info->mfs))
 					{
 						thiscount = intswap32 (inode->datablocks.d64[loop2].count);
-						thissector = intswap64 (inode->datablocks.d64[loop2].sector);
+						thissector = sectorswap64 (inode->datablocks.d64[loop2].sector);
 					}
 					else
 					{
@@ -481,7 +481,7 @@ backup_scan_inode_blocks (struct backup_info *info)
 			if (mfs_is_64bit (info->mfs))
 			{
 #if DEBUG
-				fprintf (stderr, "Checking zone at %lld of type %d for region %lld-%lld\n", intswap64 (hdr->z64.sector), intswap32 (hdr->z64.type), intswap64 (hdr->z64.first), intswap64 (hdr->z64.last));
+				fprintf (stderr, "Checking zone at %" PRIu64 " of type %d for region %" PRIu64 "-%" PRIu64 "\n", intswap64 (hdr->z64.sector), intswap32 (hdr->z64.type), intswap64 (hdr->z64.first), intswap64 (hdr->z64.last));
 #endif
 				if (intswap32 (hdr->z64.type) != ztMedia)
 				{
@@ -544,8 +544,6 @@ init_backup_v1 (char *device, char *device2, int flags)
 {
  	struct backup_info *info;
 
-	flags &= BF_FLAGS;
-
  	if (!device)
  		return 0;
  
@@ -561,16 +559,30 @@ init_backup_v1 (char *device, char *device2, int flags)
 	info->crc = ~0;
 	info->state_machine = &backup_v1;
 
-	info->mfs = mfs_init (device, device2, O_RDONLY);
+	info->mfs = mfs_init (device, device2, (O_RDONLY | MFS_ERROROK));
  
  	info->back_flags = flags;
+
+	// MFS is little endian
+	if (mfsLSB == 1)
+	{
+		info->back_flags |= BF_MFSLSB;
+	}
+	
+	// TiVo partitions are little endian
+	if (partLSB == 1)
+	{
+		info->back_flags |= BF_PARTLSB;
+	}
 
 	if (info->mfs && mfs_is_64bit (info->mfs))
 	{
 		info->back_flags |= BF_64;
 	}
 
-	info->thresh = 2000;
+	// This appears to be an arbitrary number to pickup misc tyStream files (loopset, demo, etc.), which doesn't work very well after a unit is in service for a while,
+	// then has it's loopsets updated. This job is now handled by backup_set_resource_check, so don't bother with a minimum fsid here...
+	//info->thresh = 2000;
 
 	if (!tivo_partition_swabbed (device))
 		info->back_flags |= BF_NOBSWAP;

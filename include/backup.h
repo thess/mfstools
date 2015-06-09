@@ -134,6 +134,9 @@ extern backup_state_handler backup_v3;
 extern backup_state_handler restore_v1;
 extern backup_state_handler restore_v3;
 
+extern int mfsLSB;
+extern int partLSB;
+
 struct backup_info
 {
 /* Backup size */
@@ -186,6 +189,7 @@ struct backup_info
 
 /* Other backup stuff stuff */
 	int back_flags;
+	int rest_flags;
 	int crc;
 
 /* Compression */
@@ -205,13 +209,19 @@ struct backup_info
 	int nnewparts;
 	struct backup_partition *newparts;
 	int varsize;
+	int dbsize;
 	int swapsize;
 	int bswap;
 	int bitsize;
+	int64_t maxdisk;
+	int64_t maxmedia;
+// V3 restores only
+	unsigned int minalloc;
 
 	void *extrainfodata;
 #else
 	unsigned int thresh;
+	unsigned int skipdb;
 	char *hda;
 	unsigned int shrink_to;
 #endif
@@ -237,7 +247,7 @@ struct block_info
 struct backup_head
 {
 	unsigned int magic;		/* TBAK */
-	unsigned int flags;		/* Flags - only the lower 16 bits should be set */
+	unsigned int flags;		/* Backup flags (no longer shared with restore flags, so 32 bits available) */
 	unsigned int nsectors;	/* Uncompressed backup size (512 byte sectors) */
 	unsigned int nparts;	/* Number of non-MFS partitions backed up */
 	unsigned int nblocks;	/* Number of blocks of MFS data backed up */
@@ -248,8 +258,13 @@ struct backup_head
 struct backup_head_v3
 {
 	unsigned int magic;		/* TBK3 */
-	unsigned int size;		/* Size of the backup structure */
-	unsigned short flags;	/* 16 bit since backup uses the lower 16 bits */
+// TODO: Switched size and flags in the header because we now use 32-bits for the beckup flags.
+//       Added temporary code attempt detection and alerting by looking for flags==0x40 (header size)
+//       This should be removed before release, as there are probably few v3 backups in the wild...
+//	unsigned int size;		/* Size of the backup structure */
+//	unsigned short flags;	/* 16 bit since backup uses the lower 16 bits */
+	unsigned int flags;		/* Backup flags (no longer shared with restore flags, so 32 bits available) */
+	unsigned short size;	/* Size of the backup structure */
 	unsigned short nparts;	/* Number of non-MFS partitions backed up */
 	unsigned short nzones;	/* Number of MFS zone maps found */
 	unsigned short mfspairs;/* Number of MFS volume pairs found */
@@ -268,20 +283,26 @@ struct backup_head_v3
 #define TB_ENDIAN (('T' << 0) + ('B' << 8) + ('A' << 16) + ('K' << 24))
 #define TB3_MAGIC (('T' << 24) + ('B' << 16) + ('K' << 8) + ('3' << 0))
 #define TB3_ENDIAN (('T' << 0) + ('B' << 8) + ('K' << 16) + ('3' << 24))
+
+// Backup Flags (No longer shared with Restore Flags, so all 32-bits are available for use)
 #define BF_COMPRESSED	0x00000001	/* Backup is compressed. */
-#define BF_MFSONLY		0x00000002	/* Backup is MFS only. */
-#define BF_BACKUPVAR	0x00000004	/* /var in backup. */
+//#define BF_MFSONLY	0x00000002	/* Backup is MFS only. - Usurped for mfs endianness because BF_MFSONLY was not implemented*/
+#define BF_MFSLSB		0x00000002	/* Roamio (and later?) are mipsel.  The MFS values are little endian (LSB), so be careful with intswap. */
+#define BF_BACKUPVAR	0x00000004	/* /var in backup. */  // *** Not used in restore 
 #define BF_SHRINK		0x00000008	/* Divorced backup. */
 #define BF_THRESHSIZE	0x00000010
 #define BF_THRESHTOT	0x00000020
 #define BF_STREAMTOT	0x00000040
-#define BF_NOBSWAP		0x00000080	/* Source isn't byte swapped. */
+#define BF_NOBSWAP		0x00000080	/* Source isn't byte swapped (swabbed). */
 #define BF_TRUNCATED	0x00000100	/* Backup from incomplete volume. */
 #define BF_64			0x00000200	/* Backup is from a 64 bit system */
-#define BF_PREMIERE	0x00000800	/* Premier backup: backup db (sql db) in backup and use /dev/sd* */
-#define BF_COMPLVL(f)	(((f) >> 12) & 0xf)
-#define BF_SETCOMP(l)	((((l) & 0xf) << 12) | BF_COMPRESSED)
-#define BF_FLAGS		0x0000ffff
+#define BF_BACKUPALL	0x00000400  /* Include all non-mfs partitions (alternate bootstrap/kernel/root, custom, etc.) */
+#define BF_SQLITE		0x00000800	/* Premiere and later system with SQLite partition AND uses /dev/sd* for device names in MFS */
+#define BF_COMPLVL(f)	(((f) >> 12) & 0xf)                   /* Bits 13 thru 16 */
+#define BF_SETCOMP(l)	((((l) & 0xf) << 12) | BF_COMPRESSED) /* Bits 13 thru 16 */
+#define BF_PARTLSB 0x00010000 /* (EXTENDED FLAG) The TiVo Partition is also LSB on the Roamio */
+
+// Restore Flags (No longer shared with Backup Flags, so all 32-bits are available for use)
 #define RF_INITIALIZED	0x00010000	/* Restore initialized. */
 #define RF_ENDIAN		0x00020000	/* Restore from different endian. */
 #define RF_NOMORECOMP	0x00040000	/* No more compressed data. */
@@ -289,11 +310,13 @@ struct backup_head_v3
 #define RF_BALANCE		0x00100000	/* Balance partition layout. */
 #define RF_NOFILL		0x00200000	/* Leave room for more partitions. */
 #define RF_SWAPV1		0x00400000	/* Use version 1 swap signature. */
-#define RF_FLAGS		0xffff0000
+#define RF_KOPT		0x00800000	/* Balance partition layout with kernels at the front of the drive. */
 
 struct backup_info *init_backup_v1 (char *device, char *device2, int flags);
 struct backup_info *init_backup_v3 (char *device, char *device2, int flags);
+int backup_set_resource_check(struct backup_info *info);
 void backup_set_thresh (struct backup_info *info, unsigned int thresh);
+void backup_set_skipdb (struct backup_info *info, unsigned int skipdb);
 void backup_check_truncated_volume (struct backup_info *info);
 
 int backup_start (struct backup_info *info);
@@ -308,12 +331,16 @@ int add_mfs_partitions_to_backup_info (struct backup_info *info);
 
 struct backup_info *init_restore (unsigned int flags);
 void restore_set_varsize (struct backup_info *info, int size);
+void restore_set_dbsize (struct backup_info *info, int size);
 void restore_set_swapsize (struct backup_info *info, int size);
 void restore_set_mfs_type (struct backup_info *info, int bits);
+void restore_set_minalloc (struct backup_info *info, unsigned int minalloc);
+void restore_set_maxdisk (struct backup_info *info, int64_t maxdisk);
+void restore_set_maxmedia (struct backup_info *info, int64_t maxmedia);
 void restore_set_bswap (struct backup_info *info, int bswap);
 
 unsigned int restore_write (struct backup_info *info, unsigned char *buf, unsigned int size);
-int restore_trydev (struct backup_info *info, char *dev1, char *dev2);
+int restore_trydev (struct backup_info *info, char *dev1, char *dev2, int64_t carveA, int64_t carveB);
 int restore_start (struct backup_info *info);
 int restore_finish(struct backup_info *info);
 void restore_perror (struct backup_info *info, char *str);
@@ -328,5 +355,6 @@ int restore_fudge_inodes (struct backup_info *info);
 int restore_fudge_transactions (struct backup_info *info);
 int restore_fixup_vol_list (struct backup_info *info);
 int restore_fixup_zone_maps(struct backup_info *info);
+int restore_fixup_volume_header(struct backup_info *info);
 
 #endif

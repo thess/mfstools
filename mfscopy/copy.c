@@ -24,30 +24,51 @@
 void
 copy_usage (char *progname)
 {
+	fprintf (stderr, "%s %s\n", PACKAGE, VERSION);
 	fprintf (stderr, "Usage: %s [options] SourceA[:SourceB] DestA[:DestB]\n", progname);
 	fprintf (stderr, "General options:\n");
 	fprintf (stderr, " -h        Display this help message\n");
 	fprintf (stderr, " -q        Do not display progress\n");
 	fprintf (stderr, " -qq       Do not display anything but error messages\n");
 	fprintf (stderr, "Source options:\n");
+#if DEPRECATED
+	// Mostly used to copy loopsets when excluding recordings.  Loopsets are now handled automatically, so these are less useful now...
 	fprintf (stderr, " -f max    Copy only fsids below max\n");
-	fprintf (stderr, " -L max    Copy only streams less than max megabytes\n");
+	fprintf (stderr, " -L max    Copy only streams less than max MiB\n");
+#endif
 	fprintf (stderr, " -t        Use total length of stream in calculations\n");
 	fprintf (stderr, " -T        Copy total length of stream instead of used length\n");
 	fprintf (stderr, " -a        Copy all streams\n");
+	fprintf (stderr, " -i        Include all non-mfs partitions from Adrive (alternate, custom, etc.)\n");
+#if DEPRECATED
+	// C'mon, who would do this ???
+	fprintf (stderr, " -D        Do not force loopset and demo files to be added\n");
+#endif
 	fprintf (stderr, "Target options:\n");
-	fprintf (stderr, " -s        Shrink MFS whily copying\n");
-	fprintf (stderr, " -p        Optimize partition layout\n");
-	fprintf (stderr, " -x        Expand the volume to fill the drive(s)\n");
-	fprintf (stderr, " -r scale  Expand the volume with block size scale\n");
-	fprintf (stderr, " -v size   Recreate /var as size megabytes and don't copy /var\n");
-	fprintf (stderr, " -S size   Recreate swap as size megabytes\n");
+	fprintf (stderr, " -s        Shrink MFS whily copying (implied for v3 copies)\n");
+#if DEPRECATED
+	// Optimized layout is now the default.  Probably no reason to allow a non-optimized layout...
+	//fprintf (stderr, " -p        Optimize partition layout\n");
+	fprintf (stderr, " -P        Do NOT optimize the partition layout\n");
+#endif
+	fprintf (stderr, " -k        Optimize partition layout with kernels first\n");
+	fprintf (stderr, " -r scale  Override v3 media blocksize of 20480 with 2048<<scale (scale=0 to 4)\n");
+	fprintf (stderr, " -v size   Recreate /var as size MiB and don't copy /var\n");
+	fprintf (stderr, " -d size   Recreate /db (SQLite in source) as size MiB and don't copy /db\n");
+	fprintf (stderr, " -S size   Recreate swap as size MiB\n");
 	fprintf (stderr, " -l        Leave at least 2 partitions free\n");
 	fprintf (stderr, " -b        Force no byte swapping on target\n");
 	fprintf (stderr, " -B        Force byte swapping on target\n");
+#if DEPRECATED
+	// Arguments could be made to keep this, but I suspect few will actually miss it.
 	fprintf (stderr, " -z        Zero out partitions not copied\n");
-	fprintf (stderr, " -R        Just copy raw blocks instead of rebuilding data structures\n");
-	fprintf (stderr, " -M 32/64  Write MFS structures as 32 or 64 bit\n");
+#endif
+	fprintf (stderr, " -R        Just copy raw blocks (v1) instead of rebuilding data structures (v3)\n");
+	fprintf (stderr, " -w 32/64  Write MFS structures as 32 or 64 bit\n");
+	fprintf (stderr, " -c size   Carve (leave free) in blocks on drive A\n");
+	fprintf (stderr, " -C size   Carve (leave free) in blocks on Drive B\n");
+	fprintf (stderr, " -m size   Maximum media partition size in GiB for v3 restore\n");
+	fprintf (stderr, " -M size   Maximum drive size in GiB (ie lba28 would be 128)\n");
 }
 
 static unsigned int
@@ -70,67 +91,6 @@ get_percent (uint64_t current, uint64_t max)
 	return prcnt;
 }
 
-static int
-expand_drive (struct mfs_handle *mfshnd, char *tivodev, char *realdev, unsigned int blocksize)
-{
-	unsigned int maxfree = tivo_partition_largest_free (realdev);
-	unsigned int totalfree = tivo_partition_total_free (realdev);
-	unsigned int used = maxfree & ~(blocksize - 1);
-	unsigned int required = mfs_volume_pair_app_size (mfshnd, used, blocksize);
-	unsigned int part1, part2;
-	char app[MAXPATHLEN];
-	char media[MAXPATHLEN];
-
-	unsigned int newsize, oldsize;
-
-	oldsize = mfs_sa_hours_estimate (mfshnd);
-
-	if (totalfree - maxfree < required && maxfree - used < required)
-	{
-		used = (maxfree - required) & ~(blocksize - 1);
-		required = mfs_volume_pair_app_size (mfshnd, used, blocksize);
-	}
-
-	if (totalfree - maxfree >= required && maxfree - used < required)
-	{
-		part2 = tivo_partition_add (realdev, used, 0, "New MFS Media", "MFS");
-		part1 = tivo_partition_add (realdev, required, part2, "New MFS Application", "MFS");
-
-		part2++;
-	}
-	else
-	{
-		part1 = tivo_partition_add (realdev, required, 0, "New MFS Application", "MFS");
-		part2 = tivo_partition_add (realdev, used, 0, "New MFS Media", "MFS");
-	}
-
-	if (part1 < 2 || part2 < 2 || part1 > 16 || part2 > 16)
-		return -1;
-
-	sprintf (app, "%s%d", tivodev, part1);
-	sprintf (media, "%s%d", tivodev, part2);
-
-#if TARGET_OS_MAC
-	fprintf (stderr, "Adding pair %ss%d-%ss%d\n", realdev, part1, realdev, part2);
-#else
-	fprintf (stderr, "Adding pair %s%d-%s%d\n", realdev, part1, realdev, part2);
-#endif
-
-	if (mfs_can_add_volume_pair (mfshnd, app, media, blocksize) < 0)
-		return -1;
-
-	if (tivo_partition_table_write (realdev) < 0)
-		return -1;
-
-	if (mfs_add_volume_pair (mfshnd, app, media, blocksize) < 0)
-		return -1;
-
-	newsize = mfs_sa_hours_estimate (mfshnd);
-	fprintf (stderr, "New estimated standalone size: %d hours (%d more)\n", newsize, newsize - oldsize);
-
-	return 0;
-}
-
 void
 get_drives (char *drives, char *adrive, char *bdrive)
 {
@@ -142,7 +102,7 @@ get_drives (char *drives, char *adrive, char *bdrive)
 	if (drives[devlen] != 0)
 		strcpy (bdrive, drives + devlen + 1);
 
-	fprintf (stderr, "Drives: %s and %s\n", adrive, bdrive);
+	//fprintf (stderr, "Drives: %s and %s\n", adrive, bdrive);
 }
 
 int
@@ -152,19 +112,30 @@ copy_main (int argc, char **argv)
 	char dest_a[PATH_MAX], dest_b[PATH_MAX];
 	char *tmp;
 	struct backup_info *info_b, *info_r;
-	int opt, thresh = 0, threshopt = 0;
-	unsigned int varsize = 0, swapsize = 0;
-	unsigned int bflags = BF_BACKUPVAR, rflags = 0;
+	int opt, threshopt = 0;
+	unsigned int thresh = 0;
+	unsigned int varsize = 0, dbsize = 0, swapsize = 0;
+	unsigned int bflags = BF_BACKUPVAR, rflags = RF_BALANCE;;
 	int quiet = 0;
 	int bswap = 0;
-	int expand = 0;
-	int expandscale = 2;
 	int restorebits = 0;
 	int rawcopy = 0;
+	int64_t carveA = 0;
+	int64_t carveB = 0;
+	int norescheck = 0;
+	unsigned int skipdb = 1;
+	int64_t maxdisk = 0;
+	int64_t maxmedia = 0;
+	unsigned int minalloc = 0;
+	unsigned starttime = 0;
 
 	tivo_partition_direct ();
 
-	while ((opt = getopt (argc, argv, "hqf:L:tTaspxr:v:S:lbBzEM:R")) > 0)
+#if DEPRECATED
+	while ((opt = getopt (argc, argv, "hqf:L:tTasPxr:v:S:lbBzEw:RiDkc:C:d:m:M:")) > 0)
+#else
+	while ((opt = getopt (argc, argv, "hqtTasxr:v:S:lbBEw:Rikc:C:d:m:M:")) > 0)
+#endif
 	{
 		switch (opt)
 		{
@@ -194,7 +165,7 @@ copy_main (int argc, char **argv)
 		case 'L':
 			if (threshopt)
 			{
-				fprintf (stderr, "%s: -l and -%c cannot be used together\n", argv[0], threshopt);
+				fprintf (stderr, "%s: -L and -%c cannot be used together\n", argv[0], threshopt);
 				return 1;
 			}
 			threshopt = 'L';
@@ -221,8 +192,9 @@ copy_main (int argc, char **argv)
 			}
 			threshopt = 'a';
 			thresh = ~0;
+			// No need to check for resource files if we are including all streams
+			norescheck = 1;
 			break;
-
 		case 'v':
 			bflags &= ~BF_BACKUPVAR;
 			varsize = strtoul (optarg, &tmp, 10);
@@ -233,11 +205,21 @@ copy_main (int argc, char **argv)
 				return 1;
 			}
 			break;
+		case 'd':
+			skipdb = 1;
+			dbsize = strtoul (optarg, &tmp, 10);
+			dbsize *= 1024 * 2;
+			if (tmp && *tmp)
+			{
+				fprintf (stderr, "%s: Integer argument expected for -d.\n", argv[0]);
+				return 1;
+			}
+			break;
 		case 'S':
 			swapsize = strtoul (optarg, &tmp, 10);
 			if (tmp && *tmp)
 			{
-				fprintf (stderr, "%s: Integer argument expected for -s.\n", argv[0]);
+				fprintf (stderr, "%s: Integer argument expected for -S.\n", argv[0]);
 				return 1;
 			}
 			break;
@@ -260,29 +242,30 @@ copy_main (int argc, char **argv)
 			}
 			bswap = 1;
 			break;
-		case 'p':
-			rflags |= RF_BALANCE;
+		case 'P':
+			rflags &= ~RF_BALANCE;
 			break;
 		case 'l':
 			rflags |= RF_NOFILL;
 			break;
 		case 'x':
-			expand = 1;
-			break;
+			copy_usage (argv[0]);
+			fprintf (stderr, "\n Deprecated argument -x.  Use mfsadd after copy to expand drive(s).\n", argv[0]);
+			return 1;
 		case 'r':
-			expandscale = strtoul (optarg, &tmp, 10);
+			minalloc = 0x800 << strtoul (optarg, &tmp, 10);
 			if (tmp && *tmp)
 			{
 				fprintf (stderr, "%s: Integer argument expected for -r.\n", argv[0]);
 				return 1;
 			}
-			if (expandscale < 0 || expandscale > 4)
+			if (minalloc < 0x800 || minalloc > (0x800 << 4))
 			{
-				fprintf (stderr, "%s: Scale value for -r must be in the range 0 to 4.\n", argv[0]);
+				fprintf (stderr, "%s: Value for -r must be between 1 and 0.\n", argv[0]);
 				return 1;
 			}
 			break;
-		case 'M':
+		case 'w':
 			if (rawcopy)
 			{
 				fprintf (stderr, "%s: MFS structure type can not be specified with raw block copy\n", argv[0]);
@@ -291,12 +274,12 @@ copy_main (int argc, char **argv)
 			restorebits = strtoul (optarg, &tmp, 10);
 			if (tmp && *tmp)
 			{
-				fprintf (stderr, "%s: Integer argument expected for -S.\n", argv[0]);
+				fprintf (stderr, "%s: Integer argument expected for -w.\n", argv[0]);
 				return 1;
 			}
 			if (restorebits != 32 && restorebits != 64)
 			{
-				fprintf (stderr, "%s: Value for -S must be 32 or 64\n", argv[0]);
+				fprintf (stderr, "%s: Value for -w must be 32 or 64\n", argv[0]);
 				return 1;
 			}
 			break;
@@ -307,6 +290,50 @@ copy_main (int argc, char **argv)
 				return 1;
 			}
 			rawcopy = 1;
+			break;
+		case 'i':
+			bflags |= BF_BACKUPALL;
+			break;
+		case 'k':
+			rflags |= RF_BALANCE;
+			rflags |= RF_KOPT;
+			break;
+		case 'c':
+			carveA = strtoull (optarg, &tmp, 10);
+			if (tmp && *tmp)
+			{
+				fprintf (stderr, "%s: Integer argument expected for -c.\n", argv[0]);
+				return 1;
+			}
+			break;
+		case 'C':
+			carveB = strtoull (optarg, &tmp, 10);
+			if (tmp && *tmp)
+			{
+				fprintf (stderr, "%s: Integer argument expected for -C.\n", argv[0]);
+				return 1;
+			}
+			break;
+		case 'D':
+			norescheck = 1;
+			break;
+		case 'm':
+			maxmedia = strtoull (optarg, &tmp, 10);
+			if (tmp && *tmp)
+			{
+				fprintf (stderr, "%s: Integer argument expected for -m.\n", argv[0]);
+				return 1;
+			}
+			maxmedia = maxmedia * 1024 * 1024 * 1024 / 512; //Convert GiB to sectors
+			break;
+		case 'M':
+			maxdisk = strtoull (optarg, &tmp, 10);
+			if (tmp && *tmp)
+			{
+				fprintf (stderr, "%s: Integer argument expected for -M.\n", argv[0]);
+				return 1;
+			}
+			maxdisk = (maxdisk * 1024 * 1024 * 1024 / 512) - 1; //Convert GiB to sectors
 			break;
 		default:
 			copy_usage (argv[0]);
@@ -351,15 +378,15 @@ copy_main (int argc, char **argv)
 		rflags |= RF_SWAPV1;
 	}
 
-	if (expand > 0)
-		rflags |= RF_NOFILL;
-
 	if (rawcopy)
 	{
 		info_b = init_backup_v1 (source_a, source_b, bflags);
 	}
 	else
 	{
+		// Shrinking implied with v3, unless -a flag was set.
+		if (threshopt != 'a')
+			bflags |= BF_SHRINK;
 		info_b = init_backup_v3 (source_a, source_b, bflags);
 	}
 
@@ -398,22 +425,33 @@ copy_main (int argc, char **argv)
 	}
 	else
 	{
-		unsigned starttime;
 		unsigned char buf[BUFSIZE];
 		unsigned int curcount = 0;
 		int nread, nwrit;
 
 		if (threshopt)
 			backup_set_thresh (info_b, thresh);
+		if (!norescheck)
+			backup_set_resource_check(info_b);
+		if (skipdb)
+			backup_set_skipdb (info_b, skipdb);
 
 		if (varsize)
 			restore_set_varsize (info_r, varsize);
+		if (dbsize)
+			restore_set_dbsize (info_r, dbsize);
 		if (swapsize)
 			restore_set_swapsize (info_r, swapsize * 1024 * 2);
 		if (bswap)
 			restore_set_bswap (info_r, bswap);
 		if (restorebits)
 			restore_set_mfs_type (info_r, restorebits);
+		if (minalloc)
+			restore_set_minalloc (info_r, minalloc);
+		if (maxdisk)
+			restore_set_maxdisk (info_r, maxdisk);
+		if (maxmedia)
+			restore_set_maxmedia (info_r, maxmedia);
 
 		if (quiet < 2)
 			fprintf (stderr, "Scanning source drive.  Please wait a moment.\n");
@@ -460,7 +498,7 @@ copy_main (int argc, char **argv)
 		if (restorebits == 64 && !(info_r->back_flags & BF_64))
 			fprintf (stderr, "    ***WARNING***\nConverting MFS structure to 64 bit if very experimental, and will only work on\nSeries 3 based TiVo platforms or later, such as the TiVo HD.\n");
 
-		if (restore_trydev (info_r, dest_a, dest_b) < 0)
+		if (restore_trydev (info_r, dest_a, dest_b, carveA, carveB) < 0)
 		{
 			if (restore_has_error (info_r))
 				restore_perror (info_r, "Copy target");
@@ -489,7 +527,7 @@ copy_main (int argc, char **argv)
 
 		starttime = time (NULL);
 
-		fprintf (stderr, "Starting copy\nSize: %" PRId64 " megabytes\n", info_r->nsectors / 2048);
+		fprintf (stderr, "Starting copy\nSize: %" PRId64 " MiB\n", info_r->nsectors / 2048);
 		while ((curcount = backup_read (info_b, buf, BUFSIZE)) > 0)
 		{
 			unsigned int prcnt;
@@ -508,12 +546,12 @@ copy_main (int argc, char **argv)
 			{
 				unsigned timedelta = time(NULL) - starttime;
 
-				fprintf (stderr, "\rCopying %" PRId64 " of %" PRId64 " mb (%d.%02d%%)", info_r->cursector / 2048, info_r->nsectors / 2048, prcnt / 100, prcnt % 100);
+				fprintf (stderr, "\rCopying %" PRId64 " of %" PRId64 " MiB (%d.%02d%%)", info_r->cursector / 2048, info_r->nsectors / 2048, prcnt / 100, prcnt % 100);
 
 				if (prcnt > 100 && timedelta > 15)
 				{
 					unsigned ETA = timedelta * (10000 - prcnt) / prcnt;
-					fprintf (stderr, " %" PRId64 " mb/sec (ETA %d:%02d:%02d)", info_r->cursector / timedelta / 2048, ETA / 3600, ETA / 60 % 60, ETA % 60);
+					fprintf (stderr, " %" PRId64 " MiB/sec (ETA %d:%02d:%02d)", info_r->cursector / timedelta / 2048, ETA / 3600, ETA / 60 % 60, ETA % 60);
 				}
 			}
 		}
@@ -561,61 +599,9 @@ copy_main (int argc, char **argv)
 	}
 
 	if (quiet < 2)
-		fprintf (stderr, "Copy done!\n");
-
-	if (expand > 0)
-	{
-		int blocksize = 0x800;
-		struct mfs_handle *mfshnd;
-
-		expand = 0;
-
-		mfshnd = mfs_init (dest_a, dest_b, O_RDWR);
-		if (!mfshnd)
-		{
-			fprintf (stderr, "Drive expansion failed.\n");
-			return 1;
-		}
-
-		if (mfs_has_error (mfshnd))
-		{
-			mfs_perror (mfshnd, "Target expand");
-			return 1;
-		}
-
-		while (expandscale-- > 0)
-			blocksize *= 2;
-
-		if (tivo_partition_largest_free (dest_a) > 1024 * 1024 * 2)
-		{
-			if (expand_drive (mfshnd, "/dev/hda", dest_a, blocksize) < 0)
 			{
-				if (mfs_has_error (mfshnd))
-					mfs_perror (mfshnd, "Expand drive A");
-				else
-					fprintf (stderr, "Drive A expansion failed.\n");
-				return 1;
-			}
-			expand++;
-		}
-
-		if (dest_b[0] && tivo_partition_largest_free (dest_b) > 1024 * 1024 * 2)
-		{
-			if (expand_drive (mfshnd, "/dev/hdb", dest_b, blocksize) < 0)
-			{
-				if (mfs_has_error (mfshnd))
-					mfs_perror (mfshnd, "Expand drive B");
-				else
-					fprintf (stderr, "Drive B expansion failed.\n");
-				return 1;
-			}
-			expand++;
-		}
-
-		if (!expand)
-		{
-			fprintf (stderr, "Not enough extra space to expand on A drive%s.\n", dest_b[0]? " or B drive": "");
-		}
+		unsigned tot = time(NULL) - starttime;
+		fprintf (stderr, "Copy done! (%d:%02d:%02d)\n", tot / 3600, tot / 60 % 60, tot % 60);
 	}
 
 	return 0;

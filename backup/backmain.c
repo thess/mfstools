@@ -23,21 +23,31 @@
 void
 backup_usage (char *progname)
 {
+	fprintf (stderr, "%s %s\n", PACKAGE, VERSION);
 	fprintf (stderr, "Usage: %s [options] Adrive [Bdrive]\n", progname);
 	fprintf (stderr, "Options:\n");
 	fprintf (stderr, " -h        Display this help message\n");
 	fprintf (stderr, " -o file   Output to file, - for stdout\n");
 	fprintf (stderr, " -1 .. -9  Compress backup, quick (-1) through best (-9)\n");
 	fprintf (stderr, " -v        Do not include /var in backup\n");
-	fprintf (stderr, " -s        Shrink MFS in backup\n");
+	fprintf (stderr, " -d        Do not include /db (SQLite) in backup (Premiere and newer)\n");
+	fprintf (stderr, " -s        Shrink MFS in backup (implied for v3 backups without -a flag)\n");
 	fprintf (stderr, " -F format Backup using a specific backup format (v1, v3, winmfs)\n");
 	fprintf (stderr, " -q        Do not display progress\n");
 	fprintf (stderr, " -qq       Do not display anything but error messages\n");
+#if DEPRECATED
+	// Mostly used to copy loopsets when excluding recordings.  Loopsets are now handled automatically, so these are less useful now...
 	fprintf (stderr, " -f max    Backup only fsids below max\n");
-	fprintf (stderr, " -l max    Backup only streams less than max megabytes\n");
-	fprintf (stderr, " -t        Use total length of stream instead of used length\n");
+	fprintf (stderr, " -L max    Backup only streams less than max MiB\n");
+#endif
+	fprintf (stderr, " -t        Use total length of stream in calculations\n");
 	fprintf (stderr, " -T        Backup total length of stream instead of used length\n");
 	fprintf (stderr, " -a        Backup all streams\n");
+	fprintf (stderr, " -i        Include all non-mfs partitions from Adrive (alternate, custom, etc.)\n");
+#if DEPRECATED
+	// C'mon, who would do this ???
+	fprintf (stderr, " -D        Do not force loopset and demo files to be added\n");
+#endif
 }
 
 static unsigned int
@@ -129,7 +139,7 @@ display_backup_info (struct backup_info *info)
 				running += sizes[loop];
 				fprintf (stderr, "       - Upgraded to %" PRIu64 " hours\n", sectors_no_reserved (running) / SABLOCKSEC);
 			}
-		if (info->back_flags & BF_SHRINK)
+		if (info->back_flags & BF_SHRINK && info->format == bfV1)
 			fprintf (stderr, "Backup image will be %" PRIu64 " hours\n", sectors_no_reserved (backuptot) / SABLOCKSEC);
 	}
 }
@@ -138,20 +148,28 @@ int
 backup_main (int argc, char **argv)
 {
 	struct backup_info *info;
-	int loop, thresh = 0;
-	unsigned int flags = BF_BACKUPVAR;
+	int loop;
+	unsigned int thresh = 0;
+	unsigned int bflags = BF_BACKUPVAR;
 	char threshopt = '\0';
 	char *drive, *drive2;
 	char *filename = 0;
 	char *tmp;
 	int quiet = 0;
 	int compressed = 0;
+	int norescheck = 0;
+	unsigned int skipdb = 0;
+	unsigned starttime = 0;
 
 	enum backup_format selectedformat = bfV3;
 
 	tivo_partition_direct ();
 
-	while ((loop = getopt (argc, argv, "ho:123456789vsf:l:tTaqEF:")) > 0)
+#if DEPRECATED
+	while ((loop = getopt (argc, argv, "ho:123456789vsf:L:tTaqEF:idD")) > 0)
+#else
+	while ((loop = getopt (argc, argv, "ho:123456789vstTaqEF:id")) > 0)
+#endif
 	{
 		switch (loop)
 		{
@@ -167,14 +185,20 @@ backup_main (int argc, char **argv)
 		case '7':
 		case '8':
 		case '9':
-			flags |= BF_SETCOMP (loop - '0');
+			bflags |= BF_SETCOMP (loop - '0');
 			compressed = 1;
 			break;
+		case 'i':
+			bflags |= BF_BACKUPALL;
+			break;
 		case 'v':
-			flags &= ~BF_BACKUPVAR;
+			bflags &= ~BF_BACKUPVAR;
+			break;
+		case 'd':
+			skipdb = 1;
 			break;
 		case 's':
-			flags |= BF_SHRINK;
+			bflags |= BF_SHRINK;
 			break;
 		case 'f':
 			if (threshopt)
@@ -195,6 +219,13 @@ backup_main (int argc, char **argv)
 				selectedformat = bfV1;
 			else if (!strcasecmp (optarg, "v3"))
 				selectedformat = bfV3;
+			else if (!strcasecmp (optarg, "v3p"))
+			{
+				// Special case to force BF_SQLITE flag.  Should only be needed to correct backing up an image that was restored with a previous version of mfstools that contained a bug.
+				selectedformat = bfV3;
+				bflags |= BF_SQLITE;
+				fprintf (stderr, "Forcing BF_SQLITE flag\n", argv[0]);
+			}
 			else if (!strcasecmp (optarg, "winmfs"))
 				selectedformat = bfWinMFS;
 			else
@@ -203,16 +234,16 @@ backup_main (int argc, char **argv)
 				return 1;
 			}
 			break;
-		case 'l':
+		case 'L':
 			if (threshopt)
 			{
-				fprintf (stderr, "%s: -l and -%c cannot be used together\n", argv[0], threshopt);
+				fprintf (stderr, "%s: -L and -%c cannot be used together\n", argv[0], threshopt);
 				return 1;
 			}
 			threshopt = loop;
 			thresh = strtoul (optarg, &tmp, 10);
 			thresh *= 1024 * 2;
-			flags |= BF_THRESHSIZE;
+			bflags |= BF_THRESHSIZE;
 			if (*tmp)
 			{
 				fprintf (stderr, "%s: Non integer argument to -l\n", argv[0]);
@@ -220,10 +251,10 @@ backup_main (int argc, char **argv)
 			}
 			break;
 		case 't':
-			flags |= BF_THRESHTOT;
+			bflags |= BF_THRESHTOT;
 			break;
 		case 'T':
-			flags += BF_STREAMTOT;
+			bflags += BF_STREAMTOT;
 			break;
 		case 'a':
 			if (threshopt)
@@ -233,12 +264,17 @@ backup_main (int argc, char **argv)
 			}
 			threshopt = loop;
 			thresh = ~0;
+			// No need to check for resource files if we are including all streams
+			norescheck = 1;
 			break;
 		case 'q':
 			quiet++;
 			break;
 		case 'E':
-			flags |= BF_TRUNCATED;
+			bflags |= BF_TRUNCATED;
+			break;
+		case 'D':
+			norescheck = 1;
 			break;
 		default:
 			backup_usage (argv[0]);
@@ -267,10 +303,13 @@ backup_main (int argc, char **argv)
 	switch (selectedformat)
 	{
 	case bfV1:
-		info = init_backup_v1 (drive, drive2, flags);
+		info = init_backup_v1 (drive, drive2, bflags);
 		break;
 	case bfV3:
-		info = init_backup_v3 (drive, drive2, flags);
+		// Shrinking implied with v3, unless -a flag was set.
+		if (threshopt != 'a')
+			bflags |= BF_SHRINK;
+		info = init_backup_v3 (drive, drive2, bflags);
 		break;
 	case bfWinMFS:
 		fprintf (stderr, "%s: Backup in WinMFS format not yet supported\n", argv[0]);
@@ -283,7 +322,7 @@ backup_main (int argc, char **argv)
 	}
 
 	// Try to continue anyway despite error.
-	if (flags & BF_TRUNCATED && backup_has_error (info))
+	if (bflags & BF_TRUNCATED && backup_has_error (info))
 	{
 		backup_perror (info, "WARNING");
 		fprintf (stderr, "Attempting backup anyway\n");
@@ -305,7 +344,6 @@ backup_main (int argc, char **argv)
 	}
 	else
 	{
-		unsigned starttime;
 		unsigned char buf[BUFSIZE];
 		uint64_t cursec = 0, curcount;
 		int fd;
@@ -327,6 +365,10 @@ backup_main (int argc, char **argv)
 
 		if (threshopt)
 			backup_set_thresh (info, thresh);
+		if (!norescheck)
+			backup_set_resource_check(info);
+		if (skipdb)
+			backup_set_skipdb (info, skipdb);
 
 		if (quiet < 2)
 			fprintf (stderr, "Scanning source drive.  Please wait a moment.\n");
@@ -344,7 +386,7 @@ backup_main (int argc, char **argv)
 			display_backup_info (info);
 
 		if (quiet < 2)
-			fprintf (stderr, "Uncompressed backup size: %" PRIu64 " megabytes\n", info->nsectors / 2048);
+			fprintf (stderr, "Uncompressed backup size: %" PRIu64 " MiB\n", info->nsectors / 2048);
 
 		starttime = time(NULL);
 
@@ -363,14 +405,14 @@ backup_main (int argc, char **argv)
 			{
 				unsigned timedelta = time(NULL) - starttime;
 				if (compressed)
-				  fprintf (stderr, "     \rBacking up %" PRId64 " of %" PRId64 " mb (%d.%02d%%) (%d.%02d%% comp)", info->cursector / 2048, info->nsectors / 2048, prcnt / 100, prcnt % 100, compr / 100, compr % 100);
+				  fprintf (stderr, "     \rBacking up %" PRId64 " of %" PRId64 " MiB (%d.%02d%%) (%d.%02d%% comp)", info->cursector / 2048, info->nsectors / 2048, prcnt / 100, prcnt % 100, compr / 100, compr % 100);
 				else
-					fprintf (stderr, "     \rBacking up %" PRId64 " of %" PRId64 " mb (%d.%02d%%)", info->cursector / 2048, info->nsectors / 2048, prcnt / 100, prcnt % 100);
+					fprintf (stderr, "     \rBacking up %" PRId64 " of %" PRId64 " MiB (%d.%02d%%)", info->cursector / 2048, info->nsectors / 2048, prcnt / 100, prcnt % 100);
 
 				if (prcnt > 10 && timedelta > 15)
 				{
 					unsigned ETA = timedelta * (10000 - prcnt) / prcnt;
-					fprintf (stderr, " %" PRId64 " mb/sec (ETA %d:%02d:%02d)", info->cursector / timedelta / 2048, ETA / 3600, ETA / 60 % 60, ETA % 60);
+					fprintf (stderr, " %" PRId64 " MiB/sec (ETA %d:%02d:%02d)", info->cursector / timedelta / 2048, ETA / 3600, ETA / 60 % 60, ETA % 60);
 				}
 			}
 		}
@@ -400,7 +442,11 @@ backup_main (int argc, char **argv)
 	if (info->back_flags & BF_TRUNCATED)
 		fprintf (stderr, "***WARNING***\nBackup was made of an incomplete volume.  While the backup succeeded,\nit is possible there was some required data missing.  Verify your backup.\n");
 	else if (quiet < 2)
-		fprintf (stderr, "Backup done!\n");
+	if (quiet < 2)
+	{
+		unsigned tot = time(NULL) - starttime;
+		fprintf (stderr, "Backup done! (%d:%02d:%02d)\n", tot / 3600, tot / 60 % 60, tot % 60);
+	}
 
 	return 0;
 }

@@ -8,13 +8,18 @@ struct mfs_handle;
 #include "zonemap.h"
 #include "fsid.h"
 
-#define MFS32_MAGIC	0xABBAFEED
-#define MFS64_MAGIC	0xEBBAFEED
+#define MFS_MAGIC_OK      0xABBAFEED // mfs filesystem database consistent 
+#define MFS_MAGIC_FS_CHK  0x37353033 //(GSOD) Filesystem is inconsistent - cannot mount!  -  Filesystem is inconsistent, will attempt repair!          - Triggered by kickstart 5 7, and others
+#define MFS_MAGIC_LOG_CHK 0x37353134 //(GSOD) Filesystem is inconsistent - cannot mount!  -  Filesystem logs are bad - log roll-forward inhibited!     - Triggered by ???
+#define MFS_MAGIC_DB_CHK  0x37353135 //(GSOD) Database is inconsistent - cannot mount!    -  fsfix:  mounted MFS volume, starting consistency checks.  - Triggered when a THD beackup with eSata restored to a single drive, without fixing off0c/off14 and trying to remove eSata from UI
+#define MFS_MAGIC_CLEAN   0x37353136 // Clean up objects with missing tystreams                                                                        - Triggered after a GSOD encounters bad refcounts or missing media tystreams (eg, truncated restore)
+#define MFS_MAGIC_64BIT   0x40000000 // bit is set when mfs is 64-bit
 
 typedef struct volume_header_32_s
 {
-	uint32_t state;
-	uint32_t magic;
+	// magic and state appear to be 32-bit values in both 32 and 64 bit volume headers.  When the MFS is MSB (premiere and earlier?) the order is state then magic.  On MSB platforms (roamio and later?), the order is reversed.  State is expected to be 0.
+	uint32_t magicLSB; // this value is state when the MFS is MSB
+	uint32_t magicMSB; // this value is state when the MFS is LSB
 	uint32_t checksum;
 	uint32_t off0c;
 	uint32_t root_fsid;		/* Maybe? */
@@ -27,7 +32,7 @@ typedef struct volume_header_32_s
 	uint32_t offa8;
 	uint32_t logstart;
 	uint32_t lognsectors;
-	uint32_t logstamp;
+	uint32_t volhdrlogstamp;
 	uint32_t unkstart;		/* Not sure what it's used for */
 	uint32_t unksectors;	/* But definately an allocated area */
 	uint32_t unkstamp;
@@ -43,8 +48,9 @@ volume_header_32;
 
 typedef struct volume_header_64_s
 {
-	uint32_t state;
-	uint32_t magic;
+	// magic and state appear to be 32-bit values in both 32 and 64 bit volume headers.  When the MFS is MSB (premiere and earlier?) the order is state then magic.  On MSB platforms (roamio and later?), the order is reversed.  State is expected to be 0.
+	uint32_t magicLSB; // this value is state when the MFS is MSB
+	uint32_t magicMSB; // this value is state when the MFS is LSB
 	uint32_t checksum;
 	uint32_t off0c;
 	uint32_t root_fsid;		/* Maybe? */
@@ -55,8 +61,10 @@ typedef struct volume_header_64_s
 	char partitionlist[132];
 	uint64_t total_sectors;
 	uint64_t logstart;
-	uint32_t offb8;
-	uint32_t logstamp;
+	// Roamio inspection also indicate that logstamp is also a 64 bit value.
+	//uint32_t offb8;  
+	//uint32_t logstamp;
+	uint64_t volhdrlogstamp;
 	uint64_t unkstart;
 	uint32_t offc8;
 	uint32_t unkstamp;
@@ -146,7 +154,7 @@ struct mfs_handle
 #define SABLOCKSEC 1630000
 
 // Flags to pass to mfs_init along with the accmode
-#define MFS_ERROROK		0x04000000	// Open despite errors
+#define MFS_ERROROK		0x04000000	// Open despite mfs magic being marked inconsistent
 
 void data_swab (void *data, int size);
 

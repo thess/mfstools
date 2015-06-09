@@ -18,6 +18,7 @@
 #ifdef HAVE_LINUX_UNISTD_H
 #include <linux/unistd.h>
 #endif
+#include <inttypes.h>
 
 #include "mfs.h"
 #include "macpart.h"
@@ -1332,7 +1333,7 @@ mfs_zone_find_run (struct mfs_handle *mfshnd, struct zone_map *zone, int order)
 					{
 						thisbit = ((loop + startint) % nints) * 32 + loop2;
 						/* Make sure the bit wasn't already allocated */
-						struct zone_changed_run *crloop;;
+						struct zone_changed_run *crloop;
 						for (crloop = zone->changed_runs[curorder]; crloop; crloop = crloop->next)
 						{
 							if (crloop->bitno == thisbit)
@@ -1611,10 +1612,10 @@ mfs_alloc_greedy (struct mfs_handle *mfshnd, mfs_inode *inode, uint64_t highest)
 		{
 			uint64_t sector = intswap64 (zones[largestfitno]->map->z64.first);
 			sector += (bitno * runsizes[largestfitno]) << curorders[largestfitno];
-			inode->datablocks.d64[currun].sector = intswap64 (sector);
+			inode->datablocks.d64[currun].sector = sectorswap64 (sector);
 			inode->datablocks.d64[currun].count = intswap32 (largestfit);
 #if DEBUG
-			fprintf (stderr, "mfs_alloc_greedy: Allocated %d block of %d at %lld for %d\n", alloctype, (unsigned)largestfit, sector, intswap32 (inode->fsid));
+			fprintf (stderr, "mfs_alloc_greedy: Allocated %d block of %d at %" PRIu64 " for %d\n", alloctype, (unsigned)largestfit, sector, intswap32 (inode->fsid));
 #endif
 		}
 		else

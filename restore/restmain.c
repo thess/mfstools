@@ -30,26 +30,39 @@ extern char* tivo_devnames[];
 void
 restore_usage (char *progname)
 {
+	fprintf (stderr, "%s %s\n", PACKAGE, VERSION);
 	fprintf (stderr, "Usage: %s [options] Adrive [Bdrive]\n", progname);
 	fprintf (stderr, "Options:\n");
 	fprintf (stderr, " -h        Display this help message\n");
 	fprintf (stderr, " -i file   Input from file, - for stdin\n");
-	fprintf (stderr, " -p        Optimize partition layout\n");
-	fprintf (stderr, " -x        Expand the backup to fill the drive(s)\n");
-	fprintf (stderr, " -r scale  Expand the backup with block size scale\n");
+#if DEPRECATED
+	// Optimized layout is now the default.  Probably no reason to allow a non-optimized layout...
+	//fprintf (stderr, " -p        Optimize partition layout\n");
+	fprintf (stderr, " -P        Do NOT optimize the partition layout\n");
+#endif
+	fprintf (stderr, " -k        Optimize partition layout with kernels first\n");
+	fprintf (stderr, " -r scale  Override v3 media blocksize of 20480 with 2048<<scale (scale=0 to 4)\n");
 	fprintf (stderr, " -q        Do not display progress\n");
 	fprintf (stderr, " -qq       Do not display anything but error messages\n");
-	fprintf (stderr, " -v size   Recreate /var as size megabytes (Only if not in backup)\n");
-	fprintf (stderr, " -s size   Recreate swap as size megabytes\n");
+	fprintf (stderr, " -v size   Recreate /var as size MiB (Only if not in backup)\n");
+	fprintf (stderr, " -d size   Recreate /db (SQLite in source) as size MiB (if not in backup)\n");
+	fprintf (stderr, " -S size   Recreate swap as size MiB\n");
 	fprintf (stderr, " -l        Leave at least 2 partitions free\n");
 	fprintf (stderr, " -b        Force no byte swapping on restore\n");
 	fprintf (stderr, " -B        Force byte swapping on restore\n");
+#if DEPRECATED
+	// Arguments could be made to keep this, but I suspect few will actually miss it.
 	fprintf (stderr, " -z        Zero out partitions not backed up\n");
-	fprintf (stderr, " -M 32/64  Write MFS structures as 32 or 64 bit\n");
+#endif
+	fprintf (stderr, " -w 32/64  Write MFS structures as 32 or 64 bit\n");
+	fprintf (stderr, " -c size   Carve (leave free) in blocks on drive A\n");
+	fprintf (stderr, " -C size   Carve (leave free) in blocks on Drive B\n");
+	fprintf (stderr, " -m size   Maximum media partition size in GiB for v3 restore\n");
+	fprintf (stderr, " -M size   Maximum drive size in GiB (ie lba28 would be 128)\n");
 }
 
 static unsigned int
-get_percent (unsigned int current, unsigned int max)
+get_percent (uint64_t current, uint64_t max)
 {
 	unsigned int prcnt;
 	if (max <= 0x7fffffff / 10000)
@@ -69,83 +82,29 @@ get_percent (unsigned int current, unsigned int max)
 }
 
 int
-expand_drive (struct mfs_handle *mfshnd, char *tivodev, char *realdev, unsigned int blocksize)
-{
-	unsigned int maxfree = tivo_partition_largest_free (realdev);
-	unsigned int totalfree = tivo_partition_total_free (realdev);
-	unsigned int used = maxfree & ~(blocksize - 1);
-	unsigned int required = mfs_volume_pair_app_size (mfshnd, used, blocksize);
-	unsigned int part1, part2;
-	char app[MAXPATHLEN];
-	char media[MAXPATHLEN];
-
-	unsigned int newsize, oldsize;
-
-	oldsize = mfs_sa_hours_estimate (mfshnd);
-
-	if (totalfree - maxfree < required && maxfree - used < required)
-	{
-		used = (maxfree - required) & ~(blocksize - 1);
-		required = mfs_volume_pair_app_size (mfshnd, used, blocksize);
-	}
-
-	if (totalfree - maxfree >= required && maxfree - used < required)
-	{
-		part2 = tivo_partition_add (realdev, used, 0, "New MFS Media", "MFS");
-		part1 = tivo_partition_add (realdev, required, part2, "New MFS Application", "MFS");
-
-		part2++;
-	}
-	else
-	{
-		part1 = tivo_partition_add (realdev, required, 0, "New MFS Application", "MFS");
-		part2 = tivo_partition_add (realdev, used, 0, "New MFS Media", "MFS");
-	}
-
-	if (part1 < 2 || part2 < 2 || part1 > 16 || part2 > 16)
-		return -1;
-
-	sprintf (app, "%s%d", tivodev, part1);
-	sprintf (media, "%s%d", tivodev, part2);
-
-#if TARGET_OS_MAC
-	fprintf (stderr, "Adding pair %ss%d-%ss%d\n", realdev, part1, realdev, part2);
-#else
-	fprintf (stderr, "Adding pair %s%d-%s%d\n", realdev, part1, realdev, part2);
-#endif
-
-	if (mfs_can_add_volume_pair (mfshnd, app, media, blocksize) < 0)
-		return -1;
-
-	if (tivo_partition_table_write (realdev) < 0)
-		return -1;
-
-	if (mfs_add_volume_pair (mfshnd, app, media, blocksize) < 0)
-		return -1;
-
-	newsize = mfs_sa_hours_estimate (mfshnd);
-	fprintf (stderr, "New estimated standalone size: %d hours (%d more)\n", newsize, newsize - oldsize);
-
-	return 0;
-}
-
-int
 restore_main (int argc, char **argv)
 {
 	char *drive, *drive2, *tmp;
 	struct backup_info *info;
 	int opt;
-	unsigned int varsize = 0, swapsize = 0, flags = 0;
+	unsigned int varsize = 0, dbsize = 0, swapsize = 0, rflags = RF_BALANCE;;
 	char *filename = 0;
 	int quiet = 0;
 	int bswap = 0;
-	int expand = 0;
-	int expandscale = 2;
 	int restorebits = 0;
+	int64_t carveA = 0;
+	int64_t carveB = 0;
+	int64_t maxdisk = 0;
+	int64_t maxmedia = 0;
+	unsigned int minalloc = 0;
+	unsigned starttime = time (NULL);
 
 	tivo_partition_direct ();
-
-	while ((opt = getopt (argc, argv, "hi:v:s:zqbBpxlr:M:")) > 0)
+#if DEPRECATED
+	while ((opt = getopt (argc, argv, "hi:v:S:zqbBPkxlr:w:c:C:d:m:M:")) > 0)
+#else
+	while ((opt = getopt (argc, argv, "hi:v:S:qbBkxlr:w:c:C:d:m:M:")) > 0)
+#endif
 	{
 		switch (opt)
 		{
@@ -164,7 +123,16 @@ restore_main (int argc, char **argv)
 				return 1;
 			}
 			break;
-		case 's':
+		case 'd':
+			dbsize = strtoul (optarg, &tmp, 10);
+			dbsize *= 1024 * 2;
+			if (tmp && *tmp)
+			{
+				fprintf (stderr, "%s: Integer argument expected for -d.\n", argv[0]);
+				return 1;
+			}
+			break;
+		case 'S':
 			swapsize = strtoul (optarg, &tmp, 10);
 			if (tmp && *tmp)
 			{
@@ -173,7 +141,7 @@ restore_main (int argc, char **argv)
 			}
 			break;
 		case 'z':
-			flags |= RF_ZEROPART;
+			rflags |= RF_ZEROPART;
 			break;
 		case 'b':
 			if (bswap != 0)
@@ -191,40 +159,79 @@ restore_main (int argc, char **argv)
 			}
 			bswap = 1;
 			break;
-		case 'p':
-			flags |= RF_BALANCE;
+		case 'P':
+			rflags &= ~RF_BALANCE;
 			break;
 		case 'l':
-			flags |= RF_NOFILL;
+			rflags |= RF_NOFILL;
 			break;
 		case 'x':
-			expand = 1;
-			break;
+			restore_usage (argv[0]);
+			fprintf (stderr, "\n Deprecated argument -x.  Use mfsadd after restore to expand drive(s).\n", argv[0]);
+			return 1;
 		case 'r':
-			expandscale = strtoul (optarg, &tmp, 10);
+			minalloc = 0x800 << strtoul (optarg, &tmp, 10);
 			if (tmp && *tmp)
 			{
 				fprintf (stderr, "%s: Integer argument expected for -r.\n", argv[0]);
 				return 1;
 			}
-			if (expandscale < 0 || expandscale > 4)
+			if (minalloc < 0x800 || minalloc > (0x800 << 4))
 			{
-				fprintf (stderr, "%s: Scale value for -r must be in the range 0 to 4.\n", argv[0]);
+				fprintf (stderr, "%s: Value for -r must be between 0 and 4.\n", argv[0]);
 				return 1;
 			}
 			break;
-		case 'M':
+		case 'w':
 			restorebits = strtoul (optarg, &tmp, 10);
+			if (tmp && *tmp)
+			{
+				fprintf (stderr, "%s: Integer argument expected for -w.\n", argv[0]);
+				return 1;
+			}
+			if (restorebits != 32 && restorebits != 64)
+			{
+				fprintf (stderr, "%s: Value for -w must be 32 or 64\n", argv[0]);
+				return 1;
+			}
+			break;
+		case 'c':
+			carveA = strtoull (optarg, &tmp, 10);
+			if (tmp && *tmp)
+			{
+				fprintf (stderr, "%s: Integer argument expected for -c.\n", argv[0]);
+				return 1;
+			}
+			break;
+		case 'C':
+			carveB = strtoull (optarg, &tmp, 10);
+			if (tmp && *tmp)
+			{
+				fprintf (stderr, "%s: Integer argument expected for -C.\n", argv[0]);
+				return 1;
+			}
+			break;
+		case 'k':
+			rflags |= RF_BALANCE;
+			rflags |= RF_KOPT;
+			break;
+		case 'm':
+			maxmedia = strtoull (optarg, &tmp, 10);
+			if (tmp && *tmp)
+			{
+				fprintf (stderr, "%s: Integer argument expected for -m.\n", argv[0]);
+				return 1;
+			}
+			maxmedia = maxmedia * 1024 * 1024 * 1024 / 512; //Convert GiB to sectors
+			break;
+		case 'M':
+			maxdisk = strtoull (optarg, &tmp, 10);
 			if (tmp && *tmp)
 			{
 				fprintf (stderr, "%s: Integer argument expected for -M.\n", argv[0]);
 				return 1;
 			}
-			if (restorebits != 32 && restorebits != 64)
-			{
-				fprintf (stderr, "%s: Value for -S must be 32 or 64\n", argv[0]);
-				return 1;
-			}
+			maxdisk = (maxdisk * 1024 * 1024 * 1024 / 512) - 1; //Convert GiB to sectors, subtract one to make sure we end below the requested size
 			break;
 		default:
 			restore_usage (argv[0]);
@@ -254,13 +261,10 @@ restore_main (int argc, char **argv)
 
 	if (swapsize > 128)
 	{
-		flags |= RF_SWAPV1;
+		rflags |= RF_SWAPV1;
 	}
 
-	if (expand > 0)
-		flags |= RF_NOFILL;
-
-	info = init_restore (flags);
+	info = init_restore (rflags);
 	if (restore_has_error (info))
 	{
 		restore_perror (info, "Restore");
@@ -269,19 +273,26 @@ restore_main (int argc, char **argv)
 
 	if (info)
 	{
-		unsigned starttime;
 		int fd, nread, nwrit;
 		unsigned char buf[BUFSIZE];
 		unsigned int cursec = 0, curcount;
 
 		if (varsize)
 			restore_set_varsize (info, varsize);
+		if (dbsize)
+			restore_set_dbsize (info, dbsize);
 		if (swapsize)
 			restore_set_swapsize (info, swapsize * 1024 * 2);
 		if (bswap)
 			restore_set_bswap (info, bswap);
 		if (restorebits)
 			restore_set_mfs_type (info, restorebits);
+		if (minalloc)
+			restore_set_minalloc (info, minalloc);
+		if (maxdisk)
+			restore_set_maxdisk (info, maxdisk);
+		if (maxmedia)
+			restore_set_maxmedia (info, maxmedia);
 
 		if (filename[0] == '-' && filename[1] == '\0')
 			fd = 0;
@@ -317,6 +328,24 @@ restore_main (int argc, char **argv)
 			return 1;
 		}
 
+		// MFS is little endian
+		if (info->back_flags & BF_MFSLSB)
+		{
+			mfsLSB=1;
+#if DEBUG
+			fprintf (stderr, "MFS detected as LSB (Roamio or newer?).  Switching MFS to little endian.\n");
+#endif
+		}
+
+		// TiVo Partitions are little endian
+		if (info->back_flags & BF_PARTLSB)
+		{
+			partLSB=1;
+#if DEBUG
+			fprintf (stderr, "TiVo partitions detected as LSB (Roamio or newer?).  Switching partitions to little endian.\n");
+#endif
+		}
+		
 		if (swapsize > 128 && !(info->back_flags & BF_NOBSWAP))
 			fprintf (stderr, "    ***WARNING***\nUsing version 1 swap signature to get >128MiB swap size, but the backup looks\nlike a series 1.  Stock SERIES 1 TiVo kernels do not support the version 1\nswap signature.  If you are using a stock SERIES 1 TiVo kernel, 128MiB is the\nlargest usable swap size.\n");
 		if (restorebits == 64 && !(info->back_flags & BF_64))
@@ -327,7 +356,7 @@ restore_main (int argc, char **argv)
 			fprintf (stderr, "    ***WARNING***\nRestoring from a backup of an incomplete volume.  While the backup is whole,\nit is possible there was some required data missing.  Verify the restore.\n");
 		}
 
-		if (restore_trydev (info, drive, drive2) < 0)
+		if (restore_trydev (info, drive, drive2, carveA, carveB) < 0)
 		{
 			if (restore_has_error (info))
 				restore_perror (info, "Restore");
@@ -356,7 +385,7 @@ restore_main (int argc, char **argv)
 
 		starttime = time (NULL);
 
-		fprintf (stderr, "Starting restore\nUncompressed backup size: %" PRId64 " megabytes\n", info->nsectors / 2048);
+		fprintf (stderr, "Starting restore\nUncompressed backup size: %" PRId64 " MiB\n", info->nsectors / 2048);
 		while ((curcount = read (fd, buf, BUFSIZE)) > 0)
 		{
 			unsigned int prcnt, compr;
@@ -378,14 +407,14 @@ restore_main (int argc, char **argv)
 				unsigned timedelta = time(NULL) - starttime;
 
 				if (info->back_flags & BF_COMPRESSED)
-					fprintf (stderr, "     \rRestoring %" PRId64 " of %" PRId64 "mb (%d.%02d%%) (%d.%02d%% comp)", info->cursector / 2048, info->nsectors / 2048, prcnt / 100, prcnt % 100, compr / 100, compr % 100);
+					fprintf (stderr, "     \rRestoring %" PRId64 " of %" PRId64 " MiB (%d.%02d%%) (%d.%02d%% comp)", info->cursector / 2048, info->nsectors / 2048, prcnt / 100, prcnt % 100, compr / 100, compr % 100);
 				else
-					fprintf (stderr, "     \rRestoring %" PRId64 " of %" PRId64 " mb (%d.%02d%%)", info->cursector / 2048, info->nsectors / 2048, prcnt / 100, prcnt % 100);
+					fprintf (stderr, "     \rRestoring %" PRId64 " of %" PRId64 " MiB (%d.%02d%%)", info->cursector / 2048, info->nsectors / 2048, prcnt / 100, prcnt % 100);
 
 				if (prcnt > 100 && timedelta > 15)
 				{
 					unsigned ETA = timedelta * (10000 - prcnt) / prcnt;
-					fprintf (stderr, " %" PRId64 " mb/sec (ETA %d:%02d:%02d)", info->cursector / timedelta / 2048, ETA / 3600, ETA / 60 % 60, ETA % 60);
+					fprintf (stderr, " %" PRId64 " MiB/sec (ETA %d:%02d:%02d)", info->cursector / timedelta / 2048, ETA / 3600, ETA / 60 % 60, ETA % 60);
 				}
 			}
 		}
@@ -418,62 +447,28 @@ restore_main (int argc, char **argv)
 	}
 
 	if (quiet < 2)
-		fprintf (stderr, "Restore done!\n");
-
-	if (expand > 0)
-	{
-		int blocksize = 0x800;
-		struct mfs_handle *mfshnd;
-
-		expand = 0;
-
-		mfshnd = mfs_init (drive, drive2, O_RDWR);
-		if (!mfshnd)
 		{
-			fprintf (stderr, "Drive expansion failed.\n");
-			return 1;
+		unsigned tot = time(NULL) - starttime;
+		fprintf (stderr, "Restore done! (%d:%02d:%02d)\n", tot / 3600, tot / 60 % 60, tot % 60);
 		}
 
-		if (mfs_has_error (mfshnd))
-		{
-			mfs_perror (mfshnd, "Drive expansion");
-			return 1;
-		}
-
-		while (expandscale-- > 0)
-			blocksize *= 2;
-
-		if (tivo_partition_largest_free (drive) > 1024 * 1024 * 2)
-		{
-			if (expand_drive (mfshnd, tivo_devnames[0], drive, blocksize) < 0)
-			{
-				if (restore_has_error (info))
-					restore_perror (info, "Expand drive A");
+	fprintf (stderr, "Revalidating partion table on %s...  ", drive);
+	if (revalidate_drive(drive) < 0)
+		fprintf (stderr, "Failed!\n");
 				else
-					fprintf (stderr, "Drive A expansion failed.\n");
-				return 1;
-			}
-			expand++;
-		}
-
-		if (drive2 && tivo_partition_largest_free (drive2) > 1024 * 1024 * 2)
-		{
-			if (expand_drive (mfshnd, tivo_devnames[1], drive2, blocksize) < 0)
+		fprintf (stderr, "Success!\n");
+	if (drive2)
 			{
-				if (restore_has_error (info))
-					restore_perror (info, "Expand drive B");
+		fprintf (stderr, "Revalidating partion table on %s...  ", drive2);
+		if (revalidate_drive(drive2) < 0)
+			fprintf (stderr, "Failed!\n");
 				else
-					fprintf (stderr, "Drive B expansion failed.\n");
-				return 1;
-			}
-			expand++;
+			fprintf (stderr, "Success!\n");
 		}
 
-		if (!expand)
-		{
-			fprintf (stderr, "Not enough extra space to expand on A drive%s.\n", drive2? " or B drive": "");
-		}
-	}
+	fprintf (stderr, "Syncing drives... ", drive2);
+	sync();
+	sync();
 
 	return 0;
 }

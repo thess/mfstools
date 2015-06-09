@@ -25,6 +25,9 @@
 
 char* tivo_devnames[] = { "/dev/hda", "/dev/hdb" };
 
+int mfsLSB = 0;
+int partLSB = 0;
+
 /*************************************/
 /* Write the volume header back out. */
 int
@@ -67,7 +70,8 @@ mfs_load_volume_header (struct mfs_handle *mfshnd, int flags)
 {
 	unsigned char buf[512];
 	char *volume_names;
-	u_int64_t total_sectors = 0;
+	uint64_t total_sectors = 0;
+	uint32_t magic = 0;
 
 /* Read in the volume header. */
 	if (mfsvol_read_data (mfshnd->vols, buf, 0, 1) != 512)
@@ -81,11 +85,31 @@ mfs_load_volume_header (struct mfs_handle *mfshnd, int flags)
 /* read even sectors. */
 	memcpy ((void *) &mfshnd->vol_hdr, buf, sizeof (mfshnd->vol_hdr));
 
-/* Verify the checksum. */
-	if (!( (mfshnd->vol_hdr.v32.magic == intswap32 (MFS32_MAGIC)
-		&& MFS_check_crc (&mfshnd->vol_hdr.v32, sizeof (mfshnd->vol_hdr.v32), mfshnd->vol_hdr.v32.checksum))
-	       || (mfshnd->vol_hdr.v64.magic == intswap32 (MFS64_MAGIC)
-		   && MFS_check_crc (&mfshnd->vol_hdr.v64, sizeof (mfshnd->vol_hdr.v64), mfshnd->vol_hdr.v64.checksum))))
+/* Determine endianness of the MFS */
+	if (mfshnd->vol_hdr.v32.magicLSB != 0 && mfshnd->vol_hdr.v32.magicMSB == 0)
+	{
+#if DEBUG
+		if (mfsLSB == 0)
+			fprintf (stderr, "MFS detected as LSB (Roamio or newer?).  Switching MFS to little endian.\n");
+#endif
+		mfsLSB = 1;
+		magic = intswap32 (mfshnd->vol_hdr.v32.magicLSB);
+	} else if (mfshnd->vol_hdr.v32.magicLSB == 0 && mfshnd->vol_hdr.v32.magicMSB != 0) {
+		mfsLSB = 0;
+		magic = intswap32 (mfshnd->vol_hdr.v32.magicMSB);
+	} else {
+		mfshnd->err_msg = "ERROR: Unexpected values for state/magic (%08x, %08x)";
+		mfshnd->err_arg1 = mfshnd->vol_hdr.v32.magicLSB;
+		mfshnd->err_arg2 = mfshnd->vol_hdr.v32.magicMSB;
+		return -1;
+	}
+
+/* Check for 64-bit mfs and verify the checksum */
+	mfshnd->is_64 = (magic & MFS_MAGIC_64BIT);
+	
+/* Verify checksum */
+	if ( !((MFS_check_crc (&mfshnd->vol_hdr.v32, sizeof (mfshnd->vol_hdr.v32), mfshnd->vol_hdr.v32.checksum) && !mfshnd->is_64) || 
+			 (MFS_check_crc (&mfshnd->vol_hdr.v64, sizeof (mfshnd->vol_hdr.v64), mfshnd->vol_hdr.v64.checksum) && mfshnd->is_64)) )
 	{
 /* If the checksum doesn't match, try the backup. */
 		if (mfsvol_read_data (mfshnd->vols, buf, mfsvol_volume_size (mfshnd->vols, 0) - 1, 1) != 512)
@@ -97,10 +121,8 @@ mfs_load_volume_header (struct mfs_handle *mfshnd, int flags)
 
 		memcpy ((void *) &mfshnd->vol_hdr, buf, sizeof (mfshnd->vol_hdr));
 
-		if (!((mfshnd->vol_hdr.v32.magic == intswap32 (MFS32_MAGIC)
-		       && MFS_check_crc (&mfshnd->vol_hdr.v32, sizeof (mfshnd->vol_hdr.v32), mfshnd->vol_hdr.v32.checksum))
-		      || (mfshnd->vol_hdr.v64.magic == intswap32 (MFS64_MAGIC)
-			  && MFS_check_crc (&mfshnd->vol_hdr.v64, sizeof (mfshnd->vol_hdr.v64), mfshnd->vol_hdr.v64.checksum))))
+		if ( !((MFS_check_crc (&mfshnd->vol_hdr.v32, sizeof (mfshnd->vol_hdr.v32), mfshnd->vol_hdr.v32.checksum) && !mfshnd->is_64) || 
+		     (MFS_check_crc (&mfshnd->vol_hdr.v64, sizeof (mfshnd->vol_hdr.v64), mfshnd->vol_hdr.v64.checksum) && mfshnd->is_64)) )
 		{
 /* Backup checksum doesn't match either.  It's the end of the world! */
 			mfshnd->err_msg = "Volume header corrupt";
@@ -108,27 +130,42 @@ mfs_load_volume_header (struct mfs_handle *mfshnd, int flags)
 		}
 	}
 
-	mfshnd->is_64 = mfshnd->vol_hdr.v64.magic == intswap32 (MFS64_MAGIC);
+/* Verify the mfs magic */
+	if ( (magic & ~MFS_MAGIC_64BIT) != MFS_MAGIC_OK)
+	{
+		if (!((magic & ~MFS_MAGIC_64BIT)==MFS_MAGIC_FS_CHK || (magic & ~MFS_MAGIC_64BIT)==MFS_MAGIC_LOG_CHK || (magic & ~MFS_MAGIC_64BIT)==MFS_MAGIC_DB_CHK || (magic & ~MFS_MAGIC_64BIT)==MFS_MAGIC_CLEAN))
+		{
+			mfshnd->err_msg = "Unexpected volume header magic 0x%08x";
+			mfshnd->err_arg1 = magic ;
+			return -1;
+		}
+		if (flags & MFS_ERROROK)
+		{
+			fprintf(stderr, "WARNING: mfs filesytem marked %s (0x%08x)\n", magic==MFS_MAGIC_CLEAN ? "for cleanup" : "as inconsistent", mfshnd->is_64 ? magic|MFS_MAGIC_64BIT: magic);
+		}
+		else
+		{
+			mfshnd->err_msg = "ERROR: mfs filesytem marked %s (0x%08x)";
+			mfshnd->err_arg1 = (size_t) (magic == MFS_MAGIC_CLEAN ? "for cleanup" : "as inconsistent");
+			mfshnd->err_arg2 = mfshnd->is_64 ? magic|MFS_MAGIC_64BIT: magic ;
+			return -1;
+		}
+	}
 
+/* Increment the boot cycle number and load the partition list from MFS. */
 	if (mfshnd->is_64)
 	{
-/* Increment the boot cycle number */
 		mfshnd->bootcycle = intswap32 (mfshnd->vol_hdr.v64.bootcycles) + 1;
-
-/* Load the partition list from MFS. */
 		volume_names = mfshnd->vol_hdr.v64.partitionlist;
 	}
 	else
 	{
 		mfshnd->bootcycle = intswap32 (mfshnd->vol_hdr.v32.bootcycles) + 1;
-
-/* Load the partition list from MFS. */
 		volume_names = mfshnd->vol_hdr.v32.partitionlist;
 	}
 
 /* Fake out seconds, all that's important is that it moves forward */
 	mfshnd->bootsecs = 1;
-
 
 /* Skip the first volume since it's already loaded. */
 	if (*volume_names)
@@ -141,7 +178,7 @@ mfs_load_volume_header (struct mfs_handle *mfshnd, int flags)
 /* mfsvol_device_translate, it will take care of seperating out one device. */
 	while (*volume_names)
 	{
-		if (mfsvol_add_volume (mfshnd->vols, volume_names, flags) < 0)
+		if (mfsvol_add_volume (mfshnd->vols, volume_names, (flags & O_ACCMODE)) < 0)
 		{
 			return -1;
 		}
@@ -154,9 +191,9 @@ mfs_load_volume_header (struct mfs_handle *mfshnd, int flags)
 /* Count the total number of sectors in the volume set. */
 	total_sectors = mfsvol_volume_set_size (mfshnd->vols);
 
+/* If the sectors mismatch, report it.. But continue anyway. */
 	if (mfshnd->is_64)
 	{
-/* If the sectors mismatch, report it.. But continue anyway. */
 		if (total_sectors != intswap64 (mfshnd->vol_hdr.v64.total_sectors))
 		{
 			mfshnd->err_msg = "Volume size (%u) mismatch with reported size (%u)";
@@ -166,7 +203,6 @@ mfs_load_volume_header (struct mfs_handle *mfshnd, int flags)
 	}
 	else
 	{
-/* If the sectors mismatch, report it.. But continue anyway. */
 		if (total_sectors != intswap32 (mfshnd->vol_hdr.v32.total_sectors))
 		{
 			mfshnd->err_msg = "Volume size (%u) mismatch with reported size (%u)";
@@ -203,14 +239,14 @@ mfs_init_internal (struct mfs_handle *mfshnd, char *hda, char *hdb, int flags)
 /* Bootstrap the first volume from MFS_DEVICE. */
 	char *cur_volume = getenv ("MFS_DEVICE");
 
-/* Only allow O_RDONLY or O_RDWR. */
+/* Only allow MFS_ERROROK and O_RDONLY or O_RDWR. */
 	if ((flags & O_ACCMODE) == O_RDONLY)
 	{
-		flags = O_RDONLY;
+		flags = (flags & MFS_ERROROK) | O_RDONLY;
 	}
 	else
 	{
-		flags = O_RDWR;
+		flags = (flags & MFS_ERROROK) | O_RDWR;
 	}
 
 /* If no volume is passed, assume hda10. */
@@ -229,7 +265,7 @@ mfs_init_internal (struct mfs_handle *mfshnd, char *hda, char *hdb, int flags)
 	}
 
 /* Load the first volume by hand. */
-	if (mfsvol_add_volume (mfshnd->vols, cur_volume, flags) < 0)
+	if (mfsvol_add_volume (mfshnd->vols, cur_volume, (flags & O_ACCMODE)) < 0)
 	{
 		return -1;
 	}

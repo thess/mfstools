@@ -33,6 +33,13 @@
 #define RESTORE
 #include "backup.h"
 
+/**
+ * Tivo device names.
+ * Defaults to /dev/hd{a,b}.  For a Premier backup, we'll replace these
+ * with /dev/sd{a,b}.
+ */
+extern char* tivo_devnames[];
+
 /***************************************************************************/
 /* State handlers - return val -1 = error, 0 = more data needed, 1 = go to */
 /* next state. */
@@ -65,7 +72,7 @@ restore_state_begin_v1 (struct backup_info *info, void *data, unsigned size, uns
 	case TB_MAGIC:
 		break;
 	case TB_ENDIAN:
-		info->back_flags |= RF_ENDIAN;
+		info->rest_flags |= RF_ENDIAN;
 		break;
 	case TB3_MAGIC:
 	case TB3_ENDIAN:
@@ -80,7 +87,7 @@ restore_state_begin_v1 (struct backup_info *info, void *data, unsigned size, uns
 	}
 
 /* Copy header fields into backup info */
-	if (info->back_flags & RF_ENDIAN)
+	if (info->rest_flags & RF_ENDIAN)
 	{
 		info->back_flags |= Endian32_Swap (head->flags);
 		info->nsectors = Endian32_Swap (head->nsectors);
@@ -299,12 +306,14 @@ restore_state_complete_v1 (struct backup_info *info, void *data, unsigned size, 
 
 	mfsvol_cleanup (info->vols);
 	info->vols = 0;
-	info->mfs = mfs_init (info->devs[0].devname, info->ndevs > 1? info->devs[1].devname: NULL, O_RDWR);
+	info->mfs = mfs_init (info->devs[0].devname, info->ndevs > 1? info->devs[1].devname: NULL, (O_RDWR | MFS_ERROROK));
 	if (!info->mfs || mfs_has_error (info->mfs))
 		return bsError;
 	if (restore_fudge_inodes (info) < 0)
 		return bsError;
 	if (restore_fudge_transactions (info) < 0)
+		return bsError;
+	if (restore_fixup_volume_header (info) < 0)
 		return bsError;
 
 #if HAVE_SYNC
@@ -363,7 +372,7 @@ restore_fudge_inodes (struct backup_info *info)
 				{
 					for (loop2 = 0; loop2 < intswap32 (inode->numblocks); loop2++)
 					{
-						if (intswap64 (inode->datablocks.d64[loop2].sector) >= total)
+						if (sectorswap64 (inode->datablocks.d64[loop2].sector) >= total)
 						{
 							inode->blockused = 0;
 							changed = 1;
@@ -416,6 +425,12 @@ restore_fudge_log (int is_64bit, char *trans, uint64_t volsize)
 
 	switch (intswap32 (cur->log.transtype))
 	{
+	case ltUnknownType6:
+		// TODO: Unknown transtype 6 first observed on Romio drives.  They should be investigated further.
+#if DEBUG
+		fprintf(stderr, "WARNING: Unhandled log type 6 (ltUnknownType6) encountered in function restore_fudge_log\n");
+#endif
+		break;
 	case ltMapUpdate:
 		if (intswap16 (cur->log.length) < sizeof (log_map_update_32) - 2)
 		{
@@ -465,7 +480,7 @@ restore_fudge_log (int is_64bit, char *trans, uint64_t volsize)
 			{
 				for (loc = 0, spot = 0; loc < intswap32 (cur->inode.datasize) / sizeof (cur->inode.datablocks.d64[0]); loc++)
 				{
-					if (intswap64 (cur->inode.datablocks.d64[loc].sector) < volsize)
+					if (sectorswap64 (cur->inode.datablocks.d64[loc].sector) < volsize)
 					{
 						if (shrunk)
 						{
@@ -691,7 +706,8 @@ restore_fixup_vol_list (struct backup_info *info)
 
 		for (loop = 0; loop < info->nmfs; loop++)
 		{
-			sprintf (vol.hdr.v64.partitionlist + strlen (vol.hdr.v64.partitionlist), "%s/dev/hd%c%d", loop > 0? " ": "", 'a' + info->mfsparts[loop].devno, info->mfsparts[loop].partno);
+			//sprintf (vol.hdr.v64.partitionlist + strlen (vol.hdr.v64.partitionlist), "%s/dev/hd%c%d", loop > 0? " ": "", 'a' + info->mfsparts[loop].devno, info->mfsparts[loop].partno);
+			sprintf (vol.hdr.v64.partitionlist + strlen (vol.hdr.v64.partitionlist), "%s%s%d", loop > 0? " ": "", tivo_devnames[info->mfsparts[loop].devno], info->mfsparts[loop].partno);
 		}
 
 		if (strlen (vol.hdr.v64.partitionlist) + 1 > sizeof (vol.hdr.v64.partitionlist))
@@ -710,7 +726,8 @@ restore_fixup_vol_list (struct backup_info *info)
 
 		for (loop = 0; loop < info->nmfs; loop++)
 		{
-			sprintf (vol.hdr.v32.partitionlist + strlen (vol.hdr.v32.partitionlist), "%s/dev/hd%c%d", loop > 0? " ": "", 'a' + info->mfsparts[loop].devno, info->mfsparts[loop].partno);
+			//sprintf (vol.hdr.v32.partitionlist + strlen (vol.hdr.v32.partitionlist), "%s/dev/hd%c%d", loop > 0? " ": "", 'a' + info->mfsparts[loop].devno, info->mfsparts[loop].partno);
+			sprintf (vol.hdr.v32.partitionlist + strlen (vol.hdr.v32.partitionlist), "%s%s%d", loop > 0? " ": "", tivo_devnames[info->mfsparts[loop].devno], info->mfsparts[loop].partno);
 		}
 
 		if (strlen (vol.hdr.v32.partitionlist) + 1 > sizeof (vol.hdr.v32.partitionlist))

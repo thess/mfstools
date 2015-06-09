@@ -25,6 +25,11 @@ MFSTOOLS_MLS = -L${top_builddir}/mls -lmls -Wl,-u,mls_main
 else
 MFSTOOLS_MLS =
 endif
+if BUILD_SUPERSIZE
+MFSTOOLS_SUPERSIZE = -L${top_builddir}/supersize -lsupersize -Wl,-u,supersize_main
+else
+MFSTOOLS_SUPERSIZE =
+endif
 if BUILD_MFSD
 MFSTOOLS_MFSD = -L${top_builddir}/mfsd -lmfsd -Wl,-u,mfsd_main
 else
@@ -51,6 +56,7 @@ MFSTOOLS_BACKUP =
 MFSTOOLS_RESTORE =
 MFSTOOLS_COPY =
 MFSTOOLS_MLS =
+MFSTOOLS_SUPERSIZE =
 MFSTOOLS_MFSD =
 MFSTOOLS_MFSADD =
 MFSTOOLS_MFSCK =
@@ -60,5 +66,5 @@ endif
 bin_PROGRAMS = $(MFSAPPS)
 
 mfstool_SOURCES = mfstool.c
-mfstool_LDFLAGS = -L${top_builddir}/lib $(MFSTOOLS_BACKUP) $(MFSTOOLS_RESTORE) $(MFSTOOLS_COPY) $(MFSTOOLS_MLS) $(MFSTOOLS_MFSD) $(MFSTOOLS_MFSADD) $(MFSTOOLS_MFSCK) $(MFSTOOLS_MFSINFO) $(ZLIB) -lmfs -lmfsvol -lmacpart
+mfstool_LDFLAGS = -L${top_builddir}/lib $(MFSTOOLS_BACKUP) $(MFSTOOLS_RESTORE) $(MFSTOOLS_COPY) $(MFSTOOLS_MLS) $(MFSTOOLS_SUPERSIZE) $(MFSTOOLS_MFSD) $(MFSTOOLS_MFSADD) $(MFSTOOLS_MFSCK) $(MFSTOOLS_MFSINFO) $(ZLIB) -lmfs -lmfsvol -lmacpart
 

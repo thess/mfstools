@@ -33,6 +33,13 @@
 #define RESTORE
 #include "backup.h"
 
+/**
+ * Tivo device names.
+ * Defaults to /dev/hd{a,b}.  For a Premier backup, we'll replace these
+ * with /dev/sd{a,b}.
+ */
+extern char* tivo_devnames[];
+
 int
 restore_create_empty_inodes (struct backup_info *info, uint64_t start, uint64_t size)
 {
@@ -80,16 +87,13 @@ restore_generate_zone_maps (struct backup_info *info)
 	int loop;
 	int createdmedia = 0;
 	int fsmem_ptr_offset = 0;
-	int imedia=0, nmedia=2;	/* single drive will always have 2 media zones */
+	int imedia=0, nmedia=info->nmfs/2;	/* media partitions should always be half of the total */
 
-	unsigned int mediaminalloc = 0x800;
+	unsigned int mediaminalloc = info->minalloc;
 
 	uint64_t curappvolstart = 0;
 	uint64_t curmediavolstart = mfs_volume_size (info->mfs, 0);
 	uint64_t curapplastsector = curmediavolstart - 2;
-
-	if (info->ndevs > 1)
-	  nmedia++;		/* extra media zone for additional drives */
 
 	for (loop = 0; loop < info->nzones; loop++)
 	{
@@ -123,8 +127,7 @@ restore_generate_zone_maps (struct backup_info *info)
 					curapplastsector--;
 			}
 			zonesize = mfs_volume_size (info->mfs, curmediavolstart);
-			//			mediaminalloc = info->zonemaps[loop].min_au;
-			mediaminalloc = info->zonemaps[loop].min_au = 20480;  /* modern default chunk size */
+			mediaminalloc = info->zonemaps[loop].min_au = info->minalloc;  /* default chunk size */
 			break;
 		case ztApplication:
 			zonesize = curapplastsector - info->shared_val1;
@@ -140,8 +143,10 @@ restore_generate_zone_maps (struct backup_info *info)
 		/* This should catch the case of allocating app or media when there is no space */
 		if (zonesize < info->zonemaps[loop].min_au)
 		{
-			info->err_msg = "Error creating zone map %d";
-			info->err_arg1 = (int64_t)(loop + 1);
+			info->err_msg = "Error zonesize < media block size (%llu < %u) for zone map %u";
+			info->err_arg1 = (int64_t) zonesize;
+			info->err_arg2 = (int32_t) info->zonemaps[loop].min_au;
+			info->err_arg3 = (int32_t)(loop + 1);
 			return -1;
 		}
 
@@ -206,11 +211,15 @@ restore_generate_zone_maps (struct backup_info *info)
 	}
 
 /* Fill out any remaining volumes */
-	while (curappvolstart < curmediavolstart)
+	while (curappvolstart < curmediavolstart && imedia < nmedia)
 	{
 		uint64_t zonesize = mfs_volume_size (info->mfs, curmediavolstart);
-		int maplength = mfs_new_zone_map_size (info->mfs, zonesize / mediaminalloc);
+		int maplength = (mfs_new_zone_map_size (info->mfs, zonesize / mediaminalloc) + 511) / 512;
 
+#if DEBUG
+  	fprintf (stderr, "Backup contains less media zones than the target.  Creating a new zone.\n");
+#endif
+		imedia++;
 		if (info->shared_val1 > curapplastsector || curapplastsector - info->shared_val1 + 1 < maplength * 2)
 		{
 			info->err_msg = "No MFS application space for new media zone";
@@ -287,7 +296,7 @@ restore_add_blocks_to_inode (struct backup_info *info, zone_header *zone, mfs_in
 
 		if (mfs_is_64bit (info->mfs))
 		{
-			inode->datablocks.d64[numblocks].sector = intswap64 (sector);
+			inode->datablocks.d64[numblocks].sector = sectorswap64 (sector);
 			inode->datablocks.d64[numblocks].count = intswap32 (blocksize);
 		}
 		else
@@ -335,7 +344,7 @@ restore_state_begin_v3 (struct backup_info *info, void *data, unsigned size, uns
 	case TB3_MAGIC:
 		break;
 	case TB3_ENDIAN:
-		info->back_flags |= RF_ENDIAN;
+		info->rest_flags |= RF_ENDIAN;
 		break;
 	default:
 		info->err_msg = "Not v3 backup format";
@@ -343,9 +352,9 @@ restore_state_begin_v3 (struct backup_info *info, void *data, unsigned size, uns
 	}
 
 /* Copy header fields into backup info */
-	if (info->back_flags & RF_ENDIAN)
+	if (info->rest_flags & RF_ENDIAN)
 	{
-		info->back_flags |= Endian16_Swap (head->flags);
+		info->back_flags = Endian32_Swap (head->flags);
 		info->nparts = Endian16_Swap (head->nparts);
 		info->nmfs = Endian16_Swap (head->mfspairs);
 		info->nzones = Endian16_Swap (head->nzones);
@@ -356,7 +365,18 @@ restore_state_begin_v3 (struct backup_info *info, void *data, unsigned size, uns
 		info->mediainodes = Endian32_Swap (head->mediainodes);
 		info->ilogtype = Endian32_Swap (head->ilogtype);
 		info->ninodes = Endian32_Swap (head->ninodes);
-		info->shared_val1 = Endian32_Swap (head->size);
+		info->shared_val1 = Endian16_Swap (head->size);
+// TODO: Temporary check for previous v3 backup header that had size and flags reversed.
+//       This should be removed before release, as there are probably few v3 backups in the wild...
+if (info->back_flags == sizeof (struct backup_head_v3))
+{
+  fprintf(stderr, "WARNING: Old v3 header detected.  This backup should be recreated ASAP!!!\n");
+  info->back_flags = Endian16_Swap (head->size);
+  info->shared_val1 = sizeof (struct backup_head_v3);
+  // Also need to fix BF_PARTLSB because it did not exist in previous versions, but should follow BF_MFSLSB
+	if (info->back_flags & BF_MFSLSB)
+		info->back_flags |= BF_PARTLSB;
+}
 		if (info->shared_val1 >= sizeof (struct backup_head_v3))
 		{
 			info->nextrainfo = Endian32_Swap (head->nextra);
@@ -365,7 +385,7 @@ restore_state_begin_v3 (struct backup_info *info, void *data, unsigned size, uns
 	}
 	else
 	{
-		info->back_flags |= head->flags;
+		info->back_flags = head->flags;
 		info->nparts = head->nparts;
 		info->nmfs = head->mfspairs;
 		info->nzones = head->nzones;
@@ -377,6 +397,17 @@ restore_state_begin_v3 (struct backup_info *info, void *data, unsigned size, uns
 		info->ilogtype = head->ilogtype;
 		info->ninodes = head->ninodes;
 		info->shared_val1 = head->size;
+// TODO: Temporary check for previous v3 backup header that had size and flags reversed.
+//       This should be removed before release, as there are probably few v3 backups in the wild...
+if (info->back_flags == sizeof (struct backup_head_v3))
+{
+  fprintf(stderr, "WARNING: Old v3 header detected.  This backup should be recreated ASAP!!!\n");
+  info->back_flags = head->size;
+  info->shared_val1 = sizeof (struct backup_head_v3);
+  // Also need to fix BF_PARTLSB because it did not exist in previous versions, but should follow BF_MFSLSB
+	if (info->back_flags & BF_MFSLSB)
+		info->back_flags |= BF_PARTLSB;
+}
 		if (info->shared_val1 >= sizeof (struct backup_head_v3))
 		{
 			info->nextrainfo = head->nextra;
@@ -480,7 +511,7 @@ restore_state_info_extra_v3 (struct backup_info *info, void *data, unsigned size
 		for (loop = 0; loop < info->nextrainfo; loop++)
 		{
 			info->extrainfo[loop] = (struct extrainfo *)((char *)info->extrainfodata + curoff);
-			if (info->back_flags & RF_ENDIAN)
+			if (info->rest_flags & RF_ENDIAN)
 			{
 				info->extrainfo[loop]->datalength = Endian16_Swap (info->extrainfo[loop]->datalength);
 			}
@@ -600,7 +631,8 @@ restore_state_volume_header_v3 (struct backup_info *info, void *data, unsigned s
 /* Create the partition list */
 	for (loop = 0; loop < info->nmfs; loop++)
 	{
-		sprintf (vol.hdr[1].v64.partitionlist + strlen (vol.hdr[1].v64.partitionlist), "%s/dev/hd%c%d", loop > 0? " ": "", 'a' + info->mfsparts[loop].devno, info->mfsparts[loop].partno);
+		//sprintf (vol.hdr[1].v64.partitionlist + strlen (vol.hdr[1].v64.partitionlist), "%s/dev/hd%c%d", loop > 0? " ": "", 'a' + info->mfsparts[loop].devno, info->mfsparts[loop].partno);
+		sprintf (vol.hdr[1].v64.partitionlist + strlen (vol.hdr[1].v64.partitionlist), "%s%s%d", loop > 0? " ": "", tivo_devnames[info->mfsparts[loop].devno], info->mfsparts[loop].partno);
 	}
 
 	if (strlen (vol.hdr[1].v64.partitionlist) + 1 > sizeof (vol.hdr[1].v64.partitionlist))
@@ -647,7 +679,10 @@ restore_state_volume_header_v3 (struct backup_info *info, void *data, unsigned s
 /* Now copy the header into the real thing and initialize the remaining values */
 	if (do64bit)
 	{
-		vol.hdr[0].v64.magic = intswap32 (MFS64_MAGIC);
+		if (mfsLSB)
+			vol.hdr[0].v64.magicLSB = intswap32 (MFS_MAGIC_OK | MFS_MAGIC_64BIT);
+		else
+			vol.hdr[0].v64.magicMSB = intswap32 (MFS_MAGIC_OK | MFS_MAGIC_64BIT);
 		vol.hdr[0].v64.off0c = intswap32 (vol.hdr[1].v64.off0c);
 		vol.hdr[0].v64.root_fsid = intswap32 (vol.hdr[1].v64.root_fsid);
 		vol.hdr[0].v64.off14 = intswap32 (vol.hdr[1].v64.off14);
@@ -673,7 +708,10 @@ restore_state_volume_header_v3 (struct backup_info *info, void *data, unsigned s
 			return -1;
 		}
 
-		vol.hdr[0].v32.magic = intswap32 (MFS32_MAGIC);
+		if (mfsLSB)
+			vol.hdr[0].v32.magicLSB = intswap32 (MFS_MAGIC_OK);
+		else
+			vol.hdr[0].v32.magicMSB = intswap32 (MFS_MAGIC_OK);
 		vol.hdr[0].v32.off0c = intswap32 (vol.hdr[1].v64.off0c);
 		vol.hdr[0].v32.root_fsid = intswap32 (vol.hdr[1].v64.root_fsid);
 		vol.hdr[0].v32.off14 = intswap32 (vol.hdr[1].v64.off14);
@@ -722,7 +760,7 @@ restore_state_volume_header_v3 (struct backup_info *info, void *data, unsigned s
 	info->vols = 0;
 
 /* Initialize MFS at this point */
-	info->mfs = mfs_init (info->devs[0].devname, info->ndevs > 1? info->devs[1].devname: NULL, O_RDWR);
+	info->mfs = mfs_init (info->devs[0].devname, info->ndevs > 1? info->devs[1].devname: NULL, (O_RDWR | MFS_ERROROK));
 
 	if (!info->mfs ||
 	    (do64bit && !mfs_is_64bit (info->mfs)) ||
@@ -766,13 +804,13 @@ size, unsigned *consumed)
 	{
 		lognsectors = intswap32 (info->mfs->vol_hdr.v64.lognsectors);
 		logstart = intswap64 (info->mfs->vol_hdr.v64.logstart);
-		logstamp = intswap32 (info->mfs->vol_hdr.v64.logstamp);
+		logstamp = (unsigned int) intswap64 (info->mfs->vol_hdr.v64.volhdrlogstamp);
 	}
 	else
 	{
 		lognsectors = intswap32 (info->mfs->vol_hdr.v32.lognsectors);
 		logstart = intswap32 (info->mfs->vol_hdr.v32.logstart);
-		logstamp = intswap32 (info->mfs->vol_hdr.v32.logstamp);
+		logstamp = intswap32 (info->mfs->vol_hdr.v32.volhdrlogstamp);
 	}
 
 	memset (buf, 0, sizeof (buf));
@@ -1001,7 +1039,7 @@ restore_state_inodes_v3 (struct backup_info *info, void *data, unsigned size, un
 		}
 
 		inode = (mfs_inode *)((unsigned char *)data + *consumed * 512);
-		if (!(inode->inode_flags & intswap32 (INODE_DATA)))
+		if (!(inode->inode_flags & intswap32 (INODE_DATA) || inode->inode_flags & intswap32 (INODE_DATA2)))
 		{
 			if (inode->type == tyStream)
 			{
@@ -1199,6 +1237,8 @@ restore_state_complete_v3 (struct backup_info *info, void *data, unsigned size, 
 	if (restore_fudge_inodes (info) < 0)
 		return bsError;
 	if (restore_fudge_transactions (info) < 0)
+		return bsError;
+	if (restore_fixup_volume_header (info) < 0)
 		return bsError;
 
 #if HAVE_SYNC

@@ -9,6 +9,7 @@
 
 #define BUILD_MFSADD 1
 #define BUILD_MLS 1
+#define BUILD_SUPERSIZE 1
 #define BUILD_MFSD 1
 #define BUILD_BACKUP 1
 #define BUILD_RESTORE 1
@@ -91,6 +92,6 @@
 #define PACKAGE "MFSTools"
 
 /* Version number of package */
-#define VERSION "2.0"
+#define VERSION "3.2"
 
 #endif // !HAVE_CONFIG_H

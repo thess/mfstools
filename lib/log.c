@@ -29,11 +29,11 @@ mfs_log_last_sync (struct mfs_handle *mfshnd)
 {
 	if (mfshnd->is_64)
 	{
-		return intswap32 (mfshnd->vol_hdr.v64.logstamp);
+		return (unsigned int) intswap64 (mfshnd->vol_hdr.v64.volhdrlogstamp);
 	}
 	else
 	{
-		return intswap32 (mfshnd->vol_hdr.v32.logstamp);
+		return intswap32 (mfshnd->vol_hdr.v32.volhdrlogstamp);
 	}
 }
 
@@ -218,14 +218,14 @@ mfs_log_zone_update_for_inodes (struct mfs_handle *mfshnd, mfs_inode *inode1, mf
 	int loop;
 
 	if (inode1 && 
-		(inode1->inode_flags & intswap32 (INODE_DATA) || !inode1->refcount ||
+		(inode1->inode_flags & intswap32 (INODE_DATA) || inode1->inode_flags & intswap32 (INODE_DATA2) || !inode1->refcount ||
 		!inode1->numblocks || !inode1->fsid))
 	{
 		inode1 = NULL;
 	}
 
 	if (inode2 && 
-		(inode2->inode_flags & intswap32 (INODE_DATA) || !inode2->refcount ||
+		(inode2->inode_flags & intswap32 (INODE_DATA) || inode1->inode_flags & intswap32 (INODE_DATA2) || !inode2->refcount ||
 		!inode2->numblocks || !inode2->fsid))
 	{
 		inode2 = NULL;
@@ -278,7 +278,7 @@ mfs_log_zone_update_for_inodes (struct mfs_handle *mfshnd, mfs_inode *inode1, mf
 			if (mfshnd->is_64)
 			{
 				if (mfs_log_zone_update (mfshnd, fsid,
-					intswap64 (inode1->datablocks.d64[loop].sector),
+					sectorswap64 (inode1->datablocks.d64[loop].sector),
 					intswap32 (inode1->datablocks.d64[loop].count), newstate) <= 0)
 					return 0;
 			}
@@ -339,7 +339,7 @@ mfs_log_inode_update (struct mfs_handle *mfshnd, mfs_inode *inode)
 		if (mfs_log_zone_update_for_inodes (mfshnd, inode, oldinode, fsid, 0) <= 0)
 			return 0;
 
-		if (inode->type != tyStream && (inode->inode_flags & intswap32 (INODE_DATA)))
+		if (inode->type != tyStream && (inode->inode_flags & intswap32 (INODE_DATA) || inode->inode_flags & intswap32 (INODE_DATA2)))
 		{
 			/* Data is in the inode block */
 			datasize = intswap32 (inode->size);
@@ -426,11 +426,17 @@ mfs_log_sync_inode (struct mfs_handle *mfshnd, log_inode_update *entry)
 	inode->pad = entry->pad;
 	if (entry->inodedata)
 	{
+		if (mfsLSB)
+			inode->inode_flags |= intswap32 (INODE_DATA2);
+		else
 		inode->inode_flags |= intswap32 (INODE_DATA);
 		inode->numblocks = 0;
 	}
 	else
 	{
+		if (mfsLSB)
+			inode->inode_flags &= intswap32 (~INODE_DATA2);
+		else
 		inode->inode_flags &= intswap32 (~INODE_DATA);
 		if (mfshnd->is_64)
 		{
@@ -476,6 +482,12 @@ mfs_log_commit_list (struct mfs_handle *mfshnd, struct log_entry_list *list, uns
 	{
 		switch (intswap32 (cur->entry.log.transtype))
 		{
+			case ltUnknownType6:
+				// TODO: Unknown transtype 6 first observed on Romio drives.  They should be investigated further.
+#if DEBUG
+				fprintf(stderr, "WARNING: Unhandled log type 6 (ltUnknownType6) encountered in function mfs_log_commit_list\n");
+#endif
+				break;
 			case ltMapUpdate:
 				if (mfs_zone_map_update (mfshnd, intswap32 (cur->entry.zonemap_32.sector), intswap32 (cur->entry.zonemap_32.size), intswap32 (cur->entry.zonemap_32.remove), cur->logstamp) < 1)
 				{
@@ -507,7 +519,7 @@ mfs_log_commit_list (struct mfs_handle *mfshnd, struct log_entry_list *list, uns
 	mfshnd->lastlogcommit = logstamp;
 	if (mfshnd->is_64)
 	{
-		mfshnd->vol_hdr.v64.logstamp = intswap32 (logstamp);
+		mfshnd->vol_hdr.v64.volhdrlogstamp = intswap64 ((uint64_t) logstamp);
 		if (last)
 		{
 			mfshnd->vol_hdr.v64.bootcycles = last->entry.log.bootcycles;
@@ -516,7 +528,7 @@ mfs_log_commit_list (struct mfs_handle *mfshnd, struct log_entry_list *list, uns
 	}
 	else
 	{
-		mfshnd->vol_hdr.v32.logstamp = intswap32 (logstamp);
+		mfshnd->vol_hdr.v32.volhdrlogstamp = intswap32 (logstamp);
 		if (last)
 		{
 			mfshnd->vol_hdr.v32.bootcycles = last->entry.log.bootcycles;
@@ -541,8 +553,19 @@ mfs_log_fssync_list (struct mfs_handle *mfshnd, struct log_entry_list *list)
 	{
 		if (cur->entry.log.length < sizeof (log_entry) + 2)
 		{
+			if (mfsLSB == 1)
+			{
+				// TODO: Roamio drives observed to have short log entries, as well as log entries with unknown transtype 6.
+				// It appears to be safe to ignore them, but they should be investigated further.
+#if DEBUG
+				fprintf(stderr, "WARNING: Log entry too short for transaction type %d.  Ignoring this error on Roamio drives.\n", intswap32 (cur->entry.log.transtype));
+#endif
+				continue;
+			}
+			else {
 			mfshnd->err_msg = "Log entry too short";
 			return 0;
+			}
 		}
 
 		switch (intswap32 (cur->entry.log.transtype))

@@ -85,6 +85,7 @@ mfs_compute_crc (unsigned char *data, unsigned int size, unsigned int off)
 {
 	unsigned int CRC = 0;
 	static const unsigned char deadfood[] = { 0xde, 0xad, 0xf0, 0x0d };
+	static const unsigned char odfoadde[] = { 0x0d, 0xf0, 0xad, 0xde };
 	off = off * 4 + 3;
 
 	while (size)
@@ -92,7 +93,11 @@ mfs_compute_crc (unsigned char *data, unsigned int size, unsigned int off)
 		if (off < 4)
 		{
 /* This replaces the checksum offset without actually modifying the data. */
+			if (mfsLSB == 0) {
 			CRC = UPDC32 (deadfood[3 - off], CRC);
+			} else {
+				CRC = UPDC32 (odfoadde[3 - off], CRC);
+			}
 		}
 		else
 		{

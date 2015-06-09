@@ -103,7 +103,7 @@ mfsvol_add_volume (struct volume_handle *hnd, char *path, int flags)
 
 /* If the user requested RO, let them have it.  This may break a writer */
 /* program, but thats what it is intended to do.  Also if write mode is */
-/* nor normal, set RO as well, for the actual file, just in case. */
+/* not normal, set RO as well, for the actual file, just in case. */
 	if (hnd->write_mode != vwNormal || !strncmp (path, "RO:", 3))
 	{
 		path += 3;

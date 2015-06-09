@@ -17,6 +17,7 @@ __attribute__ ((packed)) fsid_type;
 /* For inode_flags below. */
 #define INODE_CHAINED	0x80000000	/* More than one fsid that hash to this inode follow */
 #define INODE_DATA	0x40000000	/* Data for this inode is in the inode header */
+#define INODE_DATA2	0x2	/* Data for this inode is in the inode header (observed in Roamio)*/
 
 #define MFS32_INODE_SIG 0x91231EBC
 #define MFS64_INODE_SIG 0xD1231EBC
@@ -50,6 +51,7 @@ typedef struct mfs_inode_s
 		d32[0];
 		struct __attribute__ ((__packed__)) 
 		{
+			// *NOTE*  Little endian drives (Roamio) have reversed hi an lo 32 bits
 			uint64_t sector;
 			uint32_t count;
 		}
@@ -58,14 +60,46 @@ typedef struct mfs_inode_s
 }
 mfs_inode;
 
-typedef struct fs_entry_s
-{
-	unsigned int fsid;
-	unsigned char entry_length;
+typedef struct mfs_dirent_s {
+	uint32_t fsid;
 	fsid_type type;
-	char name[0];
+	char *name;
 }
-fs_entry;
+mfs_dirent;
+
+
+typedef struct mfs_obj_header_s {
+	uint32_t fill1;
+	uint32_t size;
+}
+mfs_obj_header;
+
+typedef struct mfs_subobj_header_s {
+	uint16_t len;
+	uint16_t len1; 
+	uint16_t obj_type;
+	uint16_t flags;
+	uint16_t fill[2];
+	uint32_t id;
+}
+mfs_subobj_header;
+
+typedef struct mfs_attr_header_s {
+	uint16_t attreltype;
+	uint16_t len;
+}
+mfs_attr_header;
+
+typedef struct mfs_obj_attr_s {
+	uint32_t fsid;
+	int subobj;
+}
+mfs_obj_attr;
+
+#define TYPE_INT 0
+#define TYPE_STRING 1
+#define TYPE_OBJECT 2
+#define TYPE_FILE 3
 
 uint32_t mfs_inode_count (struct mfs_handle *mfshnd);
 uint64_t mfs_inode_to_sector (struct mfs_handle *mfshnd, uint32_t inode);
@@ -77,6 +111,17 @@ int mfs_write_inode (struct mfs_handle *mfshnd, mfs_inode *inode);
 int mfs_read_inode_data_part (struct mfs_handle *mfshnd, mfs_inode * inode, unsigned char *data, uint64_t start, unsigned int count);
 unsigned char *mfs_read_inode_data (struct mfs_handle *mfshnd, mfs_inode * inode, int *size);
 int mfs_write_inode_data_part (struct mfs_handle *mfshnd, mfs_inode * inode, unsigned char *data, uint32_t start, unsigned int count);
+
+/* Borrowed from mfs-utils */
+/* return a string identifier for a tivo file type */
+typedef void (*object_fn)(int fsid, mfs_subobj_header *obj, mfs_attr_header *attr, void *data);
+char *mfs_type_string(fsid_type type);
+void mfs_dir_free(mfs_dirent *dir);
+mfs_dirent *mfs_dir(struct mfs_handle *mfshnd, int fsid, uint32_t *count);
+uint32_t mfs_resolve(struct mfs_handle *mfshnd, const char *pathin);
+static int parse_attr(char *p, int obj_type, int fsid, mfs_subobj_header *obj, object_fn fn);
+static void parse_subobj(void *p, uint16_t type, int len, int fsid, mfs_subobj_header *obj, object_fn fn);
+void parse_object(int fsid, void *buf, object_fn fn);
 
 /* Simplified "greedy" allocation scheme */
 /* Works well on a fresh MFS, not so well on a well used volume */

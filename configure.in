@@ -1,7 +1,7 @@
 AC_INIT(include/mfs.h)
 AM_CONFIG_HEADER(include/config.h:include/config.h.in)
 
-AM_INIT_AUTOMAKE("MFSTools", snapshot050221)
+AM_INIT_AUTOMAKE("MFSTools", v3.2-devel)
 
 AC_ARG_ENABLE(debug,
 [  --enable-debug	Turn on debugging output],
@@ -11,6 +11,15 @@ AC_ARG_ENABLE(debug,
   *) AC_MSG_ERROR(bad value ${enableval} for --enable-debug) ;;
 esac])
 AH_TEMPLATE([DEBUG],[Build with debug symbols and debug messages enabled.])
+
+AC_ARG_ENABLE(deprecated,
+[  --enable-deprecated	Turn on deprecated features],
+[case "${enableval}" in
+  yes) AC_DEFINE(DEPRECATED) ;;
+  no)  : ;;
+  *) AC_MSG_ERROR(bad value ${enableval} for --enable-deprecated) ;;
+esac])
+AH_TEMPLATE([DEPRECATED],[Build with deprecated features enabled.])
 
 AC_ARG_ENABLE(mfsadd,
 [  --disable-mfsadd	Don't build mfsadd],
@@ -41,6 +50,16 @@ esac],[build_mls=true; AC_DEFINE(BUILD_MLS)])
 AM_CONDITIONAL(BUILD_MLS, test x$build_mls = xtrue)
 AH_TEMPLATE([BUILD_MLS],
 	[Build the mls standalone utility or mfstool utility.])
+  
+AC_ARG_ENABLE(supersize,
+[  --disable-supersize	Don't build supersize],
+[case "${enableval}" in
+  yes) build_supersize=true; AC_DEFINE(BUILD_SUPERSIZE) ;;
+  no)  build_supersize=false ;;
+esac],[build_supersize=true; AC_DEFINE(BUILD_SUPERSIZE)])
+AM_CONDITIONAL(BUILD_SUPERSIZE, test x$build_supersize = xtrue)
+AH_TEMPLATE([BUILD_SUPERSIZE],
+	[Build the supersize standalone utility or mfstool utility.])
   
 AC_ARG_ENABLE(mfsd,
 [  --disable-mfsd	Don't build mfsd],
@@ -155,6 +174,7 @@ lib/Makefile
 mfsadd/Makefile
 mfsck/Makefile
 mls/Makefile
+supersize/Makefile
 mfsd/Makefile
 backup/Makefile
 restore/Makefile

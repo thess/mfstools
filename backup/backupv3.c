@@ -24,6 +24,7 @@
 #include <linux/fs.h>
 #endif
 #include <ctype.h>
+#include <inttypes.h>
 
 #include "mfs.h"
 #include "macpart.h"
@@ -91,7 +92,7 @@ backup_scan_inodes (struct backup_info *info)
 	unsigned char inodebuf[512];
 	unsigned *fsids = NULL;
 
-	uint64_t appsectors = 0, mediasectors = 0;
+	uint64_t appsectors = 0, mediasectors = 0, restoremediasectors = 0;
 	unsigned int mediainodes = 0, appinodes = 0;
 
 	unsigned allocated = 0;
@@ -156,12 +157,24 @@ backup_scan_inodes (struct backup_info *info)
 
 /* Ignore streams with no allocated data, or bigger than the threshhold. */
 			if (streamsize == 0 || 
-			    ((info->back_flags & BF_THRESHSIZE) && streamsize > info->thresh) ||
-			    (!(info->back_flags & BF_THRESHSIZE) && intswap32 (inode->fsid) > info->thresh))
+					((((info->back_flags & BF_THRESHSIZE) && streamsize > info->thresh) ||
+					(!(info->back_flags & BF_THRESHSIZE) && intswap32 (inode->fsid) > info->thresh)) && !(is_resource(intswap32 (inode->fsid))) ))
 			{
 				/* Clear out the data in the inode and write it back to */
 				/* memory for backup to read later */
+				
+				// Series 1 observed to reboot when playing a recording when the TyStream is skipped and size is set to 0.  So, we will set size == 1 
+				// (as long as BF_STREAMTOT is not set, as that would cause restore to fail).  This should prevent unwanted reboots in most cases,
+				// except, perhaps, if using -T without -a on the Series 1 (which seems unlikely)
+				if (!(info->back_flags & BF_NOBSWAP) && !(info->back_flags & BF_STREAMTOT))
+				{
+					if (inode->size > 0)
+						inode->size=intswap32 (1);
+				}
+				else
+				{
 				inode->size = 0;
+				}
 				inode->blockused = 0;
 				inode->numblocks = 0;
 				mfs_write_inode (info->mfs, inode);
@@ -174,13 +187,14 @@ backup_scan_inodes (struct backup_info *info)
 
 /* Count the inode's sectors in the total. */
 			mediasectors += streamsize;
+			restoremediasectors += intswap32 (inode->blocksize) / 512 * intswap32 (inode->size);
 			mediainodes++;
 
 #if DEBUG
 			fprintf (stderr, "Inode %d (%d) added\n", intswap32 (inode->inode), intswap32 (inode->fsid));
 #endif
 		}
-		else if (inode->type != tyStream && !(inode->inode_flags & intswap32 (INODE_DATA)) && inode->size)
+		else if (inode->type != tyStream && !(inode->inode_flags & intswap32 (INODE_DATA) || inode->inode_flags & intswap32 (INODE_DATA2)) && inode->size)
 		{
 /* Count the space used by non-stream inodes */
 			appsectors += (intswap32 (inode->size) + 511) / 512;
@@ -197,7 +211,7 @@ backup_scan_inodes (struct backup_info *info)
 			if (mfs_is_64bit (info->mfs))
 			{
 				thiscount = intswap32 (inode->datablocks.d64[loop2].count);
-				thissector = intswap64 (inode->datablocks.d64[loop2].sector);
+				thissector = sectorswap64 (inode->datablocks.d64[loop2].sector);
 			}
 			else
 			{
@@ -236,13 +250,17 @@ backup_scan_inodes (struct backup_info *info)
 		info->shrink_to = highest;
 
 #if DEBUG
-	fprintf (stderr, "Backing up %lld media sectors (%d inodes), %lld app sectors (%d inodes) and %d inode sectors\n", mediasectors, mediainodes, appsectors, appinodes, info->ninodes);
+	fprintf (stderr, "Backing up %" PRIu64 " media sectors (%d inodes), %" PRIu64 " app sectors (%d inodes) and %d inode sectors\n", mediasectors, mediainodes, appsectors, appinodes, info->ninodes);
 #endif
 
 /* Count the space for the inodes themselves */
 	info->nsectors += info->ninodes + appsectors + mediasectors;
 	info->appsectors = appsectors;
-	info->mediasectors = mediasectors;
+	//info->mediasectors = mediasectors;
+	// NOTE: We are now setting the previous unused info->mediasectors to inode->size so that we can determine the correct minimum restore size.  Backup reporting should still reflect the actual backup size.
+	//       Any backups created with the actual mediasectors that were backed up (original behavior) without the -T flag will report an incorrect minimum single drive sector size during restore and
+	//       will fail unless there is actually enough space on the drive to allow for the total inode->blockused.
+	info->mediasectors = restoremediasectors;
 	info->appinodes = appinodes;
 	info->mediainodes = mediainodes;
 
@@ -358,8 +376,6 @@ init_backup_v3 (char *device, char *device2, int flags)
 {
  	struct backup_info *info;
 
-	flags &= BF_FLAGS;
-
  	if (!device)
  		return 0;
  
@@ -375,16 +391,30 @@ init_backup_v3 (char *device, char *device2, int flags)
 	info->crc = ~0;
 	info->state_machine = &backup_v3;
 
-	info->mfs = mfs_init (device, device2, O_RDONLY);
+	info->mfs = mfs_init (device, device2, (O_RDONLY | MFS_ERROROK));
  
  	info->back_flags = flags;
+
+	// MFS is little endian
+	if (mfsLSB == 1)
+	{
+		info->back_flags |= BF_MFSLSB;
+	}
+	
+	// TiVo partitions are little endian
+	if (partLSB == 1)
+	{
+		info->back_flags |= BF_PARTLSB;
+	}
 
 	if (info->mfs && mfs_is_64bit (info->mfs))
 	{
 		info->back_flags |= BF_64;
 	}
 
-	info->thresh = 2000;
+	// This appears to be an arbitrary number to pickup misc tyStream files (loopset, demo, etc.), which doesn't work very well after a unit is in service for a while,
+	// then has it's loopsets updated. This job is now handled by backup_set_resource_check, so don't bother with a minimum fsid here...
+	//info->thresh = 2000;
 
 	if (!tivo_partition_swabbed (device))
 		info->back_flags |= BF_NOBSWAP;
@@ -422,8 +452,24 @@ backup_write_header (struct backup_info *info, void *data, unsigned size, unsign
 enum backup_state_ret
 backup_state_scan_mfs_v3 (struct backup_info *info, void *data, unsigned size, unsigned *consumed)
 {
+	int loop;
+	char buf[1024];
+
 	if ((add_partitions_to_backup_info (info, info->hda)) != 0) {
 		return bsError;
+	}
+
+	// Loop through the partitions and save the name/type in extra info
+	for (loop = 0; loop < info->nparts; loop++)
+	{
+		char *ptype = tivo_partition_type(info->hda, info->parts[loop].partno);
+		char *pname = tivo_partition_name(info->hda, info->parts[loop].partno);
+
+		sprintf (buf, "pname%d", info->parts[loop].partno);
+		backup_info_add_extra_string (info, buf, pname);
+
+		sprintf (buf, "ptype%d", info->parts[loop].partno);
+		backup_info_add_extra_string (info, buf, ptype);
 	}
 
 	if (backup_scan_inodes (info) == ~0)
@@ -495,6 +541,7 @@ backup_state_begin_v3 (struct backup_info *info, void *data, unsigned size, unsi
 	head->mediainodes = info->mediainodes;
 	head->ilogtype = info->ilogtype;
 	head->ninodes = info->ninodes;
+	head->nextra = info->nextrainfo;
 	head->extrasize = info->extrainfosize;
 	head->size = sizeof (*head);
 
@@ -537,7 +584,7 @@ backup_state_info_zone_maps_v3 (struct backup_info *info, void *data, unsigned s
 }
 
 /********************************/
-/* Add zone map info to backup. */
+/* Add info_extra to backup.    */
 /* state_val1 = offset in current info */
 /* state_val2 = current info index */
 /* state_ptr1 = --unused-- */
@@ -548,20 +595,20 @@ backup_state_info_extra_v3 (struct backup_info *info, void *data, unsigned size,
 	while (info->state_val2 < info->nextrainfo && *consumed < size)
 	{
 		int extrainfosize = offsetof (struct extrainfo, data);
-		size += (info->extrainfo[info->state_val1]->datalength + 3) & ~3;
-		size += (info->extrainfo[info->state_val1]->typelength + 3) & ~3;
+		extrainfosize += (info->extrainfo[info->state_val2]->typelength + 3) & ~3;
+		extrainfosize += (info->extrainfo[info->state_val2]->datalength + 3) & ~3;
 
-		enum backup_state_ret ret = backup_write_header (info, data, size, consumed, &info->extrainfo[info->state_val1], 1, extrainfosize);
+		enum backup_state_ret ret = backup_write_header (info, data, size, consumed, info->extrainfo[info->state_val2], 1, extrainfosize);
 
 		if (ret != bsNextState)
 			return ret;
 
 		info->state_val1 = 0;
 		info->state_val2++;
-	}
 
 	if (info->state_val2 < info->nextrainfo)
 		return bsMoreData;
+	}
 
 	return bsNextState;
 }
@@ -658,7 +705,7 @@ backup_state_inodes_v3 (struct backup_info *info, void *data, unsigned size, uns
 			inode_size = offsetof (mfs_inode, datablocks);
 
 /* Data in inode. */
-			if (inode->type != tyStream && (inode->inode_flags & intswap32 (INODE_DATA)))
+			if (inode->type != tyStream && (inode->inode_flags & intswap32 (INODE_DATA) || inode->inode_flags & intswap32 (INODE_DATA2)))
 			{
 				inode_size += intswap32 (inode->size);
 				if (inode_size > 512)
@@ -678,6 +725,9 @@ backup_state_inodes_v3 (struct backup_info *info, void *data, unsigned size, uns
 			tmpinode->bootsecs = 0;
 			tmpinode->sig = 0;
 			tmpinode->checksum = 0;
+			if (mfsLSB)
+				tmpinode->inode_flags &= intswap32 (INODE_DATA2);
+			else
 			tmpinode->inode_flags &= intswap32 (INODE_DATA);
 			tmpinode->numblocks = 0;
 
@@ -703,7 +753,7 @@ backup_state_inodes_v3 (struct backup_info *info, void *data, unsigned size, uns
 		}
 		else
 		{
-			if (!(inode->inode_flags & intswap32 (INODE_DATA)))
+			if (!(inode->inode_flags & intswap32 (INODE_DATA) || inode->inode_flags & intswap32 (INODE_DATA2)))
 			{
 				datasize = intswap32 (inode->size);
 			}
