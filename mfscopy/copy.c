@@ -123,7 +123,7 @@ copy_main (int argc, char **argv)
 	int64_t carveA = 0;
 	int64_t carveB = 0;
 	int norescheck = 0;
-	unsigned int skipdb = 1;
+	unsigned int skipdb = 0;
 	int64_t maxdisk = 0;
 	int64_t maxmedia = 0;
 	unsigned int minalloc = 0;

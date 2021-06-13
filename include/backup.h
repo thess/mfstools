@@ -3,13 +3,13 @@
 
 struct backup_block
 {
-	unsigned int firstsector;
-	unsigned int sectors;
+	uint64_t firstsector;
+	uint64_t sectors;
 };
 
 struct backup_partition
 {
-	unsigned int sectors;
+	uint64_t sectors;
 	char partno;
 	char devno;
 	char reserved[2];
@@ -314,6 +314,7 @@ struct backup_head_v3
 
 struct backup_info *init_backup_v1 (char *device, char *device2, int flags);
 struct backup_info *init_backup_v3 (char *device, char *device2, int flags);
+int is_resource(unsigned int fsid);
 int backup_set_resource_check(struct backup_info *info);
 void backup_set_thresh (struct backup_info *info, unsigned int thresh);
 void backup_set_skipdb (struct backup_info *info, unsigned int skipdb);

@@ -112,6 +112,8 @@ struct tivo_partition_table
 	struct tivo_partition_table *parent;
 };
 
+struct tivo_partition_table *
+	tivo_read_partition_table (const char *device, int flags);
 /* From macpart.c */
 tpFILE *tivo_partition_open (char *device, int flags);
 tpFILE *tivo_partition_open_direct (char *device, int partnum, int flags);
@@ -120,6 +122,7 @@ void tivo_partition_close (tpFILE * file);
 uint64_t tivo_partition_size (tpFILE * file);
 uint64_t tivo_partition_sizeof (const char *device, int partnum);
 uint64_t tivo_partition_total_free (const char *device);
+uint64_t tivo_partition_total_used (const char *device);
 char *tivo_partition_name (const char *device, int partnum);
 char *tivo_partition_type (const char *device, int partnum);
 uint64_t tivo_partition_offset (tpFILE * file);
@@ -128,9 +131,8 @@ int tivo_partition_rrpart (const char *device);
 void tivo_partition_direct ();
 void tivo_partition_file ();
 void tivo_partition_auto ();
-
-char *
-tivo_partition_type (const char *device, int partnum);
+int revalidate_drive (const char *device);
+char *tivo_partition_type (const char *device, int partnum);
 
 int tivo_partition_swabbed (const char *device);
 int tivo_partition_devswabbed (const char *device);

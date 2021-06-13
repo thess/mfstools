@@ -10,7 +10,7 @@
 #include <string.h>
 #include <time.h>
 #include <inttypes.h>
-
+#include "macpart.h"
 #include "mfs.h"
 #include "log.h"
 

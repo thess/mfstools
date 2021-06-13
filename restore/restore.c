@@ -660,7 +660,11 @@ find_optimal_partitions (struct backup_info *info, uint64_t min1, uint64_t secs1
 			if (loop & loop2)
 			{
 				max1 += 2;
-				free1 -= info->mfsparts[loop3].sectors + info->mfsparts[loop3 + 1].sectors;
+/*  Forced use of Partition 10 sector size by changing info->mfsparts[loop3].sectors to info->mfsparts[0].sectors */
+/*  This is to allow mfstools to work with nonstandard mfs partition sizes in other expansion processes that */
+/*  circumvented buggy TiVo' OS 2 TiB partition limit by making a larger partition 12. */
+//				free1 -= info->mfsparts[loop].sectors + info->mfsparts[loop3 +1].sectors; //
+				free1 -= info->mfsparts[0].sectors + info->mfsparts[loop3 + 1].sectors;
 			}
 			else
 			{
@@ -725,7 +729,11 @@ find_optimal_partitions (struct backup_info *info, uint64_t min1, uint64_t secs1
 			info->mfsparts[loop2].devno = 0;
 			info->newparts[count].partno = loop3;
 			info->mfsparts[loop2].partno = loop3;
-			info->newparts[count].sectors = info->mfsparts[loop2].sectors;
+/*  Forced use of Partition 10 sector size by changing info->mfsparts[loop2].sectors to info->mfsparts[0].sectors */
+/*  This is to allow mfstools to work with nonstandard mfs partition sizes in other expansion processes that */
+/*  circumvented buggy TiVo' OS 2 TiB partition limit by making a larger partition 12. */
+//			info->newparts[count].sectors = info->mfsparts[loop2].sectors; //
+			info->newparts[count].sectors = info->mfsparts[0].sectors;
 			info->newparts[count + 1].devno = 0;
 			info->mfsparts[loop2 + 1].devno = 0;
 			info->newparts[count + 1].partno = loop3 + 1;
@@ -782,6 +790,7 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2, int64_t carveA
 	uint64_t min1 = 0;
 	uint64_t count = 0;
 	int loop;
+	int temploop;
 	uint64_t other = 0; /* Handle SQLite and other partitions for reporting purposes only */
 	uint64_t skipped = 0; /* Sectors that are (will be) skipped due to the 4K alignment in tivo_partition_add */
 	int offset = 0;
@@ -960,13 +969,14 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2, int64_t carveA
 			info->swapsize = 128 * 1024 * 2;
 	}
 	// TODO: The default var and db size should be added to the extrainfo in the backup, then we can set it to the original size during restore.
-	//       For now, we'll set it to match the largest sizes (roamio).
-	if (info->varsize == 0)
+	//       For now, we'll set it to match the largest sizes (roamio) unless this is a bolt. Since min1 is currently the sum of partitions 2
+    //       through 7 and those are zero byte partitions will use that for a test for a bolt.
+	if ((info->varsize == 0) && (min1 > 0))
 	{
 		//info->varsize = 128 * 1024 * 2;
 		info->varsize = 768 * 1024 * 2;
 	}
-	if (info->dbsize == 0)
+	if ((info->dbsize == 0) && (min1 > 0))
 	{
 		info->dbsize = 3072 * 1024 * 2;
 	}
@@ -977,7 +987,9 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2, int64_t carveA
 	skipped += ((info->swapsize + 7 ) & ~0x07) - info->swapsize;
 	skipped += ((info->varsize + 7 ) & ~0x07) - info->varsize;
 	skipped += ((info->mfsparts[0].sectors + 7 ) & ~0x07) - info->mfsparts[0].sectors;
-	skipped += ((info->mfsparts[2].sectors + 7 ) & ~0x07) - info->mfsparts[2].sectors;
+/*  Forced use of Partition 10 sector size by changing info->mfsparts[2].sectors to info->mfsparts[0].sectors */
+//	skipped += ((info->mfsparts[2].sectors + 7 ) & ~0x07) - info->mfsparts[2].sectors; //
+	skipped += ((info->mfsparts[0].sectors + 7 ) & ~0x07) - info->mfsparts[0].sectors;
 
 #if DEBUG
 	fprintf (stderr, "Size of boot/root/kernel partitions in backup: %" PRIu64 " (%" PRIu64 " MiB)\n", min1, min1/2048);
@@ -986,7 +998,11 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2, int64_t carveA
 	fprintf (stderr, "Size of swap: %" PRIu32 " (%" PRIu32 " MiB)\n", info->swapsize, info->swapsize/2048);
 	fprintf (stderr, "Size of mediasectors: %" PRIu64 " (%" PRIu64 " MiB)\n", info->mediasectors, info->mediasectors/2048);
 	fprintf (stderr, "Size of appsectors: %" PRIu64 " (%" PRIu64 " MiB)\n", info->appsectors, info->appsectors/2048);
-	fprintf (stderr, "Size of mfsparts[0].sectors + mfsparts[2].sectors: %" PRIu64 " (%" PRIu64 " MiB)\n", (uint64_t)(info->mfsparts[0].sectors + info->mfsparts[2].sectors), (uint64_t)((info->mfsparts[0].sectors + info->mfsparts[2].sectors)/2048));
+/*  Forced use of Partition 10 sector size by changing info->mfsparts[2].sectors to info->mfsparts[0].sectors */
+/*  This is to allow mfstools to work with nonstandard mfs partition sizes in other expansion processes that */
+/*  circumvented buggy TiVo' OS 2 TiB partition limit by making a larger partition 12. */
+//	fprintf (stderr, "Size of mfsparts[0].sectors + mfsparts[2].sectors: %" PRIu64 " (%" PRIu64 " MiB)\n", (uint64_t)(info->mfsparts[0].sectors + info->mfsparts[2].sectors), (uint64_t)((info->mfsparts[0].sectors + info->mfsparts[2].sectors)/2048)); //
+	fprintf (stderr, "Size of mfsparts[0].sectors + mfsparts[0].sectors: %" PRIu64 " (%" PRIu64 " MiB)\n", (uint64_t)(info->mfsparts[0].sectors + info->mfsparts[0].sectors), (uint64_t)((info->mfsparts[0].sectors + info->mfsparts[0].sectors)/2048));
 	fprintf (stderr, "Skipped sectors due to 4K alignment: %" PRIu32 "\n", skipped);
 #endif
 
@@ -998,7 +1014,11 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2, int64_t carveA
 /* (Boot sector, partition table uncounted) swap, var, mfs set 1 */
 	if (info->format == bfV3)
 		/* For V3 restores, we will force the fisrt two pairs on Drive 1 without resizing the app partitions. */
-		min1 += info->swapsize + info->varsize + info->mfsparts[0].sectors + info->mfsparts[2].sectors;
+/*  Forced use of Partition 10 sector size by changing info->mfsparts[2].sectors to info->mfsparts[0].sectors */
+/*  This is to allow mfstools to work with nonstandard mfs partition sizes in other expansion processes that */
+/*  circumvented buggy TiVo' OS 2 TiB partition limit by making a larger partition 12. */
+//		min1 += info->swapsize + info->varsize + info->mfsparts[0].sectors + info->mfsparts[2].sectors; //
+		min1 += info->swapsize + info->varsize + info->mfsparts[0].sectors + info->mfsparts[0].sectors;
 	else
 	min1 += info->swapsize + info->varsize + info->mfsparts[0].sectors + info->mfsparts[1].sectors;
 #if DEBUG
@@ -1131,15 +1151,16 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2, int64_t carveA
 		// Honor limit on media zones if set
 		if (info->maxmedia && media1 > info->maxmedia)
 			media1 = info->maxmedia;
-
-		// If we are optimizing the partition layout, make sure that media1 isn't large enough to push non mfs partitions above 
-		// 2TiB (4294967295 sectors) because it will moved to the front of the drive.
-		if ( (info->rest_flags & RF_BALANCE) && (media1 + min1 >= 0xFFFFFFFFULL))
-		{
-			// TODO: This keeps all the non mfs ending below 2TiB.  We could just make sure that the last non mfs begins below 2TiB...
-			//       Also note that 2TiB awareness is only handled for v3 restores.
-			media1 = (0xFFFFFFFFULL-min1) & ~0x07;
-		}
+/*  TiVo OS after 20.6.X no longer needs this requirement.  Also if TiVo ever fixes the 2 TiB partition limit, then this */
+/*  would cause an unbalanced partition structure.  Might as well nip it in the bud now. */
+//		// If we are optimizing the partition layout, make sure that media1 isn't large enough to push non mfs partitions above 
+//		// 2TiB (4294967295 sectors) because it will moved to the front of the drive.
+//		if ( (info->rest_flags & RF_BALANCE) && (media1 + min1 >= 0xFFFFFFFFULL))
+//		{
+//			// TODO: This keeps all the non mfs ending below 2TiB.  We could just make sure that the last non mfs begins below 2TiB...
+//			//       Also note that 2TiB awareness is only handled for v3 restores.
+//			media1 = (0xFFFFFFFFULL-min1) & ~0x07;
+//		}
 
 		// The remaing space will go to media2 (4K alignment)
 		media2 = (left-media1) & ~0x07;
@@ -1162,7 +1183,11 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2, int64_t carveA
 		{
 				info->newparts[firstmfs+1].sectors = media1;
 		info->newparts[firstmfs+2].partno = 12;
-		info->newparts[firstmfs+2].sectors = info->mfsparts[2].sectors;
+/*  Forced use of Partition 10 sector size by changing info->mfsparts[2].sectors to info->mfsparts[0].sectors */
+/*  This is to allow mfstools to work with nonstandard mfs partition sizes in other expansion processes that */
+/*  circumvented buggy TiVo' OS 2 TiB partition limit by making a larger partition 12. */
+//		info->newparts[firstmfs+2].sectors = info->mfsparts[2].sectors; //
+		info->newparts[firstmfs+2].sectors = info->mfsparts[0].sectors;
 		info->newparts[firstmfs+3].partno = 13;
 				info->newparts[firstmfs+3].sectors = media2;
 		info->nnewparts = firstmfs+4;
@@ -1267,9 +1292,14 @@ restore_trydev (struct backup_info *info, char *dev1, char *dev2, int64_t carveA
 			while (fUsed[10 + loop + offset]==1) {
 				offset++;
 			}
+/*	Using variable temploop to force the sector count of partition 12 to be equal to partition 10 when being added to the partition table. */			
+			temploop = loop;
+			if (loop==2)
+				temploop = 0;
 			info->mfsparts[loop].devno = 0;
 			info->mfsparts[loop].partno = 10 + loop + offset;
-			info->newparts[loop + firstmfs].sectors = info->mfsparts[loop].sectors;
+//			info->newparts[loop + firstmfs].sectors = info->mfsparts[loop].sectors; //
+			info->newparts[loop + firstmfs].sectors = info->mfsparts[temploop].sectors;
 			info->newparts[loop + firstmfs].partno = loop + 10 + offset;
 		}
 

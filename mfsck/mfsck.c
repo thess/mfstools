@@ -27,10 +27,10 @@ mfsck_usage (char *progname)
 	fprintf (stderr, "Options:\n");
 	fprintf (stderr, " -h        Display this help message\n");
 	fprintf (stderr, " -r        Revalidate TiVo partitions on Adrive [Bdrive]\n");
-#if DEBUG
+//#if DEBUG
 	fprintf (stderr, " -m [1-5]  Set volume header magic to OK, FS_CHK, LOG_CHK, DB_CHK, or CLEAN\n");
 	fprintf (stderr, " -e [1-3]  Set vol_hdr.v64.off0c to 0x00000010, TiVo, or Dish\n");
-#endif
+//#endif
 }
 
 int
@@ -846,15 +846,15 @@ mfsck_main (int argc, char **argv)
 
 	tivo_partition_direct ();
 
-#if DEBUG
+//#if DEBUG
 	while ((opt = getopt (argc, argv, "hm:e:r")) > 0)
-#else
-	while ((opt = getopt (argc, argv, "hr")) > 0)
-#endif
+//#else
+//	while ((opt = getopt (argc, argv, "hr")) > 0)
+//#endif
 	{
 		switch (opt)
 		{
-#if DEBUG
+//#if DEBUG
 		case 'm':
 			inconsistent = strtoul (optarg, &tmp, 10);
 			if (tmp && *tmp)
@@ -881,7 +881,7 @@ mfsck_main (int argc, char **argv)
 				return 1;
 			}
 			break;
-#endif
+//#endif
 		case 'r':
 			doreval = 1;
 			break;
@@ -929,7 +929,7 @@ mfsck_main (int argc, char **argv)
 		return 1;
 	}
 	
-#if DEBUG
+//#if DEBUG
   // Advanced option to (re)set the volume header magic.  Left in because I still have v3 backups without shrink forced...
 	if (inconsistent>0)
 	{
@@ -1014,7 +1014,7 @@ mfsck_main (int argc, char **argv)
 		mfs_reinit (mfs, O_RDONLY);
 		exit(0);
 	}
-#endif
+//#endif
 
 	printf ("\nChecking zone maps...\n");
 	scan_zone_maps (mfs, &usedblocks);

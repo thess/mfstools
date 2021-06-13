@@ -1,4 +1,4 @@
-INCLUDES = -I${top_srcdir}/include
+AM_CPPFLAGS = -I${top_srcdir}/include
 
 noinst_LIBRARIES = libmfs.a libmfsvol.a libmacpart.a libmfsobject.a
 

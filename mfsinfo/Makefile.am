@@ -1,4 +1,4 @@
-INCLUDES = -I${top_srcdir}/include
+AM_CPPFLAGS = -I${top_srcdir}/include
 LDADD = -L${top_builddir}/lib -lmfs -lmfsvol -lmacpart
 
 if BUILD_MFSINFO

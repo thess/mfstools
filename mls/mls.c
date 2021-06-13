@@ -7,7 +7,7 @@
 #include <fcntl.h>
 #include <string.h>
 #include <time.h>
-
+#include "macpart.h"
 #include "mfs.h"
 
 char *progname;

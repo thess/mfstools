@@ -28,20 +28,26 @@ mfsadd_usage (char *progname)
 	fprintf (stderr, "%s %s\n", PACKAGE, VERSION);
 	fprintf (stderr, "Usage: %s [options] Adrive [Bdrive] [NewApp NewMedia]\n", progname);
 	fprintf (stderr, "Options:\n");
-	fprintf (stderr, " -h        Display this help message\n");
-	fprintf (stderr, " -r scale  Override media blocksize of 20480 with 2048<<scale (scale=0 to 4)\n");
-	fprintf (stderr, " -x        Create partition(s) on all drives\n");
-	fprintf (stderr, " -X drive  Create partition(s) on a specific drive\n");
-	fprintf (stderr, " -m size   Maximum media partition size in GiB\n");
-	fprintf (stderr, " -M size   Maximum drive size in GiB (ie lba28 would be 128)\n");
-	fprintf (stderr, " -f        Use with -m to fill the drive multiple media partitions\n");
-	fprintf (stderr, "NewApp / NewMedia\n");
+	fprintf (stderr, " -h      	 Display this help message\n");
+	fprintf (stderr, " -r scale	 Override media blocksize of 20480 with 2048<<scale\n");
+	fprintf (stderr, "		    (scale=0 to 4)\n");
+	fprintf (stderr, " -x      	 Create partition(s) on all drives\n");
+	fprintf (stderr, " -X drive	 Create partition(s) on a specific drive\n");
+	fprintf (stderr, " -m size 	 Maximum media partition size in GiB\n");
+	fprintf (stderr, " -M size 	 Maximum drive size in GiB (ie lba28 would be 128)\n");
+	fprintf (stderr, " -f		 Use with -m to fill the drive multiple media partitions\n");
+	fprintf (stderr, " -c		 Used to force the ordering of the added partitions to\n");
+	fprintf (stderr, "		    allow for coalescing at a later time\n");
+	fprintf (stderr, "NewApp NewMedia  ");
 #if TARGET_OS_MAC
-	fprintf (stderr, "  Existing partitions (Such as /dev/disk1s14 /dev/disk1s15) to add to\n");
+	fprintf (stderr, "Add existing partitions (Such as /dev/disk1s14 /dev/disk1s15)\n");
 #else
-	fprintf (stderr, "  Existing partitions (Such as /dev/hda13 /dev/hda14) to add to\n");
+	fprintf (stderr, "Add existing partitions (Such as /dev/hda13 /dev/hda14)\n");
 #endif
-	fprintf (stderr, "  the MFS volume set\n");
+	fprintf (stderr, "		    to the MFS volume set\n");
+	fprintf (stderr, " -l		 Use with NewApp NewMedia to allow partitions with numbers\n");
+	fprintf (stderr, "		    less than 10 into the MFS\n");
+
 }
 
 int
@@ -132,7 +138,7 @@ mfsadd_scan_partitions (struct mfs_handle *mfs, int *used, char *seconddrive)
 }
 
 int
-mfsadd_add_extends (struct mfs_handle *mfs, char **drives, char **xdevs, char **pairs, char *pairnums, int *npairs, int minalloc,	int64_t maxdisk , int64_t maxmedia, int fill)
+mfsadd_add_extends (struct mfs_handle *mfs, char **drives, char **xdevs, char **pairs, char *pairnums, int *npairs, int minalloc,	int64_t maxdisk , int64_t maxmedia, int fill, int coalesce)
 {
 	int loop = 0;
 	int loop2 = 0;
@@ -202,10 +208,10 @@ mfsadd_add_extends (struct mfs_handle *mfs, char **drives, char **xdevs, char **
 		}
 
 			// Friendly partition names
-			sprintf (appname, "MFS application region  %d", (*npairs / 2) + (nparts / 2) + 1);
+			sprintf (appname, "MFS application region %d", (*npairs / 2) + (nparts / 2) + 1);
 			sprintf (medianame, "MFS media region %d", (*npairs / 2) + (nparts / 2) + 1);
 
-			if (totalfree - maxfree >= appsize && maxfree - mediasize < appsize)
+			if (totalfree - maxfree >= appsize && maxfree - mediasize < appsize && coalesce != 1)
 		{
 				part2 = tivo_partition_add (xdevs[loop], mediasize, 0, medianame, "MFS");
 				part1 = tivo_partition_add (xdevs[loop], appsize, part2, appname, "MFS");
@@ -310,10 +316,12 @@ mfsadd_main (int argc, char **argv)
 	int64_t maxdisk = 0;
 	int64_t maxmedia = 0;
 	int fill = 0;
+	int low = 0;
+	int coalesce = 0;
 
 	tivo_partition_direct ();
 
-	while ((opt = getopt (argc, argv, "xX:r:hem:M:f")) > 0)
+	while ((opt = getopt (argc, argv, "xX:r:hem:M:fcl")) > 0)
 	{
 		switch (opt)
 		{
@@ -366,6 +374,12 @@ mfsadd_main (int argc, char **argv)
 			break;
 		case 'f':
 			fill = 1;
+			break;
+		case 'l':
+			low = 1;
+			break;
+		case 'c':
+			coalesce = 1;
 			break;
 		default:
 			mfsadd_usage (argv[0]);
@@ -598,7 +612,9 @@ mfsadd_main (int argc, char **argv)
 			return 1;
 		}
 
-		if ((pairnums[loop] >> 6) == 0 && (pairnums[loop] & 31) < 10)
+/* If allow MFS partitions in partitions less than 10 is true, then do not allow it to overwrite the inital APM descriptor entry */
+
+		if ((pairnums[loop] >> 6) == 0 && ((pairnums[loop] & 31) < (10 - 8 * low)))
 		{
 			fprintf (stderr, "Partition %s would trash system partition!\n", pairs[loop]);
 			return 1;
@@ -628,7 +644,7 @@ mfsadd_main (int argc, char **argv)
 		}
 	}
 
-	if (mfsadd_add_extends (mfs, drives, xdevs, pairs, pairnums, &npairs, minalloc, maxdisk, maxmedia, fill) < 0)
+	if (mfsadd_add_extends (mfs, drives, xdevs, pairs, pairnums, &npairs, minalloc, maxdisk, maxmedia, fill, coalesce) < 0)
 		return 1;
 
 	if (check_partition_count (mfs, pairnums, npairs) < 0)

@@ -467,9 +467,9 @@ tivo_partition_validate (struct tivo_partition_table *table)
 	while (loop < table->devsize)
 	{
 		int partno = 0, loop2;
-/* Find the partition that is closest to this sector. */
+/* Find the nonzero partition that is closest to this sector. */
 		for (loop2 = 0; loop2 < table->count; loop2++)
-			if (table->partitions[loop2].start >= loop && (partno < 1 || table->partitions[loop2].start < table->partitions[partno - 1].start))
+			if (table->partitions[loop2].start >= loop && (partno < 1 || table->partitions[loop2].start < table->partitions[partno - 1].start) && (table->partitions[loop2].sectors != 0))
 				partno = loop2 + 1;
 
 /* If there is no partition and it is beyond the first sector, there are no */
@@ -502,12 +502,12 @@ tivo_partition_validate (struct tivo_partition_table *table)
 		}
 
 /* Mathematically speaking, this prevents integer wrap.  The proof of this */
-/* is if x (Sector number) + y (Partition size) > z (Integet size) then */
+/* is if x (Sector number) + y (Partition size) > z (Integer size) then */
 /* x + y - y > z - y or x > z - y.  To put this in other terms, if the */
 /* sector number is greater than the max int - the partition size, there */
 /* will be wrap.  In this case, 0 is taking the place of maxint, since it */
-/* will wrap.  If a partition is 0 bytes, it's considered an error. */
-		if (loop > (uint64_t)(0 - table->partitions[partno].sectors)) 
+/* will wrap. */
+		if (loop > (uint64_t)(0 - table->partitions[partno].sectors))
 		{
 			return -1;
 		}
@@ -540,8 +540,9 @@ tivo_partition_validate (struct tivo_partition_table *table)
 
 	for (loop = 0; loop < table->count; loop++)
 	{
-/* Check that all the partitions were used in this walk. */
-		if (!partsused[loop])
+/* Check that all the partitions were used in this walk.*/
+/* However ignore zero byte partitions since they are unused.*/
+		if (!partsused[loop] && (table->partitions[loop].sectors != 0))
 			return -1;
 
 /* Check that the partitions have valid names and types, needed for write */
@@ -763,11 +764,12 @@ tivo_partition_add (const char *device, uint64_t size, int before, const char *n
 	if (before)
 		before--;
 
-/* Partitions must have a size. */
-	if (!size)
-	{
-		return -1;
-	}
+/* Partitions must have a size....at one time but since Bolts have zero byte partition we need to remove that requirement. */
+/* Hopefully this does not screw up something else. */
+//	if (!size)
+//	{
+//		return -1;
+//	}
 
 /* Make sure it has a partition table. */
 	table = tivo_read_partition_table (device, O_RDONLY);
@@ -839,6 +841,46 @@ tivo_partition_add (const char *device, uint64_t size, int before, const char *n
 			last = first + table->partitions[nextpart].sectors;
 		}
 	}
+
+/* However, if our partition is of a zero byte size, the loop would not run so we have to have a special. */
+/* case where size is zero and we can still get the sector for the start of the partition. */
+	if (!size)
+	{
+		int nextpart = 0;
+
+/* Find the free space that is closest to the start.  This will either */
+/* find free space that can be appended to the current space, or it will */
+/* pick the next free space chunk. */
+		for (loop = startpart; loop < table->count; loop++)
+		{
+			if (!strcmp (table->partitions[loop].type, "Apple_Free") &&
+			   table->partitions[loop].start >= last &&
+			   (!nextpart || table->partitions[loop].start < table->partitions[nextpart].start))
+			{
+				nextpart = loop;
+			}
+		}
+
+/* If there was no further partition found, and the loop is still going, */
+/* there is not enough free space. */
+		if (!nextpart)
+		{
+			return -1;
+		}
+
+/* If the partition found starts at the previous last, keep counting the */
+/* space, otherwise start over. */
+		if (table->partitions[nextpart].start == last)
+		{
+			last += table->partitions[nextpart].sectors;
+		}
+		else
+		{
+			first = (table->partitions[nextpart].start + 7 ) & ~0x07;  /* round to 4K boundary for modern disks */
+			last = first + table->partitions[nextpart].sectors;
+		}
+	}
+
 
 	if (last - first > size)
 	{
@@ -1634,3 +1676,4 @@ revalidate_drive (const char *device) {
 	
         return 1;
 }
+

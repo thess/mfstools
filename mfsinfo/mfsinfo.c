@@ -7,14 +7,17 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <inttypes.h>
+#include <unistd.h>
 #include "mfs.h"
+#include "macpart.h"
 
 void
 mfsinfo_usage (char *progname)
 {
 	fprintf (stderr, "%s %s\n", PACKAGE, VERSION);
-	fprintf (stderr, "Usage: %s Adrive [Bdrive]\n", progname);
+	fprintf (stderr, "Usage: %s [options] Adrive [Bdrive]\n", progname);
 	fprintf (stderr, "Options:\n");
+	fprintf (stderr, " -d        Display extra partition detail\n");
 	fprintf (stderr, " -h        Display this help message\n");
 }
 
@@ -92,6 +95,28 @@ partition_info (struct mfs_handle *mfs, char *drives[])
 	return count;
 }
 
+int display_partition_map (char *drive)
+{
+	int i;
+
+  	struct tivo_partition_table *table;
+  	table = (struct tivo_partition_table*) tivo_read_partition_table (drive, O_RDONLY);
+	fprintf (stdout, "\n---------------------------------------------------------------------\n");
+	fprintf (stdout, "partition table for %s\n", drive);
+	fprintf (stdout, "---------------------------------------------------------------------\n");
+  	fprintf (stdout, "[##]:                     Name  1st Sector     Sectors        Next\n");
+	fprintf (stdout, "==================================================================\n");
+	for (i=0; i<table->count; i++)
+	{
+		fprintf (stdout, "[%02i]: %24s %11ju %11ju %11ju\n", i+1, 
+			table->partitions[i].name,
+			table->partitions[i].start, table->partitions[i].sectors, 
+			table->partitions[i].start+table->partitions[i].sectors);
+	}
+	
+	return 0;
+}
+
 int
 mfsinfo_main (int argc, char **argv)
 {
@@ -100,22 +125,26 @@ mfsinfo_main (int argc, char **argv)
 	char *drives[3];
 	struct mfs_handle *mfs;
 	int nparts = 0;
+	int partition_detail = 0;
 
 	tivo_partition_direct ();
 
-	while ((opt = getopt (argc, argv, "h")) > 0)
+	while ((opt = getopt (argc, argv, "hd")) > 0)
 	{
 		switch (opt)
 		{
-		default:
+		case 'h':
 			mfsinfo_usage (argv[0]);
 			return 1;
+		case 'd':
+			partition_detail = 1;
+			break;
 		}
 	}
 	
-	while (ndrives + 1 < argc && ndrives < 3)
+	while (partition_detail + ndrives + 1 < argc && ndrives < 3)
 	{
-		drives[ndrives] = argv[ndrives + 1];
+		drives[ndrives] = argv[partition_detail + ndrives + 1];
 		ndrives++;
 	}
 
@@ -196,6 +225,12 @@ mfsinfo_main (int argc, char **argv)
 		}
 	
 		loop++;
+	}
+	
+	if (partition_detail != 0)
+	{
+		display_partition_map(drives[0]);
+		if (ndrives>1) display_partition_map(drives[1]);
 	}
 	
 	fprintf (stdout, "\nEstimated hours in a standalone TiVo: %d\n", mfs_sa_hours_estimate (mfs));

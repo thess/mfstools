@@ -1,7 +1,8 @@
-AC_INIT(include/mfs.h)
-AM_CONFIG_HEADER(include/config.h:include/config.h.in)
+AC_INIT(MFSTools, v3.3-devel)
+AC_CONFIG_SRCDIR(include/mfs.h)
+AC_CONFIG_HEADERS(include/config.h:include/config.h.in)
 
-AM_INIT_AUTOMAKE("MFSTools", v3.2-devel)
+AM_INIT_AUTOMAKE
 
 AC_ARG_ENABLE(debug,
 [  --enable-debug	Turn on debugging output],
