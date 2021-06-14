@@ -1,0 +1,151 @@
+diff --git a/block/partitions/mac.h b/block/partitions/mac.h
+index 453ed29..aece60b 100644
+--- a/block/partitions/mac.h
++++ b/block/partitions/mac.h
+@@ -30,9 +30,32 @@ struct mac_partition {
+ 	/* there is more stuff after this that we don't need */
+ };
+ 
++struct tivo_partition {
++	__le16	signature;	/* expected to be MAC_PARTITION_MAGIC */
++	__le16	res1;
++	__le32	map_count;	/* # blocks in partition map */
++	__le32	start_block;	/* absolute starting block # of partition */
++	__le32	block_count;	/* number of blocks in partition */
++	char	name[32];	/* partition name */
++	char	type[32];	/* string type description */
++	__le32	data_start;	/* rel block # of first data block */
++	__le32	data_count;	/* number of data blocks */
++	__le32	status;		/* partition status bits */
++	__le32	boot_start;
++	__le32	boot_size;
++	__le32	boot_load;
++	__le32	boot_load2;
++	__le32	boot_entry;
++	__le32	boot_entry2;
++	__le32	boot_cksum;
++	char	processor[16];	/* identifies ISA of boot */
++	/* there is more stuff after this that we don't need */
++};
++
+ #define MAC_STATUS_BOOTABLE	8	/* partition is bootable */
+ 
+ #define MAC_DRIVER_MAGIC	0x4552
++#define TIVO_DRIVER_MAGIC	0x1492
+ 
+ /* Driver descriptor structure, in block 0 */
+ struct mac_driver_desc {
+@@ -42,4 +65,11 @@ struct mac_driver_desc {
+     /* ... more stuff */
+ };
+ 
++struct tivo_driver_desc {
++	__le16	signature;	/* expected to be TIVO_DRIVER_MAGIC */
++	__le16	block_size;
++	__le32	block_count;
++    /* ... more stuff */
++};
++
+ int mac_partition(struct parsed_partitions *state);
+diff --git a/block/partitions/mac.c b/block/partitions/mac.c
+index b609533..ad700c3 100644
+--- a/block/partitions/mac.c
++++ b/block/partitions/mac.c
+@@ -41,15 +41,35 @@ int mac_partition(struct parsed_partitions *state)
+ 	struct mac_partition *part;
+ 	struct mac_driver_desc *md;
+ 
++	bool is_tivo = false;
++	bool tivo_is_le = false;
++
++	struct tivo_partition *tpart;
++	struct tivo_driver_desc *td;
++
+ 	/* Get 0th block and look at the first partition map entry. */
+ 	md = read_part_sector(state, 0, &sect);
++	td = (struct tivo_driver_desc *)md;
++
+ 	if (!md)
+ 		return -1;
+-	if (be16_to_cpu(md->signature) != MAC_DRIVER_MAGIC) {
++	if (be16_to_cpu(md->signature) == MAC_DRIVER_MAGIC) {
++		secsize = be16_to_cpu(md->block_size);	
++	} else if (be16_to_cpu(md->signature) == TIVO_DRIVER_MAGIC) {
++		printk(KERN_INFO "Tivo patition [be] seen\n");
++		is_tivo = true;
++		secsize = 512;
++	} else if (le16_to_cpu(td->signature) == TIVO_DRIVER_MAGIC) {
++		printk(KERN_INFO "Tivo patition [le] seen\n");
++		is_tivo = true;
++		tivo_is_le = true;
++		secsize = 512;
++	} else {
++		printk(KERN_INFO "APM Device sig = 0x%02X seen\n", be16_to_cpu(md->signature));
+ 		put_dev_sector(sect);
+ 		return 0;
+ 	}
+-	secsize = be16_to_cpu(md->block_size);
++
+ 	put_dev_sector(sect);
+ 	datasize = round_down(secsize, 512);
+ 	data = read_part_sector(state, datasize / 512, &sect);
+@@ -59,11 +79,15 @@ int mac_partition(struct parsed_partitions *state)
+ 	if (partoffset + sizeof(*part) > datasize)
+ 		return -1;
+ 	part = (struct mac_partition *) (data + partoffset);
+-	if (be16_to_cpu(part->signature) != MAC_PARTITION_MAGIC) {
++	tpart = (struct tivo_partition *)part;
++	if ((be16_to_cpu(part->signature) != MAC_PARTITION_MAGIC) && 
++	    (le16_to_cpu(tpart->signature) != MAC_PARTITION_MAGIC)) {
++		printk(KERN_INFO "APM part sig = 0x%02X seen\n", be16_to_cpu(part->signature));
+ 		put_dev_sector(sect);
+ 		return 0;		/* not a MacOS disk */
+ 	}
+-	blocks_in_map = be32_to_cpu(part->map_count);
++	blocks_in_map = (tivo_is_le) ? le32_to_cpu(tpart->map_count) : 
++					be32_to_cpu(part->map_count);
+ 	if (blocks_in_map < 0 || blocks_in_map >= DISK_MAX_PARTS) {
+ 		put_dev_sector(sect);
+ 		return 0;
+@@ -72,7 +96,7 @@ int mac_partition(struct parsed_partitions *state)
+ 	if (blocks_in_map >= state->limit)
+ 		blocks_in_map = state->limit - 1;
+ 
+-	strlcat(state->pp_buf, " [mac]", PAGE_SIZE);
++	strlcat(state->pp_buf, (is_tivo) ? " [tivo]" : " [mac]", PAGE_SIZE);
+ 	for (slot = 1; slot <= blocks_in_map; ++slot) {
+ 		int pos = slot * secsize;
+ 		put_dev_sector(sect);
+@@ -80,11 +104,19 @@ int mac_partition(struct parsed_partitions *state)
+ 		if (!data)
+ 			return -1;
+ 		part = (struct mac_partition *) (data + pos%512);
+-		if (be16_to_cpu(part->signature) != MAC_PARTITION_MAGIC)
++		tpart = (struct tivo_partition *)part;
++		if ((be16_to_cpu(part->signature) != MAC_PARTITION_MAGIC) &&
++		    (le16_to_cpu(tpart->signature) != MAC_PARTITION_MAGIC))
+ 			break;
+-		put_partition(state, slot,
+-			be32_to_cpu(part->start_block) * (secsize/512),
+-			be32_to_cpu(part->block_count) * (secsize/512));
++		if (is_tivo && le16_to_cpu(tpart->signature) == MAC_PARTITION_MAGIC) {
++			put_partition(state, slot,
++				      le32_to_cpu(tpart->start_block) * (secsize/512),
++				      le32_to_cpu(tpart->block_count) * (secsize/512));
++		} else {
++			put_partition(state, slot,
++				      be32_to_cpu(part->start_block) * (secsize/512),
++				      be32_to_cpu(part->block_count) * (secsize/512));
++		}
+ 
+ 		if (!strncasecmp(part->type, "Linux_RAID", 10))
+ 			state->parts[slot].flags = ADDPART_FLAG_RAID;
+@@ -93,7 +125,7 @@ int mac_partition(struct parsed_partitions *state)
+ 		 * If this is the first bootable partition, tell the
+ 		 * setup code, in case it wants to make this the root.
+ 		 */
+-		if (machine_is(powermac)) {
++		if (machine_is(powermac) && !is_tivo) {
+ 			int goodness = 0;
+ 
+ 			mac_fix_string(part->processor, 16);

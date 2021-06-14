@@ -1,0 +1,9 @@
+Linux kernel patch to recognize TIVO version of APM partitions.
+Both LE and BE drives are detected and partition devices are created.
+Patch tested on Debian 10 4.19.x kernel.
+Patch should work for all 5.x kernels since APM recognizer hasn't changed.
+
+* tivo_apm_recognizer.patch
+
+Apply patch to source tree and re-build kernel package(s).
+

@@ -12,3 +12,4 @@ config.status
 .deps
 include/config.h
 include/stamp-h1
+*~
