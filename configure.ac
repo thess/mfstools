@@ -1,4 +1,4 @@
-AC_INIT(MFSTools, v3.3-devel)
+AC_INIT(MFSTools, v3.34)
 AC_CONFIG_SRCDIR(include/mfs.h)
 AC_CONFIG_HEADERS(include/config.h:include/config.h.in)
 
@@ -182,4 +182,8 @@ restore/Makefile
 mfscopy/Makefile
 mfsinfo/Makefile
 mfstool/Makefile
+apmutils/mfsaddfix/Makefile
+apmutils/bootsectorfix/Makefile
+apmutils/apmfix/Makefile
+apmutils/8TBprep/Makefile
 )

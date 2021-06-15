@@ -1,6 +1,6 @@
 #!/bin/sh
 
-make distclean
+make -k distclean
 
 # Cleanup autogen artifacts
 find . -name "*.in" -delete

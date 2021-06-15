@@ -1,6 +1,7 @@
-Linux MFS Tools
+Linux MFS Tools - V3.3+
 
-Support thread on https://www.tivocommunity.com/mfstools
+Support thread on TCF:
+https://www.tivocommunity.com/community/index.php?threads/mfs-tools-3-2.529148/
 
 Versions: (See ChangeLog)
 
@@ -24,3 +25,6 @@ $ sudo make install-strip
 Linux kernel patch to recognize Tivo APM partitions.
 See: kernel/README
 
+APM Utils by jmbach
+Documentation at end of post: 
+https://www.tivocommunity.com/community/index.php?threads/mfs-tools-3-2.529148/page-7#post-10640798
