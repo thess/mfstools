@@ -1,0 +1,20 @@
+mfstools for Debian
+
+This package provides the community developed Tivo backup and restore utilities.
+Additonal tools for managing Tivo HDD partitions boot options are included.
+
+Support thread on TCF:
+https://www.tivocommunity.com/community/index.php?threads/mfs-tools-3-2.529148/
+
+MFS Tools version 2.0 (See README-2.0)
+by Steven Lang (Tiger on TCF)
+
+MFS Tools 3.0/3.1 - collective works
+
+MFS Tools 3.2 by jkozee on TCF
+
+MFS Tools 3.3+ by jmbach on TCF
+
+APM Utils by jmbach
+Documentation at end of post: 
+https://www.tivocommunity.com/community/index.php?threads/mfs-tools-3-2.529148/page-7#post-10640798

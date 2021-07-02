@@ -250,7 +250,7 @@ copy_main (int argc, char **argv)
 			break;
 		case 'x':
 			copy_usage (argv[0]);
-			fprintf (stderr, "\n Deprecated argument -x.  Use mfsadd after copy to expand drive(s).\n", argv[0]);
+			fprintf (stderr, "\n Deprecated argument -x.  Use mfsadd after copy to expand drive(s).\n");
 			return 1;
 		case 'r':
 			minalloc = 0x800 << strtoul (optarg, &tmp, 10);

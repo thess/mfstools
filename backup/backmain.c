@@ -224,7 +224,7 @@ backup_main (int argc, char **argv)
 				// Special case to force BF_SQLITE flag.  Should only be needed to correct backing up an image that was restored with a previous version of mfstools that contained a bug.
 				selectedformat = bfV3;
 				bflags |= BF_SQLITE;
-				fprintf (stderr, "Forcing BF_SQLITE flag\n", argv[0]);
+				fprintf (stderr, "%s: Forcing BF_SQLITE flag\n", argv[0]);
 			}
 			else if (!strcasecmp (optarg, "winmfs"))
 				selectedformat = bfWinMFS;

@@ -930,6 +930,7 @@ mfs_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsigned
 	uint64_t appsize, mediasize, mapsize;
 	char *tmp;
 	char foo[512];
+	int res;
 
 /* If no minalloc, make it default. */
 	if (minalloc == 0)
@@ -1036,16 +1037,14 @@ mfs_add_volume_pair (struct mfs_handle *mfshnd, char *app, char *media, unsigned
 
 	if (mfshnd->is_64)
 	{
-		snprintf (foo, sizeof (mfshnd->vol_hdr.v64.partitionlist), "%s %s %s", mfshnd->vol_hdr.v64.partitionlist, app, media);
-		foo[127] = 0;
-		strcpy (mfshnd->vol_hdr.v64.partitionlist, foo);
+		res = snprintf (foo, sizeof (mfshnd->vol_hdr.v64.partitionlist), "%s %s %s", mfshnd->vol_hdr.v64.partitionlist, app, media);
+		strncpy (mfshnd->vol_hdr.v64.partitionlist, foo, res);
 		mfshnd->vol_hdr.v64.total_sectors = intswap64 (mfsvol_volume_set_size (mfshnd->vols));
 	}
 	else
 	{
-		snprintf (foo, sizeof (mfshnd->vol_hdr.v32.partitionlist), "%s %s %s", mfshnd->vol_hdr.v32.partitionlist, app, media);
-		foo[127] = 0;
-		strcpy (mfshnd->vol_hdr.v32.partitionlist, foo);
+		res = snprintf (foo, sizeof (mfshnd->vol_hdr.v32.partitionlist), "%s %s %s", mfshnd->vol_hdr.v32.partitionlist, app, media);
+		strncpy (mfshnd->vol_hdr.v32.partitionlist, foo, res);
 		mfshnd->vol_hdr.v32.total_sectors = intswap32 (mfsvol_volume_set_size (mfshnd->vols));
 	}
 

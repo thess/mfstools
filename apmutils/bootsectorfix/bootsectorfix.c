@@ -96,7 +96,9 @@ int main(int argc, char** argv)
 	
     warning();
 
-    fscanf(stdin, "%c", &proceed);
+    j = fscanf(stdin, "%c", &proceed);
+    if(j < 0){perror("fscanf"); exit(1);}
+
     printf("\n");
 
     if (proceed != 'y' && proceed != 'Y') exit(0);

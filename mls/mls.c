@@ -66,7 +66,7 @@ static void dir_list(int fsid, int recurse)
 	else
 					size = intswap32 (inode->size);
 	}
-			printf("%9d %-8s %14s%10lld %s\n", 
+			printf("%9d %-8s %14s%10ld %s\n", 
 						dir[i].fsid, 
 						mfs_type_string(dir[i].type),
 						date,

@@ -22,6 +22,16 @@ AC_ARG_ENABLE(deprecated,
 esac])
 AH_TEMPLATE([DEPRECATED],[Build with deprecated features enabled.])
 
+AC_ARG_ENABLE(apmutils,
+[  --disable-apmutils	Don't build apmutils],
+[case "${enableval}" in
+  yes) build_apmutils=true; AC_DEFINE(BUILD_APMUTILS) ;;
+  no)  build_apmutils=false ;;
+esac],[build_apmutils=true; AC_DEFINE(BUILD_APMUTILS)])
+AM_CONDITIONAL(BUILD_APMUTILS, test x$build_apmutils = xtrue)
+AH_TEMPLATE([BUILD_APMUTILS],
+	[Build the APM Utils (apmfix, bootsectorfix, mfsaddfix, 8TBprep).])
+
 AC_ARG_ENABLE(mfsadd,
 [  --disable-mfsadd	Don't build mfsadd],
 [case "${enableval}" in
@@ -43,7 +53,7 @@ AH_TEMPLATE([BUILD_MFSCK],
 	[Build the mfsck standalone utility or mfstool utility.])
   
 AC_ARG_ENABLE(mls,
-[  --disable-mls	Don't build mls],
+[  --disable-mls		Don't build mls],
 [case "${enableval}" in
   yes) build_mls=true; AC_DEFINE(BUILD_MLS) ;;
   no)  build_mls=false ;;

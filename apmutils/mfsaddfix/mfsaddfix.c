@@ -155,7 +155,9 @@ int main(int argc, char** argv)
 	
     warning();
 
-    fscanf(stdin, "%c", &proceed);
+    s = fscanf(stdin, "%c", &proceed);
+    if(s < 0){perror("fscanf");exit(1);}
+
     printf("\n");
 
     if (proceed != 'y' && proceed != 'Y') exit(0);
@@ -263,7 +265,7 @@ int main(int argc, char** argv)
 	}
 	if (pcount!=16){
 		//Not the correct number of partitions
-		fprintf(stderr,"Incorrect number of partitions found.\nExpected 16 and found %d.\nUnable to process drive.\n\n",pcount);
+		fprintf(stderr,"Incorrect number of partitions found.\nExpected 16 and found %ld.\nUnable to process drive.\n\n",pcount);
 		exit(1);
 	}
 	//since we have the correct number of partititions, will convert everything to a 64 bit partition structure to make things easier later on.
@@ -334,9 +336,9 @@ int main(int argc, char** argv)
 	    psize16=endian_swap64(psize16);
 	}
 
-	if (psize15 > 0xFFFFFFFF) {fprintf(stderr,"Added partition 15 size is too large.\nActual size is %lld bytes but should not exceed %lld bytes.\nThe MFS partition needs to shrink by at least %lld bytes.\nUnable to proceed.\nProcessing of drive is incomplete.\nResetting APM. TiVo should ask you to divorce the external drive.\nPlease go and do so. If you start having a green screen boot loop, run kisckstart code 58.\nIf that dooes not work, then the drive will need to be reimaged.\n\n", psize15,0xFFFFFFFF,(psize15 - 0xFFFFFFFF)); partitionreset(fd, lpcount, eswap); exit(1);}
+	if (psize15 > 0xFFFFFFFF) {fprintf(stderr,"Added partition 15 size is too large.\nActual size is %lld bytes but should not exceed %ud bytes.\nThe MFS partition needs to shrink by at least %lld bytes.\nUnable to proceed.\nProcessing of drive is incomplete.\nResetting APM. TiVo should ask you to divorce the external drive.\nPlease go and do so. If you start having a green screen boot loop, run kisckstart code 58.\nIf that dooes not work, then the drive will need to be reimaged.\n\n", psize15,0xFFFFFFFF,(psize15 - 0xFFFFFFFF)); partitionreset(fd, lpcount, eswap); exit(1);}
 
-	if (psize16 > 0xFFFFFFFF) {fprintf(stderr,"Added partition 16 size is too large.\nActual size is %lld bytes but should not exceed %lld bytes.\nThe MFS partition needs to shrink by at least %lld bytes.\nUnable to proceed.\nProcessing of drive is incomplete.\nResetting APM. Tivo should ask you to divorce the external drive.\nPlease go and do so. If you start having a green screen boot loop, run kisckstart code 58.\nIf that dooes not work, then the drive will need to be reimaged.\n\n", psize16,0xFFFFFFFF,(psize16 - 0xFFFFFFFF)); partitionreset(fd, lpcount, eswap); exit(1);}
+	if (psize16 > 0xFFFFFFFF) {fprintf(stderr,"Added partition 16 size is too large.\nActual size is %lld bytes but should not exceed %ud bytes.\nThe MFS partition needs to shrink by at least %lld bytes.\nUnable to proceed.\nProcessing of drive is incomplete.\nResetting APM. Tivo should ask you to divorce the external drive.\nPlease go and do so. If you start having a green screen boot loop, run kisckstart code 58.\nIf that dooes not work, then the drive will need to be reimaged.\n\n", psize16,0xFFFFFFFF,(psize16 - 0xFFFFFFFF)); partitionreset(fd, lpcount, eswap); exit(1);}
 
 	if (((pstart15 + psize15) == pstart16) && ((psize15 + psize16) <= 0xFFFFFFFF)) {
 		coalesce = 1; 
@@ -437,7 +439,8 @@ int main(int argc, char** argv)
 	//Lets now correct the MFS header so we do not have to force a divorce of the now non-existant partition or worse a reformat of the drive.
 	t = lseek(fd, 10*SZ, SEEK_SET);
     if(t < 0){perror("lseek"); exit(1);}
-	read(fd, block, SZ);
+	s = read(fd, block, SZ);
+	if(s < 0){perror("read"); exit(1);}
 	memset(&psize, 0, sizeof(psize));
 	memset(&pstart, 0, sizeof(pstart));
 
@@ -524,12 +527,14 @@ int main(int argc, char** argv)
 	//Write the corrected block to the MFS header
 	t = lseek(fd, pstart*SZ, SEEK_SET);
     if(t < 0){perror("lseek"); exit(1);}
-	write(fd, block, SZ);
+	w = write(fd, block, SZ);
+	if(w < 0){perror("write"); exit(1);}
 
 	//Write the corrected block to the backup MFS header as well
 	t = lseek(fd, (pstart + psize -1)*SZ, SEEK_SET);
 	if(t < 0){perror("lseek"); exit(1);}
-	write(fd, block, SZ);
+	w = write(fd, block, SZ);
+	if(w < 0){perror("write"); exit(1);}
 
 	fprintf(stdout, "Corrected MFS header written to drive.\n\nProcessing of the drive is complete.\n");
 	exit(0);

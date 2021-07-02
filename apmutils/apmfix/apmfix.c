@@ -107,7 +107,8 @@ int main(int argc, char** argv)
 
     warning();
 
-    fscanf(stdin, "%c", &num_blocks);
+    j = fscanf(stdin, "%c", &num_blocks);
+    if (j < 0){perror("fscanf"); exit(1);}
     printf("\n");
 
     if(num_blocks != 'y') exit(0);
@@ -283,7 +284,7 @@ int main(int argc, char** argv)
 	
 	if ((pstart15 + psize15) != pstart16) {fprintf(stderr,"Partition structure not as expected.\nPhysical locations of partitions 15 & 16 are not contiguous on drive.\nExpected start of partition 16 is at %Lu but actually starts at %Lu.\nUnable to coalesce.\nProcessing of drive is incomplete.\n\n",(pstart15+psize15),pstart16); exit(1);}
 
-	if ((psize15 + psize16) > 0xFFFFFFFF) {fprintf(stderr,"Coalesced size is too large.\nActual size is %lld bytes but should not exceed %lld bytes.\nThe MFS media partition needs to shrink by at least %lld bytes.\nUnable to coalesce.\nProcessing of drive is incomplete.\n\n", (psize15+psize16),0xFFFFFFFF,(psize15 + psize16 - 0xFFFFFFFF)); exit(1);}
+	if ((psize15 + psize16) > 0xFFFFFFFF) {fprintf(stderr,"Coalesced size is too large.\nActual size is %llud bytes but should not exceed %ud bytes.\nThe MFS media partition needs to shrink by at least %lld bytes.\nUnable to coalesce.\nProcessing of drive is incomplete.\n\n", (psize15+psize16),0xFFFFFFFF,(psize15 + psize16 - 0xFFFFFFFF)); exit(1);}
 
 	// passed that last test so now proceed to coalesce. First we calculate the size of the coalesced partition and store it in the correct locations followed by writing the block
 	fprintf(stdout, "Coalesing makes sense.\n\nProceeding with coalesing.\n\nCorrecting APM for coalescing partitions 15 and 16.\n");
@@ -331,7 +332,8 @@ int main(int argc, char** argv)
 	//Lets now correct the MFS header so we do not have to force a divorce of the now non-existant partition.
 	t = lseek(fd, 10*SZ, SEEK_SET);
     if(t < 0){perror("lseek"); exit(1);}
-	read(fd, block, SZ);
+	j = read(fd, block, SZ);
+        if(j < 0){perror("read"); exit(1);}
 
 	//Read the starting block for partition 10 and the size of partition 10 so we know where to go.  The header is the first block of partition 10 and the backup header is the last block of partition 10.  Will use pstart15 and psize15 since we have them readily available and don't need them for anything else.
 	memcpy(&pstart15,(block + 8),8);
@@ -347,8 +349,8 @@ int main(int argc, char** argv)
 	//Now lets go to the MFS header and read it in.
 	t = lseek(fd, pstart15*SZ, SEEK_SET);
     if(t < 0){perror("lseek"); exit(1);}
-	t=read(fd, block, SZ);
-	if(t < 0){perror("read"); exit(1);}
+	j=read(fd, block, SZ);
+	if(j < 0){perror("read"); exit(1);}
 
 	//Now let fix the header.  Here we have to delete reference to /dev/sda16 so lets look for it	
 	for (i = offset; i < 132 + offset; i++){
@@ -392,12 +394,14 @@ int main(int argc, char** argv)
 	//Write the corrected block to the MFS header
 	t = lseek(fd, pstart15*SZ, SEEK_SET);
     if(t < 0){perror("lseek"); exit(1);}
-	write(fd, block, SZ);
+	w = write(fd, block, SZ);
+	if(w < 0){perror("write"); exit(1);}
 
 	//Write the corrected block to the backup MFS header as well
 	t = lseek(fd, (pstart15+psize15 -1)*SZ, SEEK_SET);
 	if(t < 0){perror("lseek"); exit(1);}
-	write(fd, block, SZ);
+	w = write(fd, block, SZ);
+	if(w < 0){perror("write"); exit(1);}
 
 	fprintf(stdout, "Corrected MFS header written to drive.\n\nCoalescing of partitions 15 and 16 is now complete.\n\nProcessing of the drive is complete.\n");
 	exit(0);

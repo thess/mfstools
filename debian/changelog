@@ -1,0 +1,6 @@
+mfstools (3.34-1) UNRELEASED; urgency=low
+
+  * Initial release as Debian package
+
+
+ -- Ted Hess <thess@kitschensync.net>  Fri, 02 Jul 2021 14:10:05 -0400

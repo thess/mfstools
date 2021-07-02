@@ -1,0 +1,13 @@
+Source: mfstools
+Section: custom
+Priority: optional
+Maintainer: various
+Build-Depends: debhelper (>=11~), dh-autoreconf
+Standards-Version: 4.1.4
+Homepage: https://github.com/thess/mfstools
+
+Package: mfstools
+Architecture: any
+Multi-Arch: foreign
+Depends: ${misc:Depends}, ${shlibs:Depends}
+Description: Tivo MFSTools for HDD backup, restore and partition management

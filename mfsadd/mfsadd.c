@@ -143,8 +143,8 @@ mfsadd_add_extends (struct mfs_handle *mfs, char **drives, char **xdevs, char **
 	int loop = 0;
 	int loop2 = 0;
 	char tmp[MAXPATHLEN];
-	char appname[32];
-	char medianame[32];
+	char appname[64];
+	char medianame[64];
 	int nparts = 0;
 	char *mfs_partitions;
 
@@ -208,7 +208,7 @@ mfsadd_add_extends (struct mfs_handle *mfs, char **drives, char **xdevs, char **
 		}
 
 			// Friendly partition names
-			sprintf (appname, "MFS application region %d", (*npairs / 2) + (nparts / 2) + 1);
+			snprintf (appname, sizeof(appname), "MFS application region %d", (*npairs / 2) + (nparts / 2) + 1);
 			sprintf (medianame, "MFS media region %d", (*npairs / 2) + (nparts / 2) + 1);
 
 			if (totalfree - maxfree >= appsize && maxfree - mediasize < appsize && coalesce != 1)

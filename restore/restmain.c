@@ -167,7 +167,7 @@ restore_main (int argc, char **argv)
 			break;
 		case 'x':
 			restore_usage (argv[0]);
-			fprintf (stderr, "\n Deprecated argument -x.  Use mfsadd after restore to expand drive(s).\n", argv[0]);
+			fprintf (stderr, "\n Deprecated argument -x.  Use mfsadd after restore to expand drive(s).\n");
 			return 1;
 		case 'r':
 			minalloc = 0x800 << strtoul (optarg, &tmp, 10);
@@ -466,7 +466,7 @@ restore_main (int argc, char **argv)
 			fprintf (stderr, "Success!\n");
 		}
 
-	fprintf (stderr, "Syncing drives... ", drive2);
+	fprintf (stderr, "Syncing drives...\n");
 	sync();
 	sync();
 

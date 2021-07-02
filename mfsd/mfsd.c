@@ -159,7 +159,7 @@ dump_inode_log (log_inode_update *entry)
 		int loop;
 		if (mfs->is_64)
 		{
-		  printf ("Data is in %" PRIu32 " blocks:\n", intswap32 (entry->datasize) / sizeof (entry->datablocks.d64[0]));
+		  printf ("Data is in %" PRIu64 " blocks:\n", intswap32 (entry->datasize) / sizeof (entry->datablocks.d64[0]));
 			for (loop = 0; loop < intswap32 (entry->datasize) / sizeof (entry->datablocks.d64[0]); loop++)
 			{
 				if (hexvals)
@@ -919,6 +919,7 @@ int
 mfsd_main (int argc, char **argv)
 {
 	int curarg;
+	int res;
 	unsigned char *buf = NULL;
 
 	unsigned int sector = 0xdeadbeef, count = 1;
@@ -1063,9 +1064,10 @@ mfsd_main (int argc, char **argv)
 				{
 					bufsize = sizeof (*inode_buf) + intswap32 (inode_buf->numblocks) * 8;
 					buf = (unsigned char *) inode_buf;
-					if (format == Bin)
-						write (1, buf, bufsize);
-					else if (format != Hex)
+					if (format == Bin) {
+						res = write (1, buf, bufsize);
+						if(res < 0){perror("write"); exit(1);}
+					} else if (format != Hex)
 						dump_inode (inode_buf, buf, bufsize);
 					else
 					{
@@ -1124,9 +1126,10 @@ mfsd_main (int argc, char **argv)
 			bufsize = intswap32 (zone->z32.length) * 512;
 			sector = intswap32 (zone->z32.sector);
 		}
-				if (format == Bin)
-					write (1, buf, bufsize);
-				else if (format != Hex)
+				if (format == Bin) {
+					res = write (1, buf, bufsize);
+					if(res < 0){perror("write"); exit(1);}
+				} else if (format != Hex)
 					dump_zone_map (sector, buf, bufsize);
 				else
 				{
@@ -1216,7 +1219,8 @@ mfsd_main (int argc, char **argv)
 
 	if (format == Bin)
 	{
-		write (1, buf, bufsize);
+		res = write (1, buf, bufsize);
+		if(res < 0){perror("write"); exit(1);}
 	}
 	else
 	{
