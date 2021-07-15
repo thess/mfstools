@@ -13,6 +13,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
+#include <inttypes.h>
 #ifdef HAVE_ERRNO_H
 #include <errno.h>
 #endif
@@ -153,7 +154,7 @@ tivo_partition_read (tpFILE * file, void *buf, uint64_t sector, int count)
 		int error = errno;
 		if (count == 1)
 		{
-			fprintf(stderr, "read failure at sector %lu(%#lx) of %d(%#x): %s; zeroing sector\n",
+			fprintf(stderr, "read failure at sector %" PRIu64 "(%#" PRIx64 ") of %d(%#x): %s; zeroing sector\n",
 			sector, sector, count*512, count*512, strerror(errno));
 			memset(buf, 0, count * 512);
 			retval = count * 512;
@@ -162,7 +163,7 @@ tivo_partition_read (tpFILE * file, void *buf, uint64_t sector, int count)
 		{
 			int i;
 			
-			fprintf(stderr, "read failure at sector %lu(%#lx) of %d(%#x): %s; trying sector-by-sector\n",
+			fprintf(stderr, "read failure at sector %" PRIu64 "(%#" PRIx64 ") of %d(%#x): %s; trying sector-by-sector\n",
 			sector, sector, count*512, count*512, strerror(errno));
 			for (i = 0; i < count; i++)
 			{

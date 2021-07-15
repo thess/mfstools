@@ -159,8 +159,8 @@ dump_inode_log (log_inode_update *entry)
 		int loop;
 		if (mfs->is_64)
 		{
-		  printf ("Data is in %" PRIu64 " blocks:\n", intswap32 (entry->datasize) / sizeof (entry->datablocks.d64[0]));
-			for (loop = 0; loop < intswap32 (entry->datasize) / sizeof (entry->datablocks.d64[0]); loop++)
+		  printf ("Data is in %u blocks:\n", intswap32 (entry->datasize) / (uint32_t)sizeof (entry->datablocks.d64[0]));
+			for (loop = 0; loop < intswap32 (entry->datasize) / (uint32_t)sizeof (entry->datablocks.d64[0]); loop++)
 			{
 				if (hexvals)
 				{
@@ -174,8 +174,8 @@ dump_inode_log (log_inode_update *entry)
 		}
 		else
 		{
-			printf ("Data is in %u blocks:\n", (unsigned int) (intswap32 (entry->datasize) / sizeof (entry->datablocks.d32[0])));
-			for (loop = 0; loop < intswap32 (entry->datasize) / sizeof (entry->datablocks.d32[0]); loop++)
+			printf ("Data is in %u blocks:\n", intswap32 (entry->datasize) / (uint32_t)sizeof (entry->datablocks.d32[0]));
+			for (loop = 0; loop < intswap32 (entry->datasize) / (uint32_t)sizeof (entry->datablocks.d32[0]); loop++)
 			{
 				if (hexvals)
 				{

@@ -7,6 +7,7 @@
 #include <fcntl.h>
 #include <string.h>
 #include <time.h>
+#include <inttypes.h>
 #include "macpart.h"
 #include "mfs.h"
 
@@ -66,7 +67,7 @@ static void dir_list(int fsid, int recurse)
 	else
 					size = intswap32 (inode->size);
 	}
-			printf("%9d %-8s %14s%10ld %s\n", 
+			printf("%9d %-8s %14s%10" SCNd64 " %s\n",
 						dir[i].fsid, 
 						mfs_type_string(dir[i].type),
 						date,
