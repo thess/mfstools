@@ -426,7 +426,7 @@ copy_main (int argc, char **argv)
 	else
 	{
 		unsigned char buf[BUFSIZE];
-		unsigned int curcount = 0;
+		int curcount = 0;
 		int nread, nwrit;
 
 		if (threshopt)

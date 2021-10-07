@@ -345,7 +345,8 @@ backup_main (int argc, char **argv)
 	else
 	{
 		unsigned char buf[BUFSIZE];
-		uint64_t cursec = 0, curcount;
+		uint64_t cursec = 0;
+		int curcount;
 		int fd;
 
 		if (filename[0] == '-' && filename[1] == '\0')

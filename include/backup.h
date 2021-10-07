@@ -321,7 +321,7 @@ void backup_set_skipdb (struct backup_info *info, unsigned int skipdb);
 void backup_check_truncated_volume (struct backup_info *info);
 
 int backup_start (struct backup_info *info);
-unsigned int backup_read (struct backup_info *info, unsigned char *buf, unsigned int size);
+int backup_read (struct backup_info *info, unsigned char *buf, unsigned int size);
 int backup_finish (struct backup_info *info);
 void backup_perror (struct backup_info *info, char *str);
 int backup_strerror (struct backup_info *info, char *str);

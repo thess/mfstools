@@ -889,10 +889,10 @@ backup_next_sectors (struct backup_info *info, unsigned char *buf, int sectors)
 /*************************************************************************/
 /* Pass the data to the front-end program.  This handles compression and */
 /* all that fun stuff. */
-unsigned int
+int
 backup_read (struct backup_info *info, unsigned char *buf, unsigned int size)
 {
-	unsigned int retval = 0;
+	int retval = 0;
 
 	if (size < 512)
 	{

@@ -13,4 +13,4 @@ tar -xf mfstools-$1.tar.gz
 
 # build .deb
 cd mfstools-$1
-debuild --no-lintian
+debuild --no-lintian --no-sign
