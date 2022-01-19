@@ -128,7 +128,7 @@ int main(int argc, char** argv)
 	char *c = (char*)&endian_test;
 	char eswap = 0;
 	int fd;
-	int i,j,w,s;
+	int i,j,w,r,s;
 	int count = 0;
 	int coalesce = 0;
     off_t t;
@@ -174,10 +174,11 @@ int main(int argc, char** argv)
 
 	//open the drive
 	fd = open(path, O_RDWR);
-    if(fd < 0){perror("open");exit(1);}
+        if(fd < 0){perror("open");exit(1);}
 	
 	//read block 0
-	if(read(fd, block, SZ) < 0){
+	r = read(fd, block, SZ);
+	if(r < 0){
 		perror("read");
 		exit(1);
 	}
@@ -197,8 +198,9 @@ int main(int argc, char** argv)
 	//First read in the current partition count
 	fprintf(stdout, "Pruning Apple_Free partitions....\n");
 	t = lseek(fd, SZ, SEEK_SET);
-    if(t < 0){perror("lseek"); exit(1);}
-	if(read(fd, block, SZ) < 0){
+        if(t < 0){perror("lseek"); exit(1);}
+	r = read(fd, block, SZ);
+	if(r < 0){
 		perror("read");
 		exit(1);
 	}
@@ -211,41 +213,43 @@ int main(int argc, char** argv)
 	
 	//Go to the last APM entry
 	t = lseek(fd, pcount*SZ, SEEK_SET);
-    if(t < 0){perror("lseek"); exit(1);}
-	if(read(fd, block, SZ) < 0){
+        if(t < 0){perror("lseek"); exit(1);}
+	r = read(fd, block, SZ);
+	if(r < 0){
 		perror("read");
 		exit(1);
-    }
+        }
 
 	//Lets start deleteing the entries and decrement the total number of blocks while we are at it.
 	while (pcount >= 14 && !(memcmp((block + 56),"Apple_Free",10) && memcmp((block + 48),"Apple_Free",10))) {
-	    memset(block, 0, 512);
+	        memset(block, 0, 512);
 		t = lseek(fd, pcount*512, SEEK_SET);
 		if(t < 0){perror("lseek"); exit(1);}
-		w=write(fd, block, SZ);
+		w = write(fd, block, SZ);
 		if(w < 0){perror("write"); exit(1);}
 		pcount--;
 		t = lseek(fd, pcount*512, SEEK_SET);
 		if(t < 0){perror("lseek"); exit(1);}
-		if(read(fd, block, SZ) < 0){
-            perror("read");
-            exit(1);
+		r = read(fd, block, SZ);
+		if(r < 0){
+                       perror("read");
+                       exit(1);
+                }
         }
-    }
 
 	//Now lets reset the APM entries to reflect the number of blocks left after trimming off the Apple_Free partitions.  We could just wait until the end, but if there is an error sometime before then, it would be nice to have a valid APM
-    count= 1;
+        count= 1;
 	t = lseek(fd, SZ, SEEK_SET);
-    if(t < 0){perror("lseek"); exit(1);}
+        if(t < 0){perror("lseek"); exit(1);}
 	
 	//count here is inclusive and now reset the value
 	while(read(fd, block, SZ) > 0 && count <= pcount){
 		memcpy((block+4), &pcount, 4);		
-        t = lseek(fd, count*SZ, SEEK_SET);
-        if(t < 0){perror("lseek"); exit(1);}
-        w=write(fd, block, SZ);
-        if(w < 0){perror("write"); exit(1);}
-        count++;
+                t = lseek(fd, count*SZ, SEEK_SET);
+                if(t < 0){perror("lseek"); exit(1);}
+                w = write(fd, block, SZ);
+                if(w < 0){perror("write"); exit(1);}
+                count++;
 	}
 	fprintf(stdout, "Pruning Apple_Free partitions complete.\n\n");	
 	
@@ -253,8 +257,9 @@ int main(int argc, char** argv)
 	//Check to see if mfsadd has added any partitions and that we have exactly 16 partitions in APM and usable partitions between sda2 to sda7 inclusive
 	//Read block 1 and check for number of partitions.
 	t = lseek(fd, SZ, SEEK_SET);
-    if(t < 0){perror("lseek"); exit(1);}
-	if(read(fd, block, SZ) < 0){
+        if(t < 0){perror("lseek"); exit(1);}
+	r = read(fd, block, SZ);
+	if(r < 0){
 		perror("read");
 		exit(1);
 	}
@@ -270,7 +275,7 @@ int main(int argc, char** argv)
 	}
 	//since we have the correct number of partititions, will convert everything to a 64 bit partition structure to make things easier later on.
 
-    fprintf(stdout, "Converting to 64 bit APM in progress....\n");
+        fprintf(stdout, "Converting to 64 bit APM in progress....\n");
 
 	count= 2;
 	//count here is inclusive
@@ -296,16 +301,16 @@ int main(int argc, char** argv)
 		}	
             t = lseek(fd, count*SZ, SEEK_SET);
             if(t < 0){perror("lseek"); exit(1);}
-            w=write(fd, block, SZ);
+            w = write(fd, block, SZ);
             if(w < 0){perror("write"); exit(1);}
 
             if (count == 15) memcpy(block15, block, SZ);
             
             if (count == 16) memcpy(block16, block, SZ);
       
-        count++;
-    }
-    fprintf(stdout, "Conversion to 64 bit APM complete.\n\n");
+            count++;
+        }
+        fprintf(stdout, "Conversion to 64 bit APM complete.\n\n");
 
 
 	//Check to see if the added partitions are of the correct type
@@ -351,15 +356,15 @@ int main(int argc, char** argv)
 	//Now make sure there is enough space to move the partitions.  We have 2 cases.  One with coalesce and one without.
 	i = 2;
 	j = 0;
-    t = lseek(fd, i*SZ, SEEK_SET);
-    if(t < 0){perror("lseek"); exit(1);}
+        t = lseek(fd, i*SZ, SEEK_SET);
+        if(t < 0){perror("lseek"); exit(1);}
 	if (coalesce) {
 		while (read(fd, block, SZ) > 0 && i <= 7 && j < 1){
 			memset(&psize, 0, sizeof(psize));
 			memcpy(&psize,(block + 16),8);
 			// If we are working on a little endian machine, lets correct the values so we can work with them
 			if (eswap) {
-	    	psize=endian_swap64(psize);
+	    	             psize=endian_swap64(psize);
 			}
 			if (psize <= 8) {
 				j++;
@@ -379,7 +384,7 @@ int main(int argc, char** argv)
 			memcpy(&psize,(block + 16),8);
 			// If we are working on a little endian machine, lets correct the values so we can work with them
 			if (eswap) {
-	    	psize=endian_swap64(psize);
+	    	              psize=endian_swap64(psize);
 			}
 			if (psize <= 8) {
 				j++;
@@ -426,10 +431,10 @@ int main(int argc, char** argv)
 		fprintf(stdout,"Moving partitions 15 and 16 to %d and %d\n", s,s+1);
 		t = lseek(fd, s*SZ, SEEK_SET);
 		if(t < 0){perror("lseek"); exit(1);}
-	    w=write(fd, block15, SZ);
-	    if(w < 0){perror("write"); exit(1);}
-	    w=write(fd, block16, SZ);
-	    if(w < 0){perror("write"); exit(1);}
+	        w = write(fd, block15, SZ);
+	        if(w < 0){perror("write"); exit(1);}
+	        w = write(fd, block16, SZ);
+	        if(w < 0){perror("write"); exit(1);}
 	}
     //We need to reset the APM to 14 partitions since we moved partitions.
 	partitionreset(fd, lpcount, eswap);
@@ -438,9 +443,9 @@ int main(int argc, char** argv)
 
 	//Lets now correct the MFS header so we do not have to force a divorce of the now non-existant partition or worse a reformat of the drive.
 	t = lseek(fd, 10*SZ, SEEK_SET);
-    if(t < 0){perror("lseek"); exit(1);}
-	s = read(fd, block, SZ);
-	if(s < 0){perror("read"); exit(1);}
+        if(t < 0){perror("lseek"); exit(1);}
+	r = read(fd, block, SZ);
+	if(r < 0){perror("read"); exit(1);}
 	memset(&psize, 0, sizeof(psize));
 	memset(&pstart, 0, sizeof(pstart));
 
@@ -456,9 +461,9 @@ int main(int argc, char** argv)
 	fprintf(stdout,"Evaluating MFS header to see if it can be appropriately modified to complete the process.\n");
 	//Now lets go to the MFS header and read it in.
 	t = lseek(fd, pstart*SZ, SEEK_SET);
-    if(t < 0){perror("lseek"); exit(1);}
-	t=read(fd, block, SZ);
-	if(t < 0){perror("read"); exit(1);}
+        if(t < 0){perror("lseek"); exit(1);}
+	r = read(fd, block, SZ);
+	if(r < 0){perror("read"); exit(1);}
 
 	//Now let fix the header.  Here we have to replace references of /dev/sda15 /dev/sda16 with where we moved the partitions to so lets look for it	
 	for (i = offset; i < 132 + offset; i++){
@@ -485,9 +490,9 @@ int main(int argc, char** argv)
 	if (coalesce) {
 		switch (s){
 			case 2: memcpy(block+j, " /dev/sda2", 10); break;
-            case 3: memcpy(block+j, " /dev/sda3", 10); break;
+                        case 3: memcpy(block+j, " /dev/sda3", 10); break;
 			case 4: memcpy(block+j, " /dev/sda4", 10); break;
-            case 5: memcpy(block+j, " /dev/sda5", 10); break;
+                        case 5: memcpy(block+j, " /dev/sda5", 10); break;
 			case 6: memcpy(block+j, " /dev/sda6", 10); break;
 			case 7: memcpy(block+j, " /dev/sda7", 10); break;
 			default: fprintf(stderr, "Something is very wrong here! Exiting.....\n");exit(1);
@@ -496,9 +501,9 @@ int main(int argc, char** argv)
 	else {
 		switch (s){
 			case 2: memcpy(block+j, " /dev/sda2 /dev/sda3", 20); break;
-            case 3: memcpy(block+j, " /dev/sda3 /dev/sda4", 20); break;
+                        case 3: memcpy(block+j, " /dev/sda3 /dev/sda4", 20); break;
 			case 4: memcpy(block+j, " /dev/sda4 /dev/sda5", 20); break;
-            case 5: memcpy(block+j, " /dev/sda5 /dev/sda6", 20); break;
+                        case 5: memcpy(block+j, " /dev/sda5 /dev/sda6", 20); break;
 			case 6: memcpy(block+j, " /dev/sda6 /dev/sda7", 20); break;
 			default: fprintf(stderr, "Something is very wrong here! Exiting.....\n");exit(1);
 		}
@@ -526,7 +531,7 @@ int main(int argc, char** argv)
 	fprintf(stdout,"MFS header corrected.\n\nWriting corrected header to the MFS.\n");
 	//Write the corrected block to the MFS header
 	t = lseek(fd, pstart*SZ, SEEK_SET);
-    if(t < 0){perror("lseek"); exit(1);}
+        if(t < 0){perror("lseek"); exit(1);}
 	w = write(fd, block, SZ);
 	if(w < 0){perror("write"); exit(1);}
 
