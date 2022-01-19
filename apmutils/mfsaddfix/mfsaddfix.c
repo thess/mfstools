@@ -128,7 +128,7 @@ int main(int argc, char** argv)
 	char *c = (char*)&endian_test;
 	char eswap = 0;
 	int fd;
-	int i,j,w,s;
+	int i,j,w,s,rr,ww,ss;
 	int count = 0;
 	int coalesce = 0;
     off_t t;
@@ -155,8 +155,8 @@ int main(int argc, char** argv)
 	
     warning();
 
-    s = fscanf(stdin, "%c", &proceed);
-    if(s < 0){perror("fscanf");exit(1);}
+    ss = fscanf(stdin, "%c", &proceed);
+    if(ss < 0){perror("fscanf");exit(1);}
 
     printf("\n");
 
@@ -177,7 +177,8 @@ int main(int argc, char** argv)
     if(fd < 0){perror("open");exit(1);}
 	
 	//read block 0
-	if(read(fd, block, SZ) < 0){
+	rr = read(fd, block, SZ);
+	if(rr < 0){
 		perror("read");
 		exit(1);
 	}
@@ -198,7 +199,8 @@ int main(int argc, char** argv)
 	fprintf(stdout, "Pruning Apple_Free partitions....\n");
 	t = lseek(fd, SZ, SEEK_SET);
     if(t < 0){perror("lseek"); exit(1);}
-	if(read(fd, block, SZ) < 0){
+	rr = read(fd, block, SZ);
+	if(rr < 0){
 		perror("read");
 		exit(1);
 	}
@@ -212,7 +214,8 @@ int main(int argc, char** argv)
 	//Go to the last APM entry
 	t = lseek(fd, pcount*SZ, SEEK_SET);
     if(t < 0){perror("lseek"); exit(1);}
-	if(read(fd, block, SZ) < 0){
+	rr = read(fd, block, SZ);
+	if(rr < 0){
 		perror("read");
 		exit(1);
     }
@@ -222,12 +225,13 @@ int main(int argc, char** argv)
 	    memset(block, 0, 512);
 		t = lseek(fd, pcount*512, SEEK_SET);
 		if(t < 0){perror("lseek"); exit(1);}
-		w=write(fd, block, SZ);
-		if(w < 0){perror("write"); exit(1);}
+		ww = write(fd, block, SZ);
+		if(ww < 0){perror("write"); exit(1);}
 		pcount--;
 		t = lseek(fd, pcount*512, SEEK_SET);
 		if(t < 0){perror("lseek"); exit(1);}
-		if(read(fd, block, SZ) < 0){
+		rr = read(fd, block, SZ);
+		if(rr < 0){
             perror("read");
             exit(1);
         }
@@ -243,8 +247,8 @@ int main(int argc, char** argv)
 		memcpy((block+4), &pcount, 4);		
         t = lseek(fd, count*SZ, SEEK_SET);
         if(t < 0){perror("lseek"); exit(1);}
-        w=write(fd, block, SZ);
-        if(w < 0){perror("write"); exit(1);}
+        ww = write(fd, block, SZ);
+        if(ww < 0){perror("write"); exit(1);}
         count++;
 	}
 	fprintf(stdout, "Pruning Apple_Free partitions complete.\n\n");	
@@ -254,7 +258,8 @@ int main(int argc, char** argv)
 	//Read block 1 and check for number of partitions.
 	t = lseek(fd, SZ, SEEK_SET);
     if(t < 0){perror("lseek"); exit(1);}
-	if(read(fd, block, SZ) < 0){
+	rr = read(fd, block, SZ);
+	if(rr < 0){
 		perror("read");
 		exit(1);
 	}
@@ -296,8 +301,8 @@ int main(int argc, char** argv)
 		}	
             t = lseek(fd, count*SZ, SEEK_SET);
             if(t < 0){perror("lseek"); exit(1);}
-            w=write(fd, block, SZ);
-            if(w < 0){perror("write"); exit(1);}
+            ww = write(fd, block, SZ);
+            if(ww < 0){perror("write"); exit(1);}
 
             if (count == 15) memcpy(block15, block, SZ);
             
@@ -415,8 +420,8 @@ int main(int argc, char** argv)
 		fprintf(stdout,"Moving coalesced partitions 15 and 16 to %d.\n", s);
 		t = lseek(fd, s*SZ, SEEK_SET);
 	    if(t < 0){perror("lseek"); exit(1);}
-	    w = write(fd, block15, SZ);
-	    if(w < 0){perror("write"); exit(1);}
+	    ww = write(fd, block15, SZ);
+	    if(ww < 0){perror("write"); exit(1);}
 	}
 	else {
 		//If we get here, then we found a pair of partitions to use.  
@@ -426,10 +431,10 @@ int main(int argc, char** argv)
 		fprintf(stdout,"Moving partitions 15 and 16 to %d and %d\n", s,s+1);
 		t = lseek(fd, s*SZ, SEEK_SET);
 		if(t < 0){perror("lseek"); exit(1);}
-	    w=write(fd, block15, SZ);
-	    if(w < 0){perror("write"); exit(1);}
-	    w=write(fd, block16, SZ);
-	    if(w < 0){perror("write"); exit(1);}
+	    ww = write(fd, block15, SZ);
+	    if(ww < 0){perror("write"); exit(1);}
+	    ww = write(fd, block16, SZ);
+	    if(ww < 0){perror("write"); exit(1);}
 	}
     //We need to reset the APM to 14 partitions since we moved partitions.
 	partitionreset(fd, lpcount, eswap);
@@ -439,8 +444,8 @@ int main(int argc, char** argv)
 	//Lets now correct the MFS header so we do not have to force a divorce of the now non-existant partition or worse a reformat of the drive.
 	t = lseek(fd, 10*SZ, SEEK_SET);
     if(t < 0){perror("lseek"); exit(1);}
-	s = read(fd, block, SZ);
-	if(s < 0){perror("read"); exit(1);}
+	rr = read(fd, block, SZ);
+	if(rr < 0){perror("read"); exit(1);}
 	memset(&psize, 0, sizeof(psize));
 	memset(&pstart, 0, sizeof(pstart));
 
@@ -457,8 +462,8 @@ int main(int argc, char** argv)
 	//Now lets go to the MFS header and read it in.
 	t = lseek(fd, pstart*SZ, SEEK_SET);
     if(t < 0){perror("lseek"); exit(1);}
-	t=read(fd, block, SZ);
-	if(t < 0){perror("read"); exit(1);}
+	rr = read(fd, block, SZ);
+	if(rr < 0){perror("read"); exit(1);}
 
 	//Now let fix the header.  Here we have to replace references of /dev/sda15 /dev/sda16 with where we moved the partitions to so lets look for it	
 	for (i = offset; i < 132 + offset; i++){
@@ -509,7 +514,7 @@ int main(int argc, char** argv)
 	//Now compute the CRC for the block and correct for endianess and replace the magic number with the checksum for the block
 	//zlib's crc routine XORs 0xFFFFFFFF at the begninng and the end.  We do not want this.  TiVo wants to start with zero as the starting value so we preload our
 	//crc value with all ones so that it XORs to zero.  We also want to reverse the final XOR so we XOR our result with all ones again.
-	crc=crcinit;
+	crc = crcinit;
 	for (i=0; i<280; ++i){
 		crc = crc32(crc, block+i, 1);
 	}
@@ -527,14 +532,14 @@ int main(int argc, char** argv)
 	//Write the corrected block to the MFS header
 	t = lseek(fd, pstart*SZ, SEEK_SET);
     if(t < 0){perror("lseek"); exit(1);}
-	w = write(fd, block, SZ);
-	if(w < 0){perror("write"); exit(1);}
+	ww = write(fd, block, SZ);
+	if(ww < 0){perror("write"); exit(1);}
 
 	//Write the corrected block to the backup MFS header as well
 	t = lseek(fd, (pstart + psize -1)*SZ, SEEK_SET);
 	if(t < 0){perror("lseek"); exit(1);}
-	w = write(fd, block, SZ);
-	if(w < 0){perror("write"); exit(1);}
+	ww = write(fd, block, SZ);
+	if(ww < 0){perror("write"); exit(1);}
 
 	fprintf(stdout, "Corrected MFS header written to drive.\n\nProcessing of the drive is complete.\n");
 	exit(0);
