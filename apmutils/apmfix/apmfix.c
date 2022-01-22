@@ -86,7 +86,7 @@ int main(int argc, char** argv)
 	char *c = (char*)&endian_test;
 	char eswap = 0, coalesce = 0;
 	int fd;
-	int i,j,w;
+	int i,j,w,r,s;
 	int count = 0;
 	int offset = 36;
     off_t t;
@@ -107,8 +107,8 @@ int main(int argc, char** argv)
 
     warning();
 
-    j = fscanf(stdin, "%c", &num_blocks);
-    if (j < 0){perror("fscanf"); exit(1);}
+    s = fscanf(stdin, "%c", &num_blocks);
+    if (s < 0){perror("fscanf"); exit(1);}
     printf("\n");
 
     if(num_blocks != 'y') exit(0);
@@ -125,10 +125,11 @@ int main(int argc, char** argv)
 
 	//open the drive
 	fd = open(path, O_RDWR);
-    if(fd < 0){perror("open");exit(1);}
+        if(fd < 0){perror("open");exit(1);}
 	
 	//read block 0
-	if(read(fd, block, SZ) < 0){
+	r = read(fd, block, SZ);
+	if(r < 0){
 		perror("read");
 		exit(1);
 	}
@@ -143,8 +144,9 @@ int main(int argc, char** argv)
 
 	//Next check if Partition 14 is a SQLite partition.  If not then this is a pre Series 4 Tivo
 	t = lseek(fd, 14*SZ, SEEK_SET);
-    if(t < 0){perror("lseek"); exit(1);}
-	if(read(fd, block, SZ) < 0){
+        if(t < 0){perror("lseek"); exit(1);}
+	r = read(fd, block, SZ);
+	if(r < 0){
 		perror("read");
 		exit(1);
 	}
@@ -156,15 +158,16 @@ int main(int argc, char** argv)
 
 	//Now that is out of the way, lets get started and read block 1
 	t = lseek(fd, SZ, SEEK_SET);
-    if(t < 0){perror("lseek"); exit(1);}
-	if(read(fd, block, SZ) < 0){
+        if(t < 0){perror("lseek"); exit(1);}
+	r = read(fd, block, SZ);
+	if(r < 0){
 		perror("read");
 		exit(1);
 	}
 
 	num_blocks = block[7];
 
-    fprintf(stdout, "Converting to 64 bit APM in progress....\n");
+        fprintf(stdout, "Converting to 64 bit APM in progress....\n");
 
 	count= 2;
 	//count here is inclusive
@@ -191,10 +194,10 @@ int main(int argc, char** argv)
 		}	
             t = lseek(fd, count*SZ, SEEK_SET);
             if(t < 0){perror("lseek"); exit(1);}
-            w=write(fd, block, SZ);
+            w = write(fd, block, SZ);
             if(w < 0){perror("write"); exit(1);}
 
-			if ((count == 12) && !memcmp((block+24),"MFS application/media",21)) coalesce = 1;
+	    if ((count == 12) && !memcmp((block+24),"MFS application/media",21)) coalesce = 1;
 
             if (count == 15) memcpy(block15, block, SZ);
             
@@ -212,39 +215,41 @@ int main(int argc, char** argv)
 	
 	//Go to the last APM entry
 	t = lseek(fd, num_blocks*SZ, SEEK_SET);
-    if(t < 0){perror("lseek"); exit(1);}
-	if(read(fd, block, SZ) < 0){
+        if(t < 0){perror("lseek"); exit(1);}
+	r = read(fd, block, SZ);
+	if(r < 0){
 		perror("read");
 		exit(1);
-    }
+         }
 
 	//Lets start deleteing the entries and decrement the total number of blocks while we are at it.
 	while (num_blocks >= 17 && !memcmp((block + 56),"Apple_Free",10)) {
 	    memset(block, 0, 512);
 		t = lseek(fd, num_blocks*512, SEEK_SET);
 		if(t < 0){perror("lseek"); exit(1);}
-		w=write(fd, block, SZ);
+		w = write(fd, block, SZ);
 		if(w < 0){perror("write"); exit(1);}
 		num_blocks--;
 		t = lseek(fd, num_blocks*512, SEEK_SET);
 		if(t < 0){perror("lseek"); exit(1);}
-		if(read(fd, block, SZ) < 0){
-            perror("read");
-            exit(1);
-        }
+		r = read(fd, block, SZ);
+		if(r < 0){
+                       perror("read");
+                       exit(1);
+                }
     }
 
 	//Now lets reset the APM entries to reflect the number of blocks left after trimming off the Apple_Free partitions.  We could just wait until the end, but if there is an error sometime before then, it would be nice to have a valid APM
     count= 1;
 	t = lseek(fd, 512, SEEK_SET);
-    if(t < 0){perror("lseek"); exit(1);}
+        if(t < 0){perror("lseek"); exit(1);}
 	
 	//count here is inclusive and now reset the value
 	while(read(fd, block, SZ) > 0 && count <= num_blocks){
 		block[7]=num_blocks;		
         t = lseek(fd, count*512, SEEK_SET);
         if(t < 0){perror("lseek"); exit(1);}
-        w=write(fd, block, SZ);
+        w = write(fd, block, SZ);
         if(w < 0){perror("write"); exit(1);}
         count++;
 	}
@@ -301,14 +306,14 @@ int main(int argc, char** argv)
 
 	//Write the new APM entry
 	t = lseek(fd, 15*SZ, SEEK_SET);
-    if(t < 0){perror("lseek"); exit(1);}
-    w = write(fd, block15, SZ);
-    if(w < 0){perror("write"); exit(1);}
+        if(t < 0){perror("lseek"); exit(1);}
+        w = write(fd, block15, SZ);
+        if(w < 0){perror("write"); exit(1);}
 
     // Now we need to erase the APM entry for partition 16
 	memset(block16, 0, SZ);
-	w=write(fd, block16, SZ);
-    if(w < 0){perror("write"); exit(1);}
+	w = write(fd, block16, SZ);
+        if(w < 0){perror("write"); exit(1);}
 
 	// now we have to reset the "block in partition map" value in all APM entries to one less.  Luckily the value is in the same place in both 32 bit and 64 bit APM entries
 	num_blocks--;
@@ -316,24 +321,24 @@ int main(int argc, char** argv)
 	//go back to the beginning of the APM
 	count= 1;
 	t = lseek(fd, SZ, SEEK_SET);
-    if(t < 0){perror("lseek"); exit(1);}
+        if(t < 0){perror("lseek"); exit(1);}
 	
 	//count here is inclusive and now reset the value
 	while(read(fd, block, SZ) > 0 && count <= num_blocks){
 		block[7]=num_blocks;		
-        t = lseek(fd, count*SZ, SEEK_SET);
-        if(t < 0){perror("lseek"); exit(1);}
-        w=write(fd, block, SZ);
-        if(w < 0){perror("write"); exit(1);}
-        count++;
+                t = lseek(fd, count*SZ, SEEK_SET);
+                if(t < 0){perror("lseek"); exit(1);}
+                w = write(fd, block, SZ);
+                if(w < 0){perror("write"); exit(1);}
+                count++;
 	}
 	fprintf(stdout,"APM corrected.\n\n");
 
 	//Lets now correct the MFS header so we do not have to force a divorce of the now non-existant partition.
 	t = lseek(fd, 10*SZ, SEEK_SET);
-    if(t < 0){perror("lseek"); exit(1);}
-	j = read(fd, block, SZ);
-        if(j < 0){perror("read"); exit(1);}
+        if(t < 0){perror("lseek"); exit(1);}
+	r = read(fd, block, SZ);
+        if(r < 0){perror("read"); exit(1);}
 
 	//Read the starting block for partition 10 and the size of partition 10 so we know where to go.  The header is the first block of partition 10 and the backup header is the last block of partition 10.  Will use pstart15 and psize15 since we have them readily available and don't need them for anything else.
 	memcpy(&pstart15,(block + 8),8);
@@ -348,9 +353,9 @@ int main(int argc, char** argv)
 	fprintf(stdout,"Evaluating MFS header to see if it can be approptiately modified to complete the coalescing process.\n");
 	//Now lets go to the MFS header and read it in.
 	t = lseek(fd, pstart15*SZ, SEEK_SET);
-    if(t < 0){perror("lseek"); exit(1);}
-	j=read(fd, block, SZ);
-	if(j < 0){perror("read"); exit(1);}
+        if(t < 0){perror("lseek"); exit(1);}
+	r = read(fd, block, SZ);
+	if(r < 0){perror("read"); exit(1);}
 
 	//Now let fix the header.  Here we have to delete reference to /dev/sda16 so lets look for it	
 	for (i = offset; i < 132 + offset; i++){
@@ -380,7 +385,7 @@ int main(int argc, char** argv)
 	//zlib's crc routine XORs 0xFFFFFFFF at the begninng and the end.  We do not want this.  TiVo wants to start with zero as the starting value so we preload our
 	//crc value with all ones so that it XORs to zero.  We also want to reverse the final XOR so we XOR our result with all ones again.
 	crc = crcinit;
-    for (i=0; i<280; ++i){
+        for (i=0; i<280; ++i){
 		crc = crc32(crc, block+i, 1);
 	}
 	crc = crc^crcinit;
@@ -393,7 +398,7 @@ int main(int argc, char** argv)
 	fprintf(stdout,"MFS header corrected.\n\nWriting corrected header to the MFS.\n");
 	//Write the corrected block to the MFS header
 	t = lseek(fd, pstart15*SZ, SEEK_SET);
-    if(t < 0){perror("lseek"); exit(1);}
+        if(t < 0){perror("lseek"); exit(1);}
 	w = write(fd, block, SZ);
 	if(w < 0){perror("write"); exit(1);}
 
