@@ -147,7 +147,7 @@ int main(int argc, char** argv)
 	t = lseek(fd, 14*SZ, SEEK_SET);
         if(t < 0){perror("lseek"); exit(1);}
 	r = read(fd, block, SZ);
-	if( < 0){
+	if(r < 0){
 		perror("read");
 		exit(1);
 	}

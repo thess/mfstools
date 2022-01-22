@@ -1,4 +1,4 @@
-AC_INIT(MFSTools, v3.34)
+AC_INIT(MFSTools, v3.34-3)
 AC_CONFIG_SRCDIR(include/mfs.h)
 AC_CONFIG_HEADERS(include/config.h:include/config.h.in)
 
