@@ -1353,7 +1353,7 @@ int tivo_partition_devswabbed (const char *device)
 	int fd, tmp;
 	char tempfile[MAXPATHLEN];
 	char *tmp2;
-	char buf[4096];
+	char buf[4097];	// 4K + 1
 	int retval = 0;
 
 	tmp2 = strrchr (device, '/');
@@ -1369,6 +1369,7 @@ int tivo_partition_devswabbed (const char *device)
 
 	buf[0] = 0;
 	int nread = 0;
+	// Read 4K
 	while( nread < 4096)
 	{
 		int n = read (fd, buf, 4096 - nread);
@@ -1379,6 +1380,7 @@ int tivo_partition_devswabbed (const char *device)
 		}
 		nread += n;
 	}
+	// Null terminate buffer with extra byte
 	buf[4096] = 0;
 
 	close (fd);
