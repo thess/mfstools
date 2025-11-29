@@ -1536,7 +1536,7 @@ build_partition_table (struct backup_info *info, int devno)
 				tmppartno--;
 
 			if (partitions[tmppartno] < 255)
-				memmove (&partitions[tmppartno + 1], &partitions[tmppartno], 16 - tmppartno);
+				memmove (&partitions[tmppartno + 1], &partitions[tmppartno], 15 - tmppartno);
 			partitions[tmppartno] = partno;
 			const char *pname = partition_strings[devno][partno][0];
 			const char *ptype = partition_strings[devno][partno][1];
