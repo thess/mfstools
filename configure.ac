@@ -1,4 +1,4 @@
-AC_INIT(MFSTools, v3.34-3)
+AC_INIT([MFSTools],[v3.35])
 AC_CONFIG_SRCDIR(include/mfs.h)
 AC_CONFIG_HEADERS(include/config.h:include/config.h.in)
 
@@ -179,8 +179,7 @@ AC_CHECK_HEADERS(byteorder.h)
 AC_CHECK_FUNCS(lseek64)
 AC_CHECK_FUNCS(llseek)
 
-AC_OUTPUT(
-Makefile
+AC_CONFIG_FILES([Makefile
 lib/Makefile
 mfsadd/Makefile
 mfsck/Makefile
@@ -196,4 +195,5 @@ apmutils/mfsaddfix/Makefile
 apmutils/bootsectorfix/Makefile
 apmutils/apmfix/Makefile
 apmutils/8TBprep/Makefile
-)
+])
+AC_OUTPUT

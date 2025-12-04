@@ -1,3 +1,9 @@
+mfstools (3.35-1) UNRELEASED; urgency=medium
+
+  * Fix a couple of buffer overflow issues (possible stack corruption)
+
+ -- Ted Hess <thess@legion.fortmeadow.com>  Sat, 29 Nov 2025 11:39:17 -0500
+
 mfstools (3.34-3) UNRELEASED; urgency=medium
 
   * Corrected issue where error handling resulted in losing track of partition information
